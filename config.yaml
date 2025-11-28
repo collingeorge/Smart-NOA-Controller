@@ -7,7 +7,7 @@
 # Version and metadata
 version: "1.0.0"
 last_updated: "2025-11-27"
-protocol_source: "Beloeil et al. 2021, Anaesth Crit Care Pain Med"
+protocol_source: "Beloeil et al. 2021, Anaesth Crit Care Pain Med (GitHub: https://github.com/collingeorge/Smart-NOA-Controller/)"
 
 # =============================================================================
 # HEMODYNAMIC SAFETY THRESHOLDS
