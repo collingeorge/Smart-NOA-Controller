@@ -21,6 +21,17 @@ Traditional infusion pumps have no brain. Smart NOA sits between the clinician a
 
 Hard lockouts: no Dexmedetomidine in 3rd-degree heart block. Age-adjusted dose ceilings: patients over 65 years receive 50% Dexmedetomidine dose reduction. Real-time bradycardia (HR < 48 bpm) and hypotension (MAP < 60 mmHg) interlocks. Override-proof safety: pump stops even if the clinician tries to continue during active physiologic violation.
 
+## Installation
+
+```bash
+# Clone the repository
+git clone https://github.com/collingeorge/Smart-NOA-Controller.git
+cd Smart-NOA-Controller
+
+# Install dependencies
+pip install -r requirements.txt
+```
+
 ## Quick Start
 
 ```bash
@@ -29,11 +40,36 @@ python smart_noa_controller.py
 
 The demo simulates a high-risk geriatric patient with heart block. The controller enforces hard contraindications, generates age-adjusted starting rates, and performs real-time hemodynamic monitoring with automatic safety interventions.
 
+## Running Tests
+
+```bash
+# Run all unit tests
+python -m pytest test_smart_noa_controller.py -v
+
+# Run with coverage report
+python -m pytest test_smart_noa_controller.py --cov=smart_noa_controller --cov-report=html
+
+# Run specific test class
+python -m pytest test_smart_noa_controller.py::TestContraindications -v
+```
+
+All safety logic is validated through comprehensive unit tests covering contraindication enforcement, age-adjusted dosing, and pharmacokinetic calculations.
+
 ## Architecture
 
-The controller implements a multi-variable dynamic interlock system:
+The controller implements a multi-variable dynamic interlock system with centralized configuration:
 
-**Patient State Management**: demographics, comorbidities, renal function, allergies. **Initial Contraindication Engine**: calculates hard lockouts based on patient-specific risk factors (eGFR < 30, cardiac conduction abnormalities, drug allergies). **Dose Calculation Module**: generates evidence-based starting rates with automatic age and renal adjustments. **Real-Time Physiologic Monitoring**: continuous hemodynamic surveillance with immediate safety responses.
+**Centralized Configuration** (`config.yaml`): All clinical thresholds, dosing parameters, and contraindication criteria are externalized for easy review and modification. Safety limits are evidence-based and fully documented with literature citations.
+
+**Patient State Management**: demographics, comorbidities, renal function, allergies. 
+
+**Initial Contraindication Engine**: calculates hard lockouts based on patient-specific risk factors (eGFR < 30, cardiac conduction abnormalities, drug allergies). 
+
+**Pharmacokinetic Modeling**: three-compartment model estimates real-time effect-site drug concentrations for concentration-informed safety decisions.
+
+**Dose Calculation Module**: generates evidence-based starting rates with automatic age and renal adjustments. 
+
+**Real-Time Physiologic Monitoring**: continuous hemodynamic surveillance with immediate safety responses integrating both vital signs and drug concentrations.
 
 ## Clinical Protocol Implementation
 
@@ -44,6 +80,27 @@ The controller implements a multi-variable dynamic interlock system:
 **Lidocaine**: systemic dose 1.5 mg/kg/hr for opioid-sparing effect.
 
 **Ketorolac**: hard contraindication if eGFR < 30 mL/min/1.73m² or NSAID allergy.
+
+## Configuration
+
+All clinical parameters are centralized in `config.yaml` for transparency and easy modification:
+
+```yaml
+hemodynamic_thresholds:
+  hr_critical_low: 48      # bpm - Beloeil 2021
+  map_critical_low: 60     # mmHg - Standard practice
+  
+drug_dosing:
+  dexmedetomidine:
+    standard_dose: 0.5     # mcg/kg/hr
+    geriatric_dose: 0.25   # 50% reduction for age >65
+    
+pharmacokinetics:
+  dexmedetomidine:
+    ce_intervention_threshold: 0.1  # ng/mL
+```
+
+All thresholds include literature citations and clinical rationale. Modify `config.yaml` to adapt protocols to institutional standards.
 
 ## Example Output
 
