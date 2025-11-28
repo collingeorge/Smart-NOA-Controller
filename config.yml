@@ -161,9 +161,9 @@ age_adjustments:
 organ_dysfunction:
   renal:
     # Chronic Kidney Disease staging by eGFR
-    stage_5_egfr: 15   # Dialysis-dependent
-    stage_4_egfr: 30   # Severe CKD
-    stage_3_egfr: 60   # Moderate CKD
+    stage_5_egfr: 15    # Dialysis-dependent
+    stage_4_egfr: 30    # Severe CKD
+    stage_3_egfr: 60    # Moderate CKD
     
     # Dose adjustments for renally cleared drugs
     adjustments:
