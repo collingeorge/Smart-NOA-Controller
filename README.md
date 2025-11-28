@@ -124,7 +124,7 @@ T+ 2s | MAP 58 → HYPOTENSION → PAUSING INFUSIONS
 Preprint available November 2025:
 
 ```
-Colling, George. "Smart NOA: A Deterministic Closed-Loop Safety Controller 
+Collin, George. "Smart NOA: A Deterministic Closed-Loop Safety Controller 
 for Multimodal Opioid-Free Anesthesia – An Open-Source Proof of Concept." 
 medRxiv (2025). DOI: pending.
 ```
