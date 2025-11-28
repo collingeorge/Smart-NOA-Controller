@@ -1,0 +1,241 @@
+# =============================================================================
+# Smart NOA Controller - Clinical Safety Configuration
+# All protocol thresholds, dose limits, and contraindication criteria
+# Citation-backed values with literature references
+# =============================================================================
+
+# Version and metadata
+version: "1.0.0"
+last_updated: "2025-11-27"
+protocol_source: "Beloeil et al. 2021, Anaesth Crit Care Pain Med"
+
+# =============================================================================
+# HEMODYNAMIC SAFETY THRESHOLDS
+# =============================================================================
+hemodynamic_thresholds:
+  # Bradycardia intervention threshold (bpm)
+  # Reference: Beloeil 2021 - dexmedetomidine sympatholysis
+  hr_critical_low: 48
+  
+  # Hypotension intervention threshold (mmHg)
+  # Reference: Standard anesthesia practice for organ perfusion
+  map_critical_low: 60
+  
+  # Respiratory depression threshold (breaths/min)
+  # Reference: PACU discharge criteria
+  rr_critical_low: 8
+  
+  # Hypertension alert threshold (mmHg) - ketamine consideration
+  sbp_critical_high: 180
+
+# =============================================================================
+# PHARMACOKINETIC MODEL PARAMETERS
+# =============================================================================
+pharmacokinetics:
+  dexmedetomidine:
+    # Three-compartment model parameters
+    # Reference: Weerink et al. 2017, Clin Pharmacokinet
+    central_volume_L_per_kg: 0.8
+    elimination_rate_constant_k10: 0.04  # 1/min
+    effect_site_transfer_k1e: 0.1        # 1/min
+    
+    # Effect-site concentration threshold for intervention (ng/mL)
+    # Conservative estimate requiring clinical validation
+    ce_intervention_threshold: 0.1
+
+# =============================================================================
+# DRUG DOSING PROTOCOLS
+# =============================================================================
+drug_dosing:
+  dexmedetomidine:
+    # Standard adult dose (mcg/kg/hr)
+    standard_dose: 0.5
+    
+    # Geriatric dose reduction (mcg/kg/hr)
+    # Reference: Beloeil 2021 - 50% reduction for age >65
+    geriatric_dose: 0.25
+    geriatric_age_threshold: 65
+    
+    # Loading dose parameters (optional future implementation)
+    loading_dose_mcg_per_kg: 1.0
+    loading_duration_min: 10
+  
+  ketamine:
+    # Subanesthetic dose for analgesia (mg/kg/hr)
+    # Reference: Frauenknecht 2019
+    standard_dose: 0.2
+    
+    # Bolus dose (mg/kg) - optional
+    induction_bolus: 0.5
+  
+  lidocaine:
+    # Systemic lidocaine for multimodal analgesia (mg/kg/hr)
+    # Reference: Beloeil 2021
+    standard_dose: 1.5
+    
+    # Loading dose (mg/kg over 10 min)
+    loading_dose: 1.5
+  
+  magnesium_sulfate:
+    # Loading dose (mg/kg over 20 min)
+    loading_dose: 40
+    
+    # Maintenance infusion (mg/kg/hr)
+    maintenance_dose: 10
+  
+  ketorolac:
+    # NSAID adjunct - bolus only, not continuous infusion
+    # Adult dose (mg IV)
+    standard_bolus_mg: 30
+    
+    # Maximum daily dose (mg)
+    max_daily_dose_mg: 120
+
+# =============================================================================
+# CONTRAINDICATION CRITERIA (Hard Lockouts)
+# =============================================================================
+contraindications:
+  dexmedetomidine:
+    # Cardiac conduction abnormalities
+    cardiac_conditions:
+      - "Heart Block"
+      - "AV Block"
+      - "3rd Degree AV Block"
+      - "Sick Sinus Syndrome"
+      - "Severe Bradycardia"
+    
+    # Hemodynamic instability (relative contraindication)
+    baseline_hr_min: 50
+    baseline_map_min: 65
+  
+  ketorolac:
+    # Renal function threshold (mL/min/1.73m²)
+    # Reference: Grass 2020
+    egfr_minimum: 30
+    
+    # Known allergies
+    allergy_triggers:
+      - "NSAID"
+      - "Ketorolac"
+      - "Aspirin"
+    
+    # High bleeding risk conditions
+    bleeding_risk_conditions:
+      - "Active GI Bleeding"
+      - "Coagulopathy"
+      - "Thrombocytopenia"
+      - "Recent Surgery"
+  
+  ketamine:
+    # Cardiovascular contraindications
+    cardiac_conditions:
+      - "Severe CAD"
+      - "Uncontrolled Hypertension"
+      - "Recent MI"
+    
+    # Neuropsychiatric contraindications
+    neuropsych_conditions:
+      - "Schizophrenia"
+      - "Psychosis"
+      - "Acute Intoxication"
+
+# =============================================================================
+# AGE-BASED DOSING ADJUSTMENTS
+# =============================================================================
+age_adjustments:
+  # Geriatric population (age ≥ 65)
+  geriatric:
+    age_threshold: 65
+    dexmedetomidine_reduction_factor: 0.5  # 50% dose reduction
+    propofol_reduction_factor: 0.7         # 30% reduction (future)
+  
+  # Pediatric population (age < 18) - future implementation
+  pediatric:
+    age_threshold: 18
+    weight_based_dosing: true
+    require_pediatric_protocol: true
+
+# =============================================================================
+# ORGAN DYSFUNCTION ADJUSTMENTS
+# =============================================================================
+organ_dysfunction:
+  renal:
+    # Chronic Kidney Disease staging by eGFR
+    stage_5_egfr: 15   # Dialysis-dependent
+    stage_4_egfr: 30   # Severe CKD
+    stage_3_egfr: 60   # Moderate CKD
+    
+    # Dose adjustments for renally cleared drugs
+    adjustments:
+      magnesium_reduction_stage_4: 0.5  # 50% reduction
+      avoid_nsaids_stage_4: true
+  
+  hepatic:
+    # Child-Pugh classification - future implementation
+    require_dose_reduction: true
+    lidocaine_reduction_factor: 0.7
+
+# =============================================================================
+# INTERVENTION RESPONSE PARAMETERS
+# =============================================================================
+intervention_response:
+  # How long to wait after stopping drug before re-evaluation (seconds)
+  re_evaluation_delay: 60
+  
+  # Automatic resumption criteria
+  auto_resume_enabled: false  # Requires clinician acknowledgment
+  
+  # Alarm escalation timing
+  first_alert_repeat_sec: 30
+  critical_alert_repeat_sec: 10
+  
+  # Data logging
+  log_all_vital_signs: true
+  log_all_decisions: true
+  log_pk_estimates: true
+
+# =============================================================================
+# SIMULATION PARAMETERS (For Testing Only)
+# =============================================================================
+simulation:
+  # Vital sign ranges for random generation
+  hr_range: [40, 95]
+  map_range: [50, 105]
+  rr_range: [8, 20]
+  spo2_range: [92, 100]
+  
+  # Time step for discrete simulation (seconds)
+  time_step_sec: 1
+  
+  # Enable/disable random vital sign variation
+  random_vitals_enabled: true
+
+# =============================================================================
+# SYSTEM BEHAVIOR FLAGS
+# =============================================================================
+system:
+  # Strict mode: no overrides allowed for hard lockouts
+  strict_mode: true
+  
+  # Require two-person verification for override attempts
+  require_dual_verification: false
+  
+  # Enable audit logging
+  audit_logging_enabled: true
+  
+  # Verbose output for debugging
+  verbose_logging: false
+
+# =============================================================================
+# CLINICAL ALERTS AND WARNINGS
+# =============================================================================
+alerts:
+  # Enable soft warnings (can be acknowledged and overridden)
+  enable_soft_warnings: true
+  
+  # Alert messages
+  messages:
+    bradycardia_with_ce: "CRITICAL: Bradycardia with elevated dexmedetomidine Ce - infusion stopped"
+    hypotension: "WARNING: MAP below 60 mmHg - vasodilators paused"
+    hard_lockout_attempted: "BLOCKED: Drug contraindicated for this patient"
+    geriatric_dose_applied: "INFO: Geriatric dose reduction applied (50%)"
