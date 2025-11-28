@@ -139,7 +139,7 @@ MIT License. Fork, improve, cite, build on it. We want this to become the open s
 
 ## Authors
 
-George Colling – Department of Anesthesiology & Pain Medicine, University of Washington Medical Center
+George, Collin – University of Washington Medical Center
 
 ## Disclaimer
 
