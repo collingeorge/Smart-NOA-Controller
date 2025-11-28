@@ -6,20 +6,112 @@
 
 import time
 import random
+import yaml
 from dataclasses import dataclass
-from typing import Dict, Tuple, List
+from typing import Dict, Tuple, List, Optional
+from pathlib import Path
 
 # --- Data Structures ---
 
 @dataclass
 class Patient:
-    """Stores static patient data used for calculating initial constraints and doses."""
+    """
+    Stores static patient data used for calculating initial constraints and doses.
+    
+    Attributes:
+        age: Patient age in years
+        weight_kg: Patient weight in kilograms
+        asa_class: ASA Physical Status Classification (I-VI)
+        egfr: Estimated Glomerular Filtration Rate in mL/min/1.73m²
+        allergies: List of known drug allergies
+        comorbidities: List of relevant medical conditions
+    """
     age: int
     weight_kg: float
     asa_class: int
-    egfr: float # Estimated Glomerular Filtration Rate (mL/min)
+    egfr: float
     allergies: List[str]
     comorbidities: List[str]
+
+
+# --- Configuration Loader ---
+
+class ConfigLoader:
+    """Loads and validates clinical configuration from YAML file."""
+    
+    def __init__(self, config_path: str = "config.yaml") -> None:
+        """
+        Initialize configuration loader.
+        
+        Args:
+            config_path: Path to YAML configuration file
+        """
+        self.config_path = Path(config_path)
+        self.config: Dict = self._load_config()
+        self._validate_config()
+    
+    def _load_config(self) -> Dict:
+        """
+        Load configuration from YAML file.
+        
+        Returns:
+            Dictionary containing all configuration parameters
+            
+        Raises:
+            FileNotFoundError: If config file doesn't exist
+            yaml.YAMLError: If config file is malformed
+        """
+        if not self.config_path.exists():
+            raise FileNotFoundError(f"Configuration file not found: {self.config_path}")
+        
+        with open(self.config_path, 'r') as f:
+            config = yaml.safe_load(f)
+        
+        return config
+    
+    def _validate_config(self) -> None:
+        """
+        Validate that all required configuration sections exist.
+        
+        Raises:
+            ValueError: If critical configuration sections are missing
+        """
+        required_sections = [
+            'hemodynamic_thresholds',
+            'pharmacokinetics',
+            'drug_dosing',
+            'contraindications'
+        ]
+        
+        missing_sections = []
+        for section in required_sections:
+            if section not in self.config:
+                missing_sections.append(section)
+        
+        if missing_sections:
+            raise ValueError(
+                f"Configuration missing required sections: {', '.join(missing_sections)}"
+            )
+    
+    def get(self, *keys: str, default=None):
+        """
+        Get nested configuration value.
+        
+        Args:
+            *keys: Nested keys to traverse (e.g., 'hemodynamic_thresholds', 'hr_critical_low')
+            default: Default value if key not found
+            
+        Returns:
+            Configuration value or default
+        """
+        value = self.config
+        for key in keys:
+            if isinstance(value, dict):
+                value = value.get(key, default)
+            else:
+                return default
+        return value
+
 
 # --- Core TCI Logic (Pharmacokinetics) ---
 
@@ -27,21 +119,46 @@ class Pharmacokinetics:
     """
     Implements a simplified three-compartment model to estimate the drug 
     concentration at the effect-site (Ce) over time, a crucial element for TCI.
-    NOTE: Constants Vc, k10, k1e are placeholders for literature-derived values.
+    
+    The model uses first-order kinetics with discrete-time updates suitable
+    for real-time monitoring at 1-second intervals.
     """
-    def __init__(self, weight_kg: float, central_vol: float, k10: float, k1e: float):
+    
+    def __init__(self, 
+                 weight_kg: float, 
+                 central_vol: float, 
+                 k10: float, 
+                 k1e: float) -> None:
+        """
+        Initialize pharmacokinetic model.
+        
+        Args:
+            weight_kg: Patient weight in kg
+            central_vol: Central compartment volume in L/kg
+            k10: Elimination rate constant in 1/min
+            k1e: Effect-site transfer rate constant in 1/min
+        """
         # Vc: Central Compartment Volume (L) - normalized by weight
-        self.Vc = central_vol * weight_kg
-        self.k10 = k10  # Elimination rate constant (1/min)
-        self.k1e = k1e  # Effect-site transfer rate constant (1/min)
+        self.Vc: float = central_vol * weight_kg
+        self.k10: float = k10  # Elimination rate constant (1/min)
+        self.k1e: float = k1e  # Effect-site transfer rate constant (1/min)
 
         # Initial concentrations (ng/mL)
-        self.Cp = 0.0  # Plasma Concentration
-        self.Ce = 0.0  # Effect-Site Concentration
+        self.Cp: float = 0.0  # Plasma Concentration
+        self.Ce: float = 0.0  # Effect-Site Concentration
 
-    def update_concentration(self, infusion_rate_mcg_per_min: float, time_delta_min: float = 1.0):
+    def update_concentration(self, 
+                           infusion_rate_mcg_per_min: float, 
+                           time_delta_min: float = 1.0) -> Tuple[float, float]:
         """
         Updates the estimated concentrations based on current infusion and time elapsed.
+        
+        Args:
+            infusion_rate_mcg_per_min: Current infusion rate in mcg/min
+            time_delta_min: Time step in minutes (default: 1.0)
+            
+        Returns:
+            Tuple of (plasma_concentration, effect_site_concentration) in ng/mL
         """
         # --- 1. Plasma (Cp) Update ---
         # Mass of drug infused over the time period
@@ -56,9 +173,9 @@ class Pharmacokinetics:
 
         # Prevent negative concentrations
         if new_mass < 0:
-             self.Cp = 0.0
+            self.Cp = 0.0
         else:
-             self.Cp = new_mass / self.Vc
+            self.Cp = new_mass / self.Vc
 
         # --- 2. Effect-Site (Ce) Update ---
         # Rate of change in Ce is proportional to the concentration gradient (Cp - Ce)
@@ -68,47 +185,103 @@ class Pharmacokinetics:
         # Ce must also not be negative
         if self.Ce < 0:
             self.Ce = 0.0
+        
+        return (self.Cp, self.Ce)
+
 
 # --- The Smart Controller (The Core Logic Engine) ---
 
 class SmartNOAController:
     """
     Manages static constraints and dynamic physiological control (the "brain").
+    
+    This is the patentable core: multi-variable dynamic interlock system that
+    enforces evidence-based constraints before and during infusion pump operation.
     """
-    def __init__(self, patient: Patient):
-        self.patient = patient
-        # Infusion rates are stored in mcg/kg/h
-        self.infusions: Dict[str, float] = {"Dexmedetomidine": 0.0, "Ketamine": 0.0, "Lidocaine": 0.0}
+    
+    def __init__(self, patient: Patient, config_path: str = "config.yaml") -> None:
+        """
+        Initialize Smart NOA Controller.
+        
+        Args:
+            patient: Patient object with demographic and clinical data
+            config_path: Path to configuration YAML file
+        """
+        self.patient: Patient = patient
+        self.config: ConfigLoader = ConfigLoader(config_path)
+        
+        # Infusion rates are stored in mcg/kg/h or mg/kg/h
+        self.infusions: Dict[str, float] = {
+            "Dexmedetomidine": 0.0, 
+            "Ketamine": 0.0, 
+            "Lidocaine": 0.0
+        }
+        
         self.hard_lockouts: List[str] = self._calculate_initial_lockouts()
         self.status: str = "INITIALIZING"
 
-        # Initialize PK model for Dexmedetomidine (The most common cause of hypotension/bradycardia)
-        self.dex_pk = Pharmacokinetics(
-            weight_kg=patient.weight_kg, 
-            central_vol=0.8, # Placeholder: 0.8 L/kg 
-            k10=0.04,        # Placeholder: 0.04 1/min (elimination)
-            k1e=0.1          # Placeholder: 0.1 1/min (effect site transfer)
-        )
+        # Initialize PK model for Dexmedetomidine
+        self.dex_pk: Pharmacokinetics = self._initialize_pk_model()
+        
         print(f"Controller Initialized for {self.patient.age}yo, {self.patient.weight_kg}kg.")
         print(f"Hard Lockouts Enabled: {self.hard_lockouts}")
 
+    def _initialize_pk_model(self) -> Pharmacokinetics:
+        """
+        Initialize pharmacokinetic model with parameters from config.
+        
+        Returns:
+            Configured Pharmacokinetics instance for dexmedetomidine
+        """
+        pk_params = self.config.get('pharmacokinetics', 'dexmedetomidine')
+        
+        return Pharmacokinetics(
+            weight_kg=self.patient.weight_kg,
+            central_vol=pk_params['central_volume_L_per_kg'],
+            k10=pk_params['elimination_rate_constant_k10'],
+            k1e=pk_params['effect_site_transfer_k1e']
+        )
 
     def _calculate_initial_lockouts(self) -> List[str]:
-        """Phase 1: Generates the list of drugs that are absolutely contraindicated."""
-        locks = []
+        """
+        Phase 1: Generates the list of drugs that are absolutely contraindicated.
+        
+        Returns:
+            List of drug names that are hard-locked for this patient
+        """
+        locks: List[str] = []
+        
+        # Load contraindication criteria from config
+        ci_dex = self.config.get('contraindications', 'dexmedetomidine')
+        ci_keto = self.config.get('contraindications', 'ketorolac')
+        
         # Renal Failure: Contraindicates NSAIDs (Ketorolac)
-        if self.patient.egfr < 30:
+        egfr_min = ci_keto['egfr_minimum']
+        if self.patient.egfr < egfr_min:
             locks.append("Ketorolac")
+        
         # Cardiac Risk: Contraindicates alpha-2 agonists (Dexmedetomidine)
-        if any(x in self.patient.comorbidities for x in ["Heart Block", "AV Block", "Severe Bradycardia"]):
+        cardiac_conditions = ci_dex['cardiac_conditions']
+        if any(x in self.patient.comorbidities for x in cardiac_conditions):
             locks.append("Dexmedetomidine")
+        
         # Allergy Check
-        if "NSAID" in self.patient.allergies or "Ketorolac" in self.patient.allergies:
+        allergy_triggers = ci_keto['allergy_triggers']
+        if any(allergen in self.patient.allergies for allergen in allergy_triggers):
             locks.append("Ketorolac")
+        
         return locks
 
     def check_contraindication(self, drug: str) -> Tuple[bool, str]:
-        """Verifies if a specific drug is allowed by the safety logic."""
+        """
+        Verifies if a specific drug is allowed by the safety logic.
+        
+        Args:
+            drug: Drug name to check
+            
+        Returns:
+            Tuple of (is_allowed, reason_message)
+        """
         if drug in self.hard_lockouts:
             reason = { 
                 "Dexmedetomidine": "3rd-degree heart block or severe bradycardia risk (ASA/ESRA Guideline)",
@@ -117,28 +290,43 @@ class SmartNOAController:
             return False, f"HARD LOCK: {reason}"
 
         # Soft Ceiling (Warning, but clinician override is possible)
-        if drug == "Dexmedetomidine" and self.patient.age > 65:
-            return True, "SOFT WARNING: Geriatric patient (>65yo). Suggest 50% max dose reduction."
+        age_threshold = self.config.get('age_adjustments', 'geriatric', 'age_threshold')
+        if drug == "Dexmedetomidine" and self.patient.age > age_threshold:
+            return True, f"SOFT WARNING: Geriatric patient (>{age_threshold}yo). Suggest 50% max dose reduction."
 
         return True, "Safe within protocol limits"
 
     def generate_starting_rates(self) -> Dict[str, float]:
-        """Phase 2: Calculates the evidence-based starting protocol."""
+        """
+        Phase 2: Calculates the evidence-based starting protocol.
+        
+        Returns:
+            Dictionary of drug names to starting infusion rates
+        """
+        # Load standard doses from config
+        dex_config = self.config.get('drug_dosing', 'dexmedetomidine')
+        keto_config = self.config.get('drug_dosing', 'ketamine')
+        lido_config = self.config.get('drug_dosing', 'lidocaine')
+        
         # Standard starting rates (mcg/kg/h or mg/kg/h)
-        rates = {"Lidocaine": 1.5, "Ketamine": 0.2, "Dexmedetomidine": 0.5}
+        rates: Dict[str, float] = {
+            "Lidocaine": lido_config['standard_dose'],
+            "Ketamine": keto_config['standard_dose'],
+            "Dexmedetomidine": dex_config['standard_dose']
+        }
 
         # Apply calculated constraints from the NOA Master Protocol
         if "Dexmedetomidine" in self.hard_lockouts:
             rates["Dexmedetomidine"] = 0.0
-        elif self.patient.age > 65:
+        elif self.patient.age > dex_config['geriatric_age_threshold']:
             # Apply soft warning reduction
-            rates["Dexmedetomidine"] = 0.25 # 50% reduction for geriatric population
+            rates["Dexmedetomidine"] = dex_config['geriatric_dose']
 
         # Check Ketorolac (Postoperative adjunct)
         ketorolac_status = "Available (30mg IV)"
         if "Ketorolac" in self.hard_lockouts:
-             ketorolac_status = "LOCKED OUT (CI)"
-        rates["Ketorolac Adjunct"] = ketorolac_status
+            ketorolac_status = "LOCKED OUT (CI)"
+        rates["Ketorolac Adjunct"] = ketorolac_status  # type: ignore
 
         self.infusions = {k: v for k, v in rates.items() if isinstance(v, float)}
         return rates
@@ -146,21 +334,38 @@ class SmartNOAController:
     # --- Real-Time Control Loop Methods ---
 
     def _rate_to_mcg_per_min(self, drug: str) -> float:
-        """Helper to convert infusion rate (mcg/kg/h) to PK model input (mcg/min)."""
+        """
+        Helper to convert infusion rate (mcg/kg/h) to PK model input (mcg/min).
+        
+        Args:
+            drug: Drug name
+            
+        Returns:
+            Infusion rate in mcg/min
+        """
         rate_mcg_per_hour = self.infusions.get(drug, 0.0)
         # Assuming the rate is in mcg/kg/h
         rate_mcg_per_min = (rate_mcg_per_hour * self.patient.weight_kg) / 60.0
         return rate_mcg_per_min
 
-    def monitor_and_control(self, duration_sec: int = 30):
+    def monitor_and_control(self, duration_sec: int = 30) -> None:
         """
         Phase 3: Simulates the closed-loop feedback system.
         Reads simulated hemodynamics, updates PK model, and adjusts pump rates.
+        
+        Args:
+            duration_sec: Duration of monitoring simulation in seconds
         """
         print("\n=== Smart NOA Closed-Loop Supervision Active (TCI Mode) ===")
         print("Monitoring Dexmedetomidine Concentration and Hemodynamics.")
         
-        time_step_min = 1/60.0 # Each loop iteration represents 1 second (1/60th of a minute)
+        # Load thresholds from config
+        hr_threshold = self.config.get('hemodynamic_thresholds', 'hr_critical_low')
+        map_threshold = self.config.get('hemodynamic_thresholds', 'map_critical_low')
+        ce_threshold = self.config.get('pharmacokinetics', 'dexmedetomidine', 
+                                      'ce_intervention_threshold')
+        
+        time_step_min = 1/60.0  # Each loop iteration represents 1 second (1/60th of a minute)
         
         for t in range(duration_sec):
             # 1. Simulate data feed from Patient Monitor
@@ -175,17 +380,14 @@ class SmartNOAController:
             
             # 3. Dynamic Safety Interlocks (The Patentable Logic)
             
-            # Interlock A: Severe Bradycardia
-            # ONLY intervene if HR is critically low AND drug effect (Ce) is significant.
-            if hr < 48 and dex_ce > 0.1: # Threshold Ce > 0.1 ng/mL
-                # Hard lock: Immediately set pump rate to zero
+            # Interlock A: Severe Bradycardia with high drug concentration
+            if hr < hr_threshold and dex_ce > ce_threshold:
                 self.infusions["Dexmedetomidine"] = 0.0
                 self.status = "RED"
                 print(f"T+{t:2d}s | HR {hr} | Ce: {dex_ce:.2f} → BRADYCARDIA & HIGH Ce → DEX STOPPED")
             
             # Interlock B: Critical Hypotension
-            elif map_val < 60:
-                # This affects all drugs known to cause vasodilation
+            elif map_val < map_threshold:
                 for drug in ["Dexmedetomidine", "Lidocaine"]:
                     self.infusions[drug] = 0.0
                 self.status = "RED"
@@ -193,15 +395,16 @@ class SmartNOAController:
             
             # Stable State: Maintain the calculated protocol rates
             else:
-                # When stable, ensure pumps are running at the target rate (re-engage pumps if paused)
                 if self.status != "GREEN":
                     print(f"T+{t:2d}s | Vitals Stabilized. Resuming Protocol.")
-                    self.infusions = {k: v for k, v in self.generate_starting_rates().items() if isinstance(v, float)}
+                    self.infusions = {k: v for k, v in self.generate_starting_rates().items() 
+                                    if isinstance(v, float)}
 
                 self.status = "GREEN"
                 print(f"T+{t:2d}s | HR {hr} | MAP {map_val} | Dex Ce: {dex_ce:.2f} → Stable. Protocol Active.")
 
             time.sleep(1)
+
 
 # ============================== DEMO EXECUTION ==============================
 if __name__ == "__main__":
@@ -210,8 +413,14 @@ if __name__ == "__main__":
     # The system should LOCK OUT Dexmedetomidine and Ketorolac instantly.
     # ----------------------------------------------------
     print("\n--- RUNNING CASE 1: HIGH-RISK GERIATRIC PATIENT ---")
-    patient_a = Patient(age=78, weight_kg=72, asa_class=3, egfr=24,
-                      allergies=[], comorbidities=["Heart Block", "History of Renal Failure"])
+    patient_a = Patient(
+        age=78, 
+        weight_kg=72, 
+        asa_class=3, 
+        egfr=24,
+        allergies=[], 
+        comorbidities=["Heart Block", "History of Renal Failure"]
+    )
 
     controller_a = SmartNOAController(patient_a)
 
@@ -234,8 +443,14 @@ if __name__ == "__main__":
     # The system should allow full protocol rates and respond dynamically.
     # ----------------------------------------------------
     print("\n\n--- RUNNING CASE 2: HEALTHY YOUNG ADULT ---")
-    patient_b = Patient(age=30, weight_kg=85, asa_class=2, egfr=95,
-                      allergies=[], comorbidities=[])
+    patient_b = Patient(
+        age=30, 
+        weight_kg=85, 
+        asa_class=2, 
+        egfr=95,
+        allergies=[], 
+        comorbidities=[]
+    )
     
     controller_b = SmartNOAController(patient_b)
     
@@ -247,6 +462,6 @@ if __name__ == "__main__":
     # Set the Dex infusion rate for the dynamic loop
     controller_b.infusions["Dexmedetomidine"] = rates_b.get("Dexmedetomidine", 0.0)
 
-    # Run the simulation loop (it should run normally and then potentially trigger safety lockouts)
+    # Run the simulation loop
     print("\n--- Starting Simulation for Case 2 (Full Dex rate running) ---")
     controller_b.monitor_and_control(duration_sec=20)
