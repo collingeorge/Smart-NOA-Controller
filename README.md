@@ -2,11 +2,14 @@
 
 [![MIT License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![medRxiv preprint coming](https://img.shields.io/badge/medRxiv-preprint_2025-red)](https://www.medrxiv.org)
+![Python](https://img.shields.io/badge/python-3.8%2B-blue)
+
 
 ## A Rule-Based Closed-Loop Safety Supervisor for Multimodal Opioid-Free Anesthesia
 
 **Author:** Collin B. George  
-**Affiliation:** Independent Clinical Researcher & Medical School Applicant (project not affiliated with any institution)  
+**Affiliation:** Independent Clinical Researcher & Medical School Applicant (This project is independent and not affiliated with or endorsed by any institution.)
+
 **Status:** Research Prototype — Not for Clinical Use
 
 ---
