@@ -8,7 +8,6 @@
 **Author:** Collin B. George  
 **Affiliation:** Independent Clinical Researcher & Medical School Applicant (project not affiliated with any institution)  
 **Status:** Research Prototype — Not for Clinical Use
-**This repository:** released publicly to support transparency, academic collaboration, and early peer feedback in the exploration of software-assisted perioperative safety frameworks.
 
 ---
 
