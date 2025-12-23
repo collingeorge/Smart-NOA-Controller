@@ -1,24 +1,62 @@
-# SmartNOA-Controller
+# Smart NOA Controller
 
-[![MIT License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![medRxiv preprint coming](https://img.shields.io/badge/medRxiv-preprint_2025-red)](https://www.medrxiv.org)
-![Python](https://img.shields.io/badge/python-3.8%2B-blue)
+**Rule-Based Safety Supervisor for Multimodal Opioid-Free Anesthesia**
 
+![Status](https://img.shields.io/badge/Status-Research%20Prototype-orange)
+![Project Type](https://img.shields.io/badge/Project-Pre--Medical%20Research-blue)
+![Not for Clinical Use](https://img.shields.io/badge/Clinical%20Use-NOT%20APPROVED-red)
+![Python](https://img.shields.io/badge/Python-3.8%2B-blue)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-## A Rule-Based Closed-Loop Safety Supervisor for Multimodal Opioid-Free Anesthesia
+---
 
-**Author:** Collin B. George  
-**Affiliation:** Independent Clinical Researcher & Medical School Applicant (This project is independent and not affiliated with or endorsed by any institution.)
+## Educational Use Only — Not for Clinical Application
 
-**Status:** Research Prototype — Not for Clinical Use
+**CRITICAL WARNING:** This is a computational research prototype developed for educational purposes. It is **NOT validated for clinical use** and must **NEVER** be used in patient care or integrated with medical devices.
+
+**This is not:**
+- A medical device or clinical decision support system
+- Approved by FDA or any regulatory authority
+- Validated for patient safety or clinical accuracy
+- Intended for integration with anesthesia equipment
+- A substitute for clinical judgment or monitoring
+
+**This is:**
+- Independent pre-medical computational research project
+- Educational demonstration of safety supervision concepts
+- Proof-of-concept for algorithm design discussion
+- Medical school application portfolio material
+
+---
+
+## Disclaimers
+
+**Regulatory Status:**  
+This software has NOT undergone clinical validation, regulatory review, or safety testing. It is NOT approved for clinical deployment under any circumstances.
+
+**Institutional Affiliation:**  
+This is an independent educational project. It is not affiliated with, endorsed by, or approved by University of Washington, UW Medicine, or any clinical institution.
+
+**Clinical Use Warning:**  
+Use of this software in any patient care environment would constitute unauthorized practice of medicine and violate regulatory requirements. Clinical anesthesia requires trained professionals, approved monitoring equipment, and validated decision support systems.
+
+**Liability:**  
+This work is provided "as is" without warranty of any kind. The author assumes no liability for any use or misuse of this software.
+
+**Author Status:**  
+Pre-medical student. Not a licensed healthcare professional. Not engaged in clinical practice.
 
 ---
 
 ## Abstract
 
-SmartNOA-Controller is a deterministic, rule-based software prototype designed to simulate closed-loop safety supervision for opioid-free and opioid-sparing multimodal anesthesia protocols. This repository presents a research-oriented proof-of-concept examining algorithmic safety interlocks intended to support perioperative consistency, vigilance, and adherence to evidence-based multimodal anesthesia practices.
+Smart NOA Controller is a deterministic, rule-based software prototype designed to simulate closed-loop safety supervision concepts for multimodal opioid-free anesthesia protocols. This repository presents an educational proof-of-concept examining algorithmic safety interlock design.
 
-**Regulatory Disclaimer:** This software is for educational and research use only. It has not been validated for clinical deployment, and it must not be used in any patient-care environment or integrated with medical devices.
+**Purpose:**  
+Demonstrate computational thinking about anesthesia safety systems through simulation and algorithm development for educational portfolio purposes.
+
+**Scope:**  
+Educational exploration of how rule-based systems might theoretically support clinical decision-making. Not a functional clinical system.
 
 ---
 
@@ -26,285 +64,272 @@ SmartNOA-Controller is a deterministic, rule-based software prototype designed t
 
 ### 1.1 Clinical Context
 
-Multimodal anesthesia approaches reduce perioperative opioid requirements, improve ERAS outcomes, and may enhance hemodynamic stability. However, implementation introduces operational complexity:
+Multimodal anesthesia approaches aim to reduce perioperative opioid requirements and improve Enhanced Recovery After Surgery (ERAS) outcomes. Implementation introduces operational complexity:
 
-- Concurrent administration of multiple anesthetic agents  
-- Drug-specific contraindications and interaction profiles  
-- Dynamic vital-sign monitoring  
-- Real-time safety assessment  
-- Increased cognitive load for anesthesia providers  
+- Concurrent administration of multiple anesthetic agents
+- Drug-specific contraindications and interaction profiles
+- Dynamic vital-sign monitoring requirements
+- Real-time safety assessment needs
+- Increased cognitive load for anesthesia providers
 
-### 1.2 Research Objective
+### 1.2 Educational Research Objective
 
-SmartNOA-Controller simulates a safety-oriented, rule-driven decision system designed to assist clinicians with:
+This project simulates a safety-oriented, rule-driven decision framework to explore computational approaches to:
 
-- Enforcing evidence-based dosing limits  
-- Continuous contraindication surveillance  
-- Automated infusion suspension based on safety violations  
-- Hemodynamic threshold enforcement  
-- Standardized multimodal OFA protocol logic  
+- Enforcing evidence-based dosing limit concepts
+- Continuous contraindication surveillance simulation
+- Automated alert generation based on safety rule violations
+- Hemodynamic threshold monitoring models
 
-This prototype supports early-stage investigation of software-assisted perioperative safety systems.
-
----
-
-## 2. System Features
-
-### 2.1 Core Capabilities
-
-- Deterministic rule-based decision engine  
-- Age-adjusted and renal-function-adjusted dosing algorithms  
-- Hard lockouts for absolute contraindications  
-- Real-time hemodynamic safety threshold monitoring  
-- Simplified pharmacokinetic modeling (simulation environment only)  
-- Time-based infusion scheduling  
-- YAML-based protocol configuration  
-- Full unit testing suite  
-- Scenario simulation with detailed logs  
-
-### 2.2 Safety Architecture
-
-The controller employs layered safety checks at every decision cycle, ensuring conservative behavior under safety violation conditions.
+**Important:** This is a theoretical exploration of safety concepts, not a functional clinical system.
 
 ---
 
-## 3. Scope and Limitations
+## 2. System Architecture
 
-### 3.1 Intended Research Applications
+### 2.1 Design Philosophy
 
-- Anesthesiology research and algorithm testing  
-- Medical and resident education  
-- Early-stage safety logic development  
-- ERAS pathway modeling  
-- Quality improvement concept exploration  
+**Rule-Based Approach:**
+- Deterministic logic (no machine learning or adaptive algorithms)
+- Transparent decision pathways
+- Explicit contraindication checking
+- Conservative safety thresholds
 
-### 3.2 Explicit Limitations
+**Educational Focus:**
+- Demonstrates understanding of clinical decision logic
+- Shows systems thinking and computational problem-solving
+- Illustrates safety-critical software design concepts
+- Not intended as actual clinical implementation
 
-- Not a medical device  
-- No integration with hardware or infusion pumps  
-- No regulatory approval (FDA/EMA/Health Canada)  
-- Pharmacokinetic models are simplified  
-- Does not replace clinical expertise  
-- Must not be used in patient care  
+### 2.2 Core Components
+```
+Smart NOA Controller Architecture (Educational Simulation)
+├── Patient State Monitor (simulated vital signs input)
+├── Drug Administration Tracker (simulated infusion data)
+├── Contraindication Engine (rule-based checking)
+├── Safety Interlock System (alert generation)
+└── Logging and Audit Trail (event recording)
+```
 
----
-
-## 4. Scientific Foundation
-
-### 4.1 Evidence Base
-
-Safety logic references include:
-
-- Peer-reviewed multimodal and OFA literature  
-- ERAS Society guidelines (orthopedic, breast, general surgery)  
-- Age-stratified dosing recommendations for ketamine, dexmedetomidine, lidocaine  
-- Hemodynamic targets consistent with anesthesia practice  
-- Contraindications derived from prescribing information and clinical pharmacology texts  
-
-### 4.2 Reference Management
-
-A full bibliography will be maintained as the repository evolves. Source code includes inline reference comments for key thresholds.
+**Note:** All components are simulated for educational demonstration. No actual medical device integration exists or is intended.
 
 ---
 
-## 5. Technical Architecture
+## 3. Safety Rules Framework
 
-### 5.1 Components
+### 3.1 Hemodynamic Thresholds (Example Rules)
 
-- **Controller Core** — deterministic decision engine  
-- **Safety Rules Engine** — evaluates constraints and violations  
-- **Pharmacokinetic Module** — simplified compartmental model  
-- **Infusion State Manager** — real-time drug state tracking  
-- **Configuration Loader** — protocol parameters via YAML  
-- **Logger** — structured state and violation logs  
-- **Unit Tests** — automated validation of safety behaviors  
+**Simulated monitoring rules:**
+- Heart rate <50 or >120 bpm → Alert
+- Systolic BP <90 or >180 mmHg → Alert
+- SpO₂ <92% → Alert
+- Sustained parameter violations → Simulated infusion hold recommendation
 
-### 5.2 Design Principles
+**Educational note:** Actual clinical thresholds are patient-specific and require attending physician judgment.
 
-- Deterministic behavior  
-- Transparent and explainable logic  
-- Conservative, safety-first defaults  
-- Modular architecture  
-- Configurable without source modification  
-- Comprehensive testability  
+### 3.2 Drug-Specific Rules (Example Framework)
 
----
+**Simulated contraindication checking:**
+- Dexmedetomidine: Check for bradycardia, AV block
+- Ketamine: Check for hypertension, psychosis history
+- Magnesium: Check for renal function, neuromuscular blockade
+- Lidocaine: Check for cardiac conduction abnormalities
 
-## 6. Safety Logic Framework
-
-### 6.1 Hemodynamic Monitoring
-
-**Critical thresholds (examples):**
-- Heart rate < 48 bpm  
-- MAP < 60 mmHg  
-- Severe hypertension (configurable)  
-- Tachycardia or sympathetic hyperactivity (configurable)  
-
-### 6.2 Contraindication Surveillance
-
-**Absolute contraindication examples:**
-
-- **Ketamine:** uncontrolled hypertension, certain neuropsychiatric/ICP concerns  
-- **Dexmedetomidine:** severe bradycardia, advanced heart block  
-- **Lidocaine infusion:** significant hepatic dysfunction, conduction disorders  
-- **NSAIDs:** eGFR below threshold, bleeding risk  
-
-### 6.3 Dosing Logic
-
-- Age-adjusted maximum infusion rates  
-- Renal function (eGFR)-based adjustments  
-- Weight-based calculations  
-- Temporal constraints for bolus administration  
-
-### 6.4 Fail-Safe State
-
-On safety violation:
-
-1. Suspend all infusions  
-2. Enter protected safe-mode  
-3. Log violation with timestamp  
-4. Require manual override (simulation only)  
+**Educational note:** Real clinical implementation requires comprehensive drug databases and patient-specific risk assessment.
 
 ---
 
-## 7. Installation
+## 4. Implementation
 
-### 7.1 Requirements
+### 4.1 Technology Stack
 
-- Python ≥ 3.8  
-- Packages listed in `requirements.txt`
+- **Language:** Python 3.8+
+- **Purpose:** Educational simulation and algorithm demonstration
+- **Dependencies:** Standard Python libraries (no medical device interfaces)
 
-### 7.2 Setup
-
+### 4.2 Installation (For Educational Review Only)
 ```bash
 git clone https://github.com/collingeorge/Smart-NOA-Controller.git
 cd Smart-NOA-Controller
 pip install -r requirements.txt
 ```
 
-### 7.3 Test Suite
+**WARNING:** This installation is for code review and educational purposes only. Do not attempt to connect to any medical devices or use in clinical settings.
 
-```bash
-pytest tests/
+### 4.3 Running Simulations
+```python
+# Educational simulation example
+python simulate_safety_checks.py --scenario example_case.json
+```
+
+**Note:** All scenarios are fictional and generated for educational demonstration.
+
+---
+
+## 5. Limitations and Educational Context
+
+### 5.1 What This Project Is NOT
+
+- A medical device or clinical decision support system
+- Validated for clinical accuracy or patient safety
+- Approved by any regulatory authority (FDA, etc.)
+- Suitable for clinical implementation without extensive validation
+- A replacement for clinical judgment or monitoring equipment
+
+### 5.2 What This Project IS
+
+- Educational exploration of safety system concepts
+- Demonstration of computational thinking in healthcare
+- Portfolio piece showing systems design understanding
+- Proof-of-concept for academic discussion
+- Pre-medical research project
+
+### 5.3 Clinical Implementation Requirements
+
+**If this concept were ever to be developed into a clinical system (not the intent of this project), it would require:**
+
+1. **Regulatory Approval:**
+   - FDA 510(k) clearance or PMA approval
+   - CE marking (Europe)
+   - Compliance with IEC 60601 medical device standards
+
+2. **Clinical Validation:**
+   - Prospective clinical trials
+   - Safety and efficacy demonstration
+   - IRB oversight and informed consent
+
+3. **Technical Requirements:**
+   - Medical-grade hardware certification
+   - Cybersecurity validation (FDA guidance)
+   - Interoperability standards (HL7, FHIR)
+   - Redundant safety systems
+
+4. **Institutional Approval:**
+   - Hospital review and governance approval
+   - Risk management assessment
+   - Clinician training programs
+   - Ongoing quality monitoring
+
+**Current status:** This project has NONE of the above. It is educational simulation only.
+
+---
+
+## 6. Future Educational Directions
+
+**For continued learning:**
+- Explore machine learning approaches to anesthesia monitoring (simulation only)
+- Study existing FDA-approved clinical decision support systems
+- Investigate medical device software development standards
+- Research human factors in clinical alarm design
+
+**Not planned:**
+- Clinical deployment
+- Medical device development
+- Commercial development
+
+---
+
+## 7. Evidence Base
+
+This educational project was informed by:
+
+- Multimodal anesthesia literature (ERAS guidelines, ASRA recommendations)
+- Clinical decision support system design principles
+- Medical device software standards (IEC 62304 for educational reference)
+- Anesthesia safety and monitoring literature
+
+Complete references available in `references/` directory.
+
+---
+
+## Author Information
+
+**Author:** Collin B. George, BS  
+**Project Type:** Independent pre-medical computational research  
+**Status:** Preparing for medical school matriculation 2026  
+**Educational Context:** Computational exploration of anesthesia safety concepts
+
+**GitHub:** [github.com/collingeorge](https://github.com/collingeorge)  
+**ORCID:** [0009-0007-8162-6839](https://orcid.org/0009-0007-8162-6839)  
+**License:** MIT
+
+---
+
+## Acknowledgments
+
+The author is grateful to educators and mentors who supported independent learning in computational health sciences and anesthesia safety concepts.
+
+This project represents independent educational exploration and does not constitute collaboration with any clinical institution or medical device company.
+
+---
+
+## Contributing and Feedback
+
+This is an educational project. Feedback welcome for:
+
+- Algorithm design improvements (educational discussion)
+- Code quality and software engineering practices
+- Additional safety rule frameworks (theoretical)
+- Educational use in teaching environments
+
+**Not seeking:**
+- Clinical implementation partners
+- Medical device development collaboration
+- Commercial applications
+
+**Issues and Pull Requests:** Welcome for educational improvements only.
+
+---
+
+## Citation
+
+If you reference this work in presentations or academic writing:
+```text
+George CB. Smart NOA Controller: Rule-Based Safety Supervisor for 
+Multimodal Opioid-Free Anesthesia (Educational Prototype). GitHub 
+Repository. Published December 2025. Available from: 
+https://github.com/collingeorge/Smart-NOA-Controller 
+[Accessed: date]
 ```
 
 ---
 
-## 8. Usage (Simulation Mode)
+## License
 
-### 8.1 Configuration
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
-Edit:
+**MIT License Summary:**
+- Free to use, modify, and distribute for educational purposes
+- Provided "as is" without warranty
+- Author not liable for any use or misuse
+- Must include original copyright notice
 
-```
-config/protocol.yaml
-```
+**Additional Terms for This Project:**
+- Use for educational and research purposes only
+- Absolutely prohibited for clinical use
+- No medical device integration permitted
+- Requires explicit disclaimer if code is adapted
 
-Customize:
-
-- Drug parameters
-- Vital sign thresholds
-- Patient characteristics
-- Safety constraints
-
-### 8.2 Run Simulation
-
-```bash
-python src/main.py --config config/protocol.yaml --scenario examples/scenario_01.json
-```
-
-### 8.3 Outputs
-
-Simulation logs include:
-
-- Infusion updates
-- Constraint checks
-- Hemodynamic values
-- Violation events
-- Controller decisions
+© 2025 Collin B. George — Licensed under MIT License
 
 ---
 
-## 9. Testing and Validation
+## Final Safety Reminder
 
-### 9.1 Unit Testing
+**This software is an educational prototype demonstrating computational concepts in anesthesia safety supervision.**
 
-Covers:
+**It is NOT:**
+- Clinically validated
+- Regulatory approved
+- Safe for patient care
+- Intended for medical device integration
 
-- Safety rule enforcement
-- Dosing correctness
-- Contraindication detection
-- Hemodynamic threshold logic
-- State machine transitions
+**Any clinical use would be:**
+- Unauthorized practice of medicine
+- Violation of medical device regulations
+- Dangerous to patient safety
+- Illegal in most jurisdictions
 
-### 9.2 Scenario Testing
-
-Simulated cases include:
-
-- Normal operation
-- Single rule violation
-- Multiple concurrent violations
-- Boundary / edge conditions
+**For educational discussion and portfolio demonstration only.**
 
 ---
-
-## 10. Development Roadmap
-
-### Current Phase
-
-- Core rule engine
-- Basic PK modeling
-- Documentation improvements
-- Test coverage expansion
-
-### Future Directions
-
-- Expanded PK/PD modeling
-- Predictive analytics (ML-based safety forecasting)
-- Broader drug library
-- GUI for educational demonstration
-- Research-only hardware integration architectures
-
----
-
-## 11. Contributing
-
-This is an independent research project.  
-Contributions from clinicians, researchers, or developers are welcome.
-
----
-
-## 12. Citation
-
-```
-George CB. SmartNOA-Controller: A Rule-Based Closed-Loop Safety Supervisor 
-for Multimodal Opioid-Free Anesthesia [Software]. GitHub; 2025. 
-Available from: https://github.com/collingeorge/Smart-NOA-Controller
-```
-
----
-
-## 13. License
-
-MIT License (recommended) — see the `LICENSE` file.
-
----
-
-## 14. Disclaimer
-
-This software is provided "as is," without warranty.  
-It is a research prototype and **must not** be used for patient care.
-
----
-
-## 15. Contact
-
-**Collin B. George**  
-Independent Clinical Researcher & Medical School Applicant    
-GitHub: [https://github.com/collingeorge](https://github.com/collingeorge)
-
----
-
-**Version:** 0.1.0-alpha  
-**Last Updated:** December 2025  
-**Repository:** [https://github.com/collingeorge/Smart-NOA-Controller](https://github.com/collingeorge/Smart-NOA-Controller)
