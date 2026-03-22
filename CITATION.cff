@@ -1,0 +1,27 @@
+cff-version: 1.2.0
+title: "Smart NOA Controller: Rule-Based Safety Supervisor for Multimodal Opioid-Free Anesthesia"
+message: "If you use this repository, please cite it using the information below."
+type: software
+authors:
+  - family-names: George
+    given-names: Collin B.
+    orcid: "https://orcid.org/0009-0007-8162-6839"
+version: "1.0"
+date-released: "2025-11-15"
+license: "MIT"
+repository-code: "https://github.com/collingeorge/Smart-NOA-Controller"
+abstract: >
+  Educational research prototype simulating closed-loop safety supervision
+  for multimodal opioid-free anesthesia protocols. Demonstrates rule-based
+  decision logic for enforcing evidence-based dosing limits, contraindication
+  surveillance, and hemodynamic threshold monitoring. NOT for clinical use.
+  Pre-medical computational research project.
+keywords:
+  - anesthesia
+  - closed-loop control
+  - safety supervision
+  - opioid-free anesthesia
+  - educational safety simulation
+  - simulation
+  - pre-medical research
+  - educational software
