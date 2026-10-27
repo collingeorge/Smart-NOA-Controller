@@ -1,5 +1,5 @@
 {
-  "candidate": "2026.10-rc1",
+  "candidate": "2026.10-rc2",
   "public_release": false,
   "history_included": false,
   "history_audited": false,
@@ -14,7 +14,7 @@
     {
       "path": "CITATION.cff",
       "bytes": 491,
-      "sha256": "105c419e4daa435fc76135477f25faf400b987f8f05c5e8933d3926458f08dca"
+      "sha256": "09bb725b0519eee9e611cd6978baf1c41f0fc7e134d2e98f297d5e79023d02a5"
     },
     {
       "path": "config.yaml",
@@ -28,8 +28,13 @@
     },
     {
       "path": "DOCUMENT_BUILD.json",
-      "bytes": 644,
-      "sha256": "efd8de15d9bb550b5dff66e0ae7a5449a3d4289a4d59c634cd6b308be0d8ebe8"
+      "bytes": 716,
+      "sha256": "ee77c42b1cdb93a411884257fd6e3bfa457487267936098bcc795d4ca35a55c6"
+    },
+    {
+      "path": "HISTORICAL_VERSION_NOTICE.md",
+      "bytes": 467,
+      "sha256": "c35978856d877183e1500d5eb494f1dd0130ac581dc7f0a907cdfab65094128a"
     },
     {
       "path": "LICENSE",
@@ -43,13 +48,18 @@
     },
     {
       "path": "MANUSCRIPT.md",
-      "bytes": 4166,
-      "sha256": "cb7666d9badd99799b161637c068c821f4763d4fd4bee01acb673ab767939035"
+      "bytes": 4269,
+      "sha256": "08a455bd4fdbc5eeabb2eba4c883afb75b1cd568f46941470355a18f39758572"
+    },
+    {
+      "path": "PROVENANCE.md",
+      "bytes": 1418,
+      "sha256": "e8d321b9ad4f01b4a53b25d5310b57b9c4d2aa14c28bc340a00fb8acfdb5a264"
     },
     {
       "path": "PUBLICATION_REVIEW.md",
-      "bytes": 2420,
-      "sha256": "556ec5070f73b00e58d9c3a8889758e3c6d9562c387960be649202732b5e50c9"
+      "bytes": 2570,
+      "sha256": "1675a87385af597a78d6d5914176c1d7041d4239ae1887b8fd47b5f5f854d0f7"
     },
     {
       "path": "README.md",
@@ -58,8 +68,8 @@
     },
     {
       "path": "RELEASE_NOTES.md",
-      "bytes": 548,
-      "sha256": "cb915ae1e1324c774ff3264f4434c737f4cdccb6eb955e9dec252c93eefe5bc0"
+      "bytes": 610,
+      "sha256": "01f827257e76caabbc7bacfcd4ce085780b0dfe289a74058d2f1be760194423f"
     },
     {
       "path": "requirements.txt",
@@ -68,28 +78,28 @@
     },
     {
       "path": "Smart_NOA__A_Deterministic_Closed_Loop_Safety_Controller.pdf",
-      "bytes": 105322,
-      "sha256": "7ce8174f6b03c815b12f19a1bc9fa0b817fc028cd620f64d5f8d84c02bdab129"
+      "bytes": 105389,
+      "sha256": "8c14a6daa44d86b75b10399b49ad0fe535a201e131219a7232278f9aa363e069"
     },
     {
       "path": "smart_noa_controller.py",
-      "bytes": 22369,
-      "sha256": "b304aa19d803a8f72dfea8f489cf3c2f2933d914f82f403992cf434be3cc020b"
+      "bytes": 23517,
+      "sha256": "cd1a920bf2b47702cb231378c55876af3af41cbd8137c218f0d66080a2f9ab7b"
     },
     {
       "path": "smartnoa_architecture.jpg",
-      "bytes": 91444,
-      "sha256": "ea5fc972063d755fa46ba63171fd4ccb813ad0bd04ead9b3f8166e4758ea638f"
+      "bytes": 78318,
+      "sha256": "8e58d58fb51ec8b126dc5d9ba1750d60e47fb0a2d6a7e8325b0e04fe1ffa47a6"
     },
     {
       "path": "smartnoa_architecture.pdf",
       "bytes": 74562,
-      "sha256": "8e1f6fc2be9373a156d0eb715cbec384f41cd33ba81b0371b1156fb37739e0f3"
+      "sha256": "c36888a320d34bcdaeb6e2aa589565dcff56b1b8b02fb60687bf80f2301851ac"
     },
     {
       "path": "test_revision_regressions.py",
-      "bytes": 3953,
-      "sha256": "b20d77a3d4faea81249fab5a0651b01db005497fd9277ee8a79d078f9e7d6380"
+      "bytes": 5463,
+      "sha256": "f5793669f7a77dd23216cf61f5bad116d41446680484399869762eb40abc70f3"
     },
     {
       "path": "test_smart_noa_controller.py",

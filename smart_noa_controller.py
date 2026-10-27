@@ -157,7 +157,7 @@ class ConfigLoader:
         return value
 
 
-# --- Core TCI Logic (Pharmacokinetics) ---
+# --- Illustrative Pharmacokinetics ---
 
 class Pharmacokinetics:
     """
@@ -183,13 +183,15 @@ class Pharmacokinetics:
             k1e: Effect-site transfer rate constant in 1/min
         """
         for name, value in (("weight_kg", weight_kg), ("central_vol", central_vol)):
-            if not math.isfinite(value) or value <= 0:
+            if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or value <= 0:
                 raise ValueError(f"{name} must be finite and positive")
         for name, value in (("k10", k10), ("k1e", k1e)):
-            if not math.isfinite(value) or value < 0:
+            if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or value < 0:
                 raise ValueError(f"{name} must be finite and nonnegative")
         # Vc: Central Compartment Volume (L) - normalized by weight
         self.Vc: float = central_vol * weight_kg
+        if not math.isfinite(self.Vc) or self.Vc <= 0:
+            raise ValueError("Derived central volume must be finite and positive")
         self.k10: float = k10  # Elimination rate constant (1/min)
         self.k1e: float = k1e  # Effect-site transfer rate constant (1/min)
 
@@ -210,39 +212,30 @@ class Pharmacokinetics:
         Returns:
             Tuple of (plasma_concentration, effect_site_concentration) in ng/mL
         """
-        if not math.isfinite(infusion_rate_mcg_per_min) or infusion_rate_mcg_per_min < 0:
+        if isinstance(infusion_rate_mcg_per_min, bool) or not isinstance(infusion_rate_mcg_per_min, (int, float)) or not math.isfinite(infusion_rate_mcg_per_min) or infusion_rate_mcg_per_min < 0:
             raise ValueError("Infusion input must be finite and nonnegative")
-        if not math.isfinite(time_delta_min) or time_delta_min <= 0:
+        if isinstance(time_delta_min, bool) or not isinstance(time_delta_min, (int, float)) or not math.isfinite(time_delta_min) or time_delta_min <= 0:
             raise ValueError("Time step must be finite and positive")
         if max(self.k10, self.k1e) * time_delta_min > 1:
             raise ValueError("Time step exceeds this explicit Euler model stability bound")
-        # 1 mcg/L equals 1 ng/mL.
-        # --- 1. Plasma (Cp) Update ---
-        # Mass of drug infused over the time period
-        infusion_mass_mcg = infusion_rate_mcg_per_min * time_delta_min
+        # 1 mcg/L equals 1 ng/mL. Compute into local candidates so invalid
+        # arithmetic cannot partially mutate the model.
+        for value in (self.Cp, self.Ce):
+            if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or value < 0:
+                raise ValueError("Model state must be finite and nonnegative")
+        try:
+            infusion_mass = infusion_rate_mcg_per_min * time_delta_min
+            elimination_mass = self.Cp * self.k10 * self.Vc * time_delta_min
+            new_mass = self.Cp * self.Vc + infusion_mass - elimination_mass
+            cp_candidate = max(0.0, new_mass / self.Vc)
+            # Sequential first-order update: the effect-site step uses new Cp.
+            ce_candidate = self.Ce + self.k1e * (cp_candidate - self.Ce) * time_delta_min
+        except (OverflowError, ZeroDivisionError) as error:
+            raise ValueError("Model arithmetic exceeded the finite input domain") from error
+        if not all(math.isfinite(value) for value in (infusion_mass, elimination_mass, new_mass, cp_candidate, ce_candidate)):
+            raise ValueError("Model arithmetic exceeded the finite input domain")
+        self.Cp, self.Ce = cp_candidate, max(0.0, ce_candidate)
 
-        # Mass of drug eliminated from the central compartment
-        elim_mass_mcg = self.Cp * self.k10 * self.Vc * time_delta_min
-
-        # Calculate new mass and concentration in central compartment
-        mass_change = infusion_mass_mcg - elim_mass_mcg
-        new_mass = (self.Cp * self.Vc) + mass_change
-
-        # Prevent negative concentrations
-        if new_mass < 0:
-            self.Cp = 0.0
-        else:
-            self.Cp = new_mass / self.Vc
-
-        # --- 2. Effect-Site (Ce) Update ---
-        # Rate of change in Ce is proportional to the concentration gradient (Cp - Ce)
-        dCe_dt = self.k1e * (self.Cp - self.Ce)
-        self.Ce += dCe_dt * time_delta_min
-        
-        # Ce must also not be negative
-        if self.Ce < 0:
-            self.Ce = 0.0
-        
         return (self.Cp, self.Ce)
 
 
@@ -349,14 +342,14 @@ class SmartNOAController:
         if drug in self.hard_lockouts:
             reason = { 
                 "Dexmedetomidine": "Configured cardiac-condition example; incomplete clinical assessment",
-                "Ketorolac": "Severe renal impairment (eGFR < 30) or known allergy"
+                "Ketorolac": "Configured renal-threshold or allergy example; incomplete clinical assessment"
             }.get(drug, "Profile-specific contraindication")
             return False, f"HARD LOCK: {reason}"
 
         # Soft Ceiling (Warning — in a real system, licensed clinician override would be possible)
         age_threshold = self.config.get('age_adjustments', 'geriatric', 'age_threshold')
         if drug == "Dexmedetomidine" and self.patient.age > age_threshold:
-            return True, f"SOFT WARNING: Geriatric patient (>{age_threshold}yo). Suggest 50% max dose reduction."
+            return True, f"SOFT WARNING: Geriatric patient (>{age_threshold}yo). Illustrative age-adjusted configuration applies; no clinical dose recommendation."
 
         return True, "No configured lockout triggered; clinical safety is unassessed"
 
@@ -379,7 +372,7 @@ class SmartNOAController:
             "Dexmedetomidine": dex_config['standard_dose']
         }
 
-        # Apply calculated constraints from the NOA Master Protocol
+        # Apply configured simulation constraints
         if "Dexmedetomidine" in self.hard_lockouts:
             rates["Dexmedetomidine"] = 0.0
         elif self.patient.age > dex_config['geriatric_age_threshold']:
@@ -409,6 +402,8 @@ class SmartNOAController:
         Returns:
             Infusion rate in mcg/min
         """
+        if drug != "Dexmedetomidine":
+            raise ValueError("This conversion is implemented only for the dexmedetomidine simulation")
         rate_mcg_per_hour = self.infusions.get(drug, 0.0)
         # Assuming the rate is in mcg/kg/h
         rate_mcg_per_min = (rate_mcg_per_hour * self.patient.weight_kg) / 60.0
@@ -422,6 +417,8 @@ class SmartNOAController:
         Args:
             duration_sec: Duration of monitoring simulation in seconds
         """
+        if isinstance(duration_sec, bool) or not isinstance(duration_sec, int) or duration_sec < 0:
+            raise ValueError("Simulation duration must be a nonnegative integer")
         print("\n=== Smart NOA educational simulation (unvalidated model) ===")
         print("Monitoring Dexmedetomidine Concentration and Hemodynamics.")
         
@@ -453,7 +450,7 @@ class SmartNOAController:
                 print(f"T+{t:2d}s | HR {hr} | Ce: {dex_ce:.2f} → SIMULATED LOW HR → DEX VALUE SET TO ZERO")
             
             # Interlock B: Critical Hypotension
-            elif map_val < map_threshold:
+            if map_val < map_threshold:
                 self.hold_latched = True
                 for drug in ["Dexmedetomidine", "Lidocaine"]:
                     self.infusions[drug] = 0.0
@@ -461,10 +458,10 @@ class SmartNOAController:
                 print(f"T+{t:2d}s | MAP {map_val} | Ce: {dex_ce:.2f} → HYPOTENSION → PAUSING KEY INFUSIONS")
             
             # A latched hold persists; there is no automatic restart policy.
-            elif self.hold_latched:
+            elif self.hold_latched and hr >= hr_threshold:
                 self.status = "HOLD"
                 print(f"T+{t:2d}s | SIMULATION HOLD remains latched; no automatic restart.")
-            else:
+            elif not self.hold_latched:
                 self.status = "GREEN"
                 print(f"T+{t:2d}s | HR {hr} | MAP {map_val} | Model Ce: {dex_ce:.2f} | No configured alert.")
 
