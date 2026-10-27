@@ -19,23 +19,3 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
-
----
-
-## Disclaimer
-
-This software is a **research prototype** and **proof of concept** only.
-
-**NOT INTENDED FOR CLINICAL USE.** Smart NOA has not been validated in clinical 
-settings, has not received regulatory approval from the FDA or any other medical 
-device authority, and should not be used to make clinical decisions or control 
-actual medical devices.
-
-Any clinical implementation would require:
-- Extensive validation and verification testing
-- Regulatory approval (FDA, CE Mark, etc.)
-- Integration with certified medical device hardware
-- Prospective clinical trials
-- Institutional review board (IRB) approval
-
-The authors assume no liability for any use of this software in clinical settings.

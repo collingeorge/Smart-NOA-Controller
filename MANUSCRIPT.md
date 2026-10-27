@@ -1,0 +1,75 @@
+# Smart NOA: A Rule-Checking Simulation and Its Limitations
+
+Collin B. George, BS | Independent educational portfolio
+
+Review draft - 27 October 2026
+
+**Educational scope.** This is an independent educational discussion, not clinical guidance, a clinical trial, a validated decision aid, or an institutional publication. No institutional endorsement is claimed.
+
+
+
+## Abstract
+
+
+This project demonstrates a small configurable rule-checking simulation in Python. Fictional profiles and randomly generated vital signs drive updates to in-memory values. A central-compartment model with an effect-site state illustrates numerical concentration updates; it is not a three-compartment model or a target-controlled infusion implementation. No performance in patients, prevention of adverse events, or clinical dosing accuracy is established.
+
+
+
+## Implementation
+
+
+The program reads example parameters from a YAML file. Selected profile fields trigger a small set of configured lockouts. These checks are incomplete: absence of a configured lockout does not establish clinical acceptability. Unrecognized drug names return an unassessed result rather than a safety assurance.
+
+The concentration model uses a central volume V, elimination constant k10, and effect-site equilibration constant ke. The educational update is
+
+
+Cp(next) = max(0, Cp + (R/V - k10*Cp)*dt)
+
+
+
+
+Ce(next) = max(0, Ce + ke*(Cp(next) - Ce)*dt)
+
+
+With input R in micrograms/minute and volume in litres, concentration is micrograms/litre, numerically equivalent to ng/mL. The implementation rejects invalid numerical inputs and time steps exceeding its stated explicit-Euler bound. That numerical bound does not establish pharmacologic validity or simulation accuracy.
+
+The model has one central compartment and an effect-site state. It lacks peripheral distribution compartments and is not a validated population model. Its parameters and example rates are not clinical recommendations.
+
+
+## State transitions
+
+
+Configured low-heart-rate or low-mean-pressure events set selected simulated values to zero and latch a hold. A subsequent acceptable reading does not automatically restart values. Low-heart-rate checking is not conditioned on a model-derived effect-site threshold. These are demonstrations of state logic, not a rescue protocol.
+
+
+## Verification and limitations
+
+
+Software tests exercise sample lockouts, numerical updates, unknown-drug handling, invalid inputs, and latched holds. Passing tests is not clinical validation. No clinical event-prevention rate is reported. Random vital signs are independent of drug concentrations: the model does not simulate a physiologic feedback response.
+
+The program lacks comprehensive input validation, drug interaction modeling, monitoring of actual signals, sensor-failure handling, human-factors evaluation, and a validated alarm architecture. There are no medical-device interfaces. Do not enter real patient information or connect equipment.
+
+
+## Evidence and regulatory boundary
+
+
+Avoiding opioids does not alone establish safer anesthesia. The POFA randomized trial reported important adverse outcomes with its dexmedetomidine-based regimen [pofa]. This simulation does not test either that regimen or an alternative clinical strategy.
+
+Regulatory status depends on intended use and applicable criteria. An educational disclaimer does not determine whether future clinical functionality is a device or specify a clearance pathway [fda].
+
+
+## License
+
+
+Code is licensed under MIT. Intended-use warnings do not add field-of-use restrictions to MIT or guarantee immunity from liability. Third-party materials retain their own rights.
+
+
+## References
+
+
+
+
+[pofa]  Beloeil H et al. Balanced opioid-free anesthesia with dexmedetomidine versus balanced anesthesia with remifentanil for major or intermediate noncardiac surgery. Anesthesiology. 2021;134:541-551. https://pubs.asahq.org/anesthesiology/article-pdf/134/4/541/512443/20210400.0-00011.pdf
+
+
+[fda]  US Food and Drug Administration. Clinical Decision Support Software. January 2026. https://www.fda.gov/regulatory-information/search-fda-guidance-documents/clinical-decision-support-software

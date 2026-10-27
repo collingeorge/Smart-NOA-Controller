@@ -1,0 +1,17 @@
+{
+  "version": "2026.10-rc1",
+  "method": "ReportLab export from Markdown; not a successful TeX compilation",
+  "documents": [
+    {
+      "source": "MANUSCRIPT.md",
+      "pdf": "Smart_NOA__A_Deterministic_Closed_Loop_Safety_Controller.pdf",
+      "source_sha256": "cb7666d9badd99799b161637c068c821f4763d4fd4bee01acb673ab767939035",
+      "pdf_sha256": "7ce8174f6b03c815b12f19a1bc9fa0b817fc028cd620f64d5f8d84c02bdab129"
+    },
+    {
+      "pdf": "smartnoa_architecture.pdf",
+      "pdf_sha256": "8e1f6fc2be9373a156d0eb715cbec384f41cd33ba81b0371b1156fb37739e0f3",
+      "source": "build_release_documents.py architecture definition"
+    }
+  ]
+}
