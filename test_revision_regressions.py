@@ -2,9 +2,12 @@
 import contextlib
 import io
 import math
+import tempfile
+from pathlib import Path
+import yaml
 import unittest
 from unittest.mock import patch
-from smart_noa_controller import Pharmacokinetics, Patient, SmartNOAController
+from smart_noa_controller import Pharmacokinetics, Patient, SmartNOAController, ConfigLoader
 
 class RevisionRegressionTests(unittest.TestCase):
     def controller(self):
@@ -48,6 +51,34 @@ class RevisionRegressionTests(unittest.TestCase):
         self.assertEqual(c.status, 'HOLD')
         self.assertEqual(c.infusions['Dexmedetomidine'], 0)
         self.assertEqual(c.infusions['Lidocaine'], 0)
+
+    def test_invalid_profiles_are_rejected(self):
+        base = dict(age=40, weight_kg=70, asa_class=2, egfr=90, allergies=[], comorbidities=[])
+        for field, value in [('age', -1), ('age', True), ('asa_class', 7), ('egfr', math.nan), ('weight_kg', 0), ('allergies', 'NSAID'), ('comorbidities', [None])]:
+            with self.subTest(field=field, value=value), self.assertRaises(ValueError):
+                Patient(**{**base, field: value})
+
+    def test_invalid_configuration_rejected(self):
+        original = yaml.safe_load(Path('config.yaml').read_text(encoding='utf-8'))
+        for bad_value in (None, [], {}, {'hemodynamic_thresholds': None}):
+            with tempfile.TemporaryDirectory(dir=Path.cwd()) as folder:
+                config = Path(folder) / 'bad.yaml'
+                config.write_text(yaml.safe_dump(bad_value), encoding='utf-8')
+                with self.assertRaises(ValueError):
+                    ConfigLoader(str(config))
+        original['drug_dosing']['lidocaine']['standard_dose'] = math.nan
+        with tempfile.TemporaryDirectory(dir=Path.cwd()) as folder:
+            config = Path(folder) / 'bad.yaml'
+            config.write_text(yaml.safe_dump(original), encoding='utf-8')
+            with self.assertRaises(ValueError):
+                ConfigLoader(str(config))
+
+    def test_regenerating_example_rates_does_not_bypass_hold(self):
+        c = self.controller()
+        c.hold_latched = True
+        rates = c.generate_starting_rates()
+        for drug in c.infusions:
+            self.assertEqual(rates[drug], 0)
 
 if __name__ == '__main__':
     unittest.main()

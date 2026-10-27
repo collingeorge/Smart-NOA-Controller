@@ -38,6 +38,18 @@ class Patient:
     allergies: List[str]
     comorbidities: List[str]
 
+    def __post_init__(self):
+        if isinstance(self.age, bool) or not isinstance(self.age, int) or self.age < 0:
+            raise ValueError("Simulated age must be a nonnegative integer")
+        if isinstance(self.asa_class, bool) or not isinstance(self.asa_class, int) or not 1 <= self.asa_class <= 6:
+            raise ValueError("Simulated ASA class must be an integer from 1 to 6")
+        for name, value, positive in (("weight_kg", self.weight_kg, True), ("egfr", self.egfr, False)):
+            if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or (value <= 0 if positive else value < 0):
+                raise ValueError(f"{name} must be finite and within the simulation input domain")
+        for value in (self.allergies, self.comorbidities):
+            if not isinstance(value, list) or any(not isinstance(item, str) for item in value):
+                raise ValueError("Simulated allergies and comorbidities must be lists of strings")
+
 
 # --- Configuration Loader ---
 
@@ -100,6 +112,31 @@ class ConfigLoader:
                 f"Configuration missing required sections: {', '.join(missing_sections)}"
             )
     
+        numeric_paths = {
+            ('hemodynamic_thresholds', 'hr_critical_low'): True,
+            ('hemodynamic_thresholds', 'map_critical_low'): True,
+            ('pharmacokinetics', 'dexmedetomidine', 'central_volume_L_per_kg'): True,
+            ('pharmacokinetics', 'dexmedetomidine', 'elimination_rate_constant_k10'): False,
+            ('pharmacokinetics', 'dexmedetomidine', 'effect_site_transfer_k1e'): False,
+            ('drug_dosing', 'dexmedetomidine', 'standard_dose'): False,
+            ('drug_dosing', 'dexmedetomidine', 'geriatric_dose'): False,
+            ('drug_dosing', 'dexmedetomidine', 'geriatric_age_threshold'): False,
+            ('drug_dosing', 'ketamine', 'standard_dose'): False,
+            ('drug_dosing', 'lidocaine', 'standard_dose'): False,
+            ('contraindications', 'ketorolac', 'egfr_minimum'): False,
+            ('age_adjustments', 'geriatric', 'age_threshold'): False,
+        }
+        for keys, positive in numeric_paths.items():
+            value = self.get(*keys)
+            if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or (value <= 0 if positive else value < 0):
+                raise ValueError("Invalid or missing simulation parameter: " + '.'.join(keys))
+        for keys in [('contraindications', 'dexmedetomidine', 'cardiac_conditions'), ('contraindications', 'ketorolac', 'allergy_triggers')]:
+            value = self.get(*keys)
+            if not isinstance(value, list) or any(not isinstance(item, str) for item in value):
+                raise ValueError("Expected a list of strings: " + '.'.join(keys))
+        if self.get('age_adjustments', 'geriatric', 'age_threshold') != self.get('drug_dosing', 'dexmedetomidine', 'geriatric_age_threshold'):
+            raise ValueError("Simulation age thresholds must agree")
+
     def get(self, *keys: str, default=None):
         """
         Get nested configuration value.
@@ -350,12 +387,14 @@ class SmartNOAController:
             rates["Dexmedetomidine"] = dex_config['geriatric_dose']
 
         # Check Ketorolac (Postoperative adjunct)
-        ketorolac_status = "Available (30mg IV)"
+        ketorolac_status = "No configured lockout; administration is not modeled"
         if "Ketorolac" in self.hard_lockouts:
             ketorolac_status = "LOCKED OUT (CI)"
         rates["Ketorolac Adjunct"] = ketorolac_status  # type: ignore
 
-        self.infusions = {k: v for k, v in rates.items() if isinstance(v, float)}
+        if self.hold_latched:
+            rates.update({drug: 0.0 for drug in self.infusions})
+        self.infusions = {k: v for k, v in rates.items() if isinstance(v, (int, float))}
         return rates
 
     # --- Real-Time Control Loop Methods ---

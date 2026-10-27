@@ -23,7 +23,7 @@ The demo uses fictional profiles and sleeps between iterations. Do not enter pat
 - Uses one central compartment and an effect-site state with an explicit Euler update. This is not a three-compartment model or target-controlled infusion implementation. Concentration units are numerically equivalent mcg/L and ng/mL. Parameters are unvalidated.
 - Sets simulated values to zero at configured low-HR or low-MAP events. A hold remains latched; a subsequent normal reading does not restart values. No automated recovery policy is implemented.
 
-Passing tests does not establish clinical efficacy or patient safety. The program does not model drug interactions, sensor failures, clinical workflows, all contraindications, or physiologic responses to the simulated values. Random vital signs do not depend on drug concentrations. Configuration validation remains incomplete; this is unsuitable for safety-critical use.
+Passing tests does not establish clinical efficacy or patient safety. The program does not model drug interactions, sensor failures, clinical workflows, all contraindications, or physiologic responses to the simulated values. Random vital signs do not depend on drug concentrations. Validation covers the fields used by this simulation; it does not establish clinical plausibility or suitability for safety-critical use.
 
 No rate, threshold, or age adjustment is endorsed as a clinical recommendation. The former “100% prevention” statement is not retained. This project provides no evidence that it prevents adverse events.
 
@@ -31,7 +31,7 @@ No rate, threshold, or age adjustment is endorsed as a clinical recommendation. 
 
 [Current FDA CDS guidance](https://www.fda.gov/regulatory-information/search-fda-guidance-documents/clinical-decision-support-software) distinguishes software functions by intended use and statutory criteria. An educational disclaimer does not determine device status, exempt future clinical functionality, or establish a regulatory pathway.
 
-[PUBLICATION_REVIEW.md](PUBLICATION_REVIEW.md) records unresolved review items. Legacy PDFs and diagrams must be reconciled before release.
+[PUBLICATION_REVIEW.md](PUBLICATION_REVIEW.md) records unresolved review items. The PDF and architecture diagram are rebuilt from the current educational description; see [MANUSCRIPT.md](MANUSCRIPT.md).
 
 ## License and author
 

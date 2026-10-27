@@ -1,0 +1,100 @@
+{
+  "candidate": "2026.10-rc1",
+  "public_release": false,
+  "history_included": false,
+  "history_audited": false,
+  "secret_scan_scope": "Listed current files only; three high-confidence patterns. Not a full credential, PHI, copyright, or clinical audit.",
+  "findings": [],
+  "files": [
+    {
+      "path": ".gitignore",
+      "bytes": 551,
+      "sha256": "7414eeeb12f5c9bd68bb42b01a10be90fad2ba0ed038825dcdc9239e13c15b51"
+    },
+    {
+      "path": "CITATION.cff",
+      "bytes": 491,
+      "sha256": "105c419e4daa435fc76135477f25faf400b987f8f05c5e8933d3926458f08dca"
+    },
+    {
+      "path": "config.yaml",
+      "bytes": 1154,
+      "sha256": "a650075e93c29300cda011e15d9c8d0084433c61df7b2880b9c5c381459e0886"
+    },
+    {
+      "path": "DEVELOPMENT.md",
+      "bytes": 767,
+      "sha256": "2f51322bda88ff05262036ff994e81824416b93fc617274996410384210c2631"
+    },
+    {
+      "path": "DOCUMENT_BUILD.json",
+      "bytes": 644,
+      "sha256": "efd8de15d9bb550b5dff66e0ae7a5449a3d4289a4d59c634cd6b308be0d8ebe8"
+    },
+    {
+      "path": "LICENSE",
+      "bytes": 1071,
+      "sha256": "74631de0ea0bc3c1c5e07712086468e3e1c95201a71135ea456c082162695640"
+    },
+    {
+      "path": "main.tex",
+      "bytes": 4563,
+      "sha256": "61ebfaec2af5e3388ada8fc685107274f416dd35497cf6cefe2432390b3a92f9"
+    },
+    {
+      "path": "MANUSCRIPT.md",
+      "bytes": 4166,
+      "sha256": "cb7666d9badd99799b161637c068c821f4763d4fd4bee01acb673ab767939035"
+    },
+    {
+      "path": "PUBLICATION_REVIEW.md",
+      "bytes": 2080,
+      "sha256": "7da80ee8f7d2b85d62ec93af91faea728c9a9b42d548d80083e47bb8baf62d6b"
+    },
+    {
+      "path": "README.md",
+      "bytes": 3089,
+      "sha256": "78fe31254abf90e0d0c82cff27adef906fc04c5cbde42ab1f2a157486efd9b83"
+    },
+    {
+      "path": "RELEASE_NOTES.md",
+      "bytes": 501,
+      "sha256": "e209ef0330d6c3e5bdd2d3c0227c9f479d43a400f83f9f648598a449456320c5"
+    },
+    {
+      "path": "requirements.txt",
+      "bytes": 78,
+      "sha256": "0d1fe1a88f28ae50c1b6ced1abde0967a46f00022a4358556ebcf10c64ea30ed"
+    },
+    {
+      "path": "Smart_NOA__A_Deterministic_Closed_Loop_Safety_Controller.pdf",
+      "bytes": 105322,
+      "sha256": "7ce8174f6b03c815b12f19a1bc9fa0b817fc028cd620f64d5f8d84c02bdab129"
+    },
+    {
+      "path": "smart_noa_controller.py",
+      "bytes": 22369,
+      "sha256": "b304aa19d803a8f72dfea8f489cf3c2f2933d914f82f403992cf434be3cc020b"
+    },
+    {
+      "path": "smartnoa_architecture.jpg",
+      "bytes": 91444,
+      "sha256": "ea5fc972063d755fa46ba63171fd4ccb813ad0bd04ead9b3f8166e4758ea638f"
+    },
+    {
+      "path": "smartnoa_architecture.pdf",
+      "bytes": 74562,
+      "sha256": "8e1f6fc2be9373a156d0eb715cbec384f41cd33ba81b0371b1156fb37739e0f3"
+    },
+    {
+      "path": "test_revision_regressions.py",
+      "bytes": 3953,
+      "sha256": "b20d77a3d4faea81249fab5a0651b01db005497fd9277ee8a79d078f9e7d6380"
+    },
+    {
+      "path": "test_smart_noa_controller.py",
+      "bytes": 12968,
+      "sha256": "5f3e5aff44fe29c03df99268bb6c1cc38d7ff5c0eb87e20396db28adf048449a"
+    }
+  ]
+}
