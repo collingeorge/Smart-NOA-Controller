@@ -1,0 +1,466 @@
+{
+  "scope": "Educational software trace; no real administration",
+  "rate_units": {
+    "Dexmedetomidine": "mcg/kg/hour",
+    "Ketamine": "mg/kg/hour",
+    "Lidocaine": "mg/kg/hour"
+  },
+  "examples": [
+    {
+      "label": "M1",
+      "fictional": true,
+      "narrative_metadata": {
+        "sex": "male",
+        "height_cm": 180,
+        "sex_and_height_used_by_model": false
+      },
+      "model_inputs": {
+        "age": 40,
+        "weight_kg": 80,
+        "asa_class": 2,
+        "egfr": 90,
+        "allergies": [],
+        "comorbidities": []
+      },
+      "lockouts": [],
+      "starting": {
+        "Lidocaine": 1.5,
+        "Ketamine": 0.2,
+        "Dexmedetomidine": 0.5,
+        "Ketorolac Adjunct": "No configured lockout; administration is not modeled"
+      },
+      "starting_mass_per_hour": {
+        "Dexmedetomidine_mcg": 40.0,
+        "Ketamine_mg": 16.0,
+        "Lidocaine_mg": 120.0
+      },
+      "trace": [
+        {
+          "step": 1,
+          "hr": 80,
+          "map_mmHg": 80,
+          "rates_before": {
+            "Lidocaine": 1.5,
+            "Ketamine": 0.2,
+            "Dexmedetomidine": 0.5
+          },
+          "rates_after": {
+            "Lidocaine": 1.5,
+            "Ketamine": 0.2,
+            "Dexmedetomidine": 0.5
+          },
+          "status": "GREEN",
+          "hold_latched": false,
+          "Cp_ng_mL": 0.0001736111111111111,
+          "Ce_ng_mL": 2.8935185185185185e-07
+        },
+        {
+          "step": 2,
+          "hr": 40,
+          "map_mmHg": 50,
+          "rates_before": {
+            "Lidocaine": 1.5,
+            "Ketamine": 0.2,
+            "Dexmedetomidine": 0.5
+          },
+          "rates_after": {
+            "Lidocaine": 0.0,
+            "Ketamine": 0.2,
+            "Dexmedetomidine": 0.0
+          },
+          "status": "RED",
+          "hold_latched": true,
+          "Cp_ng_mL": 0.00034710648148148144,
+          "Ce_ng_mL": 8.673804012345679e-07
+        },
+        {
+          "step": 3,
+          "hr": 80,
+          "map_mmHg": 80,
+          "rates_before": {
+            "Lidocaine": 0.0,
+            "Ketamine": 0.2,
+            "Dexmedetomidine": 0.0
+          },
+          "rates_after": {
+            "Lidocaine": 0.0,
+            "Ketamine": 0.2,
+            "Dexmedetomidine": 0.0
+          },
+          "status": "HOLD",
+          "hold_latched": true,
+          "Cp_ng_mL": 0.0003468750771604938,
+          "Ce_ng_mL": 1.4440598958333332e-06
+        }
+      ],
+      "after_explicit_regeneration": {
+        "Lidocaine": 0.0,
+        "Ketamine": 0.0,
+        "Dexmedetomidine": 0.0,
+        "Ketorolac Adjunct": "No configured lockout; administration is not modeled"
+      },
+      "unsupported_drugs": {
+        "Propofol": [
+          false,
+          "UNASSESSED: no simulation rule for this drug"
+        ],
+        "Rocuronium": [
+          false,
+          "UNASSESSED: no simulation rule for this drug"
+        ],
+        "Fentanyl": [
+          false,
+          "UNASSESSED: no simulation rule for this drug"
+        ]
+      }
+    },
+    {
+      "label": "F1",
+      "fictional": true,
+      "narrative_metadata": {
+        "sex": "female",
+        "height_cm": 165,
+        "sex_and_height_used_by_model": false
+      },
+      "model_inputs": {
+        "age": 40,
+        "weight_kg": 60,
+        "asa_class": 2,
+        "egfr": 90,
+        "allergies": [],
+        "comorbidities": []
+      },
+      "lockouts": [],
+      "starting": {
+        "Lidocaine": 1.5,
+        "Ketamine": 0.2,
+        "Dexmedetomidine": 0.5,
+        "Ketorolac Adjunct": "No configured lockout; administration is not modeled"
+      },
+      "starting_mass_per_hour": {
+        "Dexmedetomidine_mcg": 30.0,
+        "Ketamine_mg": 12.0,
+        "Lidocaine_mg": 90.0
+      },
+      "trace": [
+        {
+          "step": 1,
+          "hr": 80,
+          "map_mmHg": 80,
+          "rates_before": {
+            "Lidocaine": 1.5,
+            "Ketamine": 0.2,
+            "Dexmedetomidine": 0.5
+          },
+          "rates_after": {
+            "Lidocaine": 1.5,
+            "Ketamine": 0.2,
+            "Dexmedetomidine": 0.5
+          },
+          "status": "GREEN",
+          "hold_latched": false,
+          "Cp_ng_mL": 0.00017361111111111112,
+          "Ce_ng_mL": 2.8935185185185185e-07
+        },
+        {
+          "step": 2,
+          "hr": 40,
+          "map_mmHg": 50,
+          "rates_before": {
+            "Lidocaine": 1.5,
+            "Ketamine": 0.2,
+            "Dexmedetomidine": 0.5
+          },
+          "rates_after": {
+            "Lidocaine": 0.0,
+            "Ketamine": 0.2,
+            "Dexmedetomidine": 0.0
+          },
+          "status": "RED",
+          "hold_latched": true,
+          "Cp_ng_mL": 0.00034710648148148144,
+          "Ce_ng_mL": 8.673804012345679e-07
+        },
+        {
+          "step": 3,
+          "hr": 80,
+          "map_mmHg": 80,
+          "rates_before": {
+            "Lidocaine": 0.0,
+            "Ketamine": 0.2,
+            "Dexmedetomidine": 0.0
+          },
+          "rates_after": {
+            "Lidocaine": 0.0,
+            "Ketamine": 0.2,
+            "Dexmedetomidine": 0.0
+          },
+          "status": "HOLD",
+          "hold_latched": true,
+          "Cp_ng_mL": 0.00034687507716049383,
+          "Ce_ng_mL": 1.4440598958333332e-06
+        }
+      ],
+      "after_explicit_regeneration": {
+        "Lidocaine": 0.0,
+        "Ketamine": 0.0,
+        "Dexmedetomidine": 0.0,
+        "Ketorolac Adjunct": "No configured lockout; administration is not modeled"
+      },
+      "unsupported_drugs": {
+        "Propofol": [
+          false,
+          "UNASSESSED: no simulation rule for this drug"
+        ],
+        "Rocuronium": [
+          false,
+          "UNASSESSED: no simulation rule for this drug"
+        ],
+        "Fentanyl": [
+          false,
+          "UNASSESSED: no simulation rule for this drug"
+        ]
+      }
+    },
+    {
+      "label": "M2",
+      "fictional": true,
+      "narrative_metadata": {
+        "sex": "male",
+        "height_cm": 180,
+        "sex_and_height_used_by_model": false
+      },
+      "model_inputs": {
+        "age": 78,
+        "weight_kg": 80,
+        "asa_class": 3,
+        "egfr": 24,
+        "allergies": [],
+        "comorbidities": [
+          "Heart Block"
+        ]
+      },
+      "lockouts": [
+        "Ketorolac",
+        "Dexmedetomidine"
+      ],
+      "starting": {
+        "Lidocaine": 1.5,
+        "Ketamine": 0.2,
+        "Dexmedetomidine": 0.0,
+        "Ketorolac Adjunct": "LOCKED OUT (CI)"
+      },
+      "starting_mass_per_hour": {
+        "Dexmedetomidine_mcg": 0.0,
+        "Ketamine_mg": 16.0,
+        "Lidocaine_mg": 120.0
+      },
+      "trace": [
+        {
+          "step": 1,
+          "hr": 80,
+          "map_mmHg": 80,
+          "rates_before": {
+            "Lidocaine": 1.5,
+            "Ketamine": 0.2,
+            "Dexmedetomidine": 0.0
+          },
+          "rates_after": {
+            "Lidocaine": 1.5,
+            "Ketamine": 0.2,
+            "Dexmedetomidine": 0.0
+          },
+          "status": "GREEN",
+          "hold_latched": false,
+          "Cp_ng_mL": 0.0,
+          "Ce_ng_mL": 0.0
+        },
+        {
+          "step": 2,
+          "hr": 40,
+          "map_mmHg": 50,
+          "rates_before": {
+            "Lidocaine": 1.5,
+            "Ketamine": 0.2,
+            "Dexmedetomidine": 0.0
+          },
+          "rates_after": {
+            "Lidocaine": 0.0,
+            "Ketamine": 0.2,
+            "Dexmedetomidine": 0.0
+          },
+          "status": "RED",
+          "hold_latched": true,
+          "Cp_ng_mL": 0.0,
+          "Ce_ng_mL": 0.0
+        },
+        {
+          "step": 3,
+          "hr": 80,
+          "map_mmHg": 80,
+          "rates_before": {
+            "Lidocaine": 0.0,
+            "Ketamine": 0.2,
+            "Dexmedetomidine": 0.0
+          },
+          "rates_after": {
+            "Lidocaine": 0.0,
+            "Ketamine": 0.2,
+            "Dexmedetomidine": 0.0
+          },
+          "status": "HOLD",
+          "hold_latched": true,
+          "Cp_ng_mL": 0.0,
+          "Ce_ng_mL": 0.0
+        }
+      ],
+      "after_explicit_regeneration": {
+        "Lidocaine": 0.0,
+        "Ketamine": 0.0,
+        "Dexmedetomidine": 0.0,
+        "Ketorolac Adjunct": "LOCKED OUT (CI)"
+      },
+      "unsupported_drugs": {
+        "Propofol": [
+          false,
+          "UNASSESSED: no simulation rule for this drug"
+        ],
+        "Rocuronium": [
+          false,
+          "UNASSESSED: no simulation rule for this drug"
+        ],
+        "Fentanyl": [
+          false,
+          "UNASSESSED: no simulation rule for this drug"
+        ]
+      }
+    },
+    {
+      "label": "F2",
+      "fictional": true,
+      "narrative_metadata": {
+        "sex": "female",
+        "height_cm": 165,
+        "sex_and_height_used_by_model": false
+      },
+      "model_inputs": {
+        "age": 78,
+        "weight_kg": 60,
+        "asa_class": 3,
+        "egfr": 24,
+        "allergies": [],
+        "comorbidities": [
+          "Heart Block"
+        ]
+      },
+      "lockouts": [
+        "Ketorolac",
+        "Dexmedetomidine"
+      ],
+      "starting": {
+        "Lidocaine": 1.5,
+        "Ketamine": 0.2,
+        "Dexmedetomidine": 0.0,
+        "Ketorolac Adjunct": "LOCKED OUT (CI)"
+      },
+      "starting_mass_per_hour": {
+        "Dexmedetomidine_mcg": 0.0,
+        "Ketamine_mg": 12.0,
+        "Lidocaine_mg": 90.0
+      },
+      "trace": [
+        {
+          "step": 1,
+          "hr": 80,
+          "map_mmHg": 80,
+          "rates_before": {
+            "Lidocaine": 1.5,
+            "Ketamine": 0.2,
+            "Dexmedetomidine": 0.0
+          },
+          "rates_after": {
+            "Lidocaine": 1.5,
+            "Ketamine": 0.2,
+            "Dexmedetomidine": 0.0
+          },
+          "status": "GREEN",
+          "hold_latched": false,
+          "Cp_ng_mL": 0.0,
+          "Ce_ng_mL": 0.0
+        },
+        {
+          "step": 2,
+          "hr": 40,
+          "map_mmHg": 50,
+          "rates_before": {
+            "Lidocaine": 1.5,
+            "Ketamine": 0.2,
+            "Dexmedetomidine": 0.0
+          },
+          "rates_after": {
+            "Lidocaine": 0.0,
+            "Ketamine": 0.2,
+            "Dexmedetomidine": 0.0
+          },
+          "status": "RED",
+          "hold_latched": true,
+          "Cp_ng_mL": 0.0,
+          "Ce_ng_mL": 0.0
+        },
+        {
+          "step": 3,
+          "hr": 80,
+          "map_mmHg": 80,
+          "rates_before": {
+            "Lidocaine": 0.0,
+            "Ketamine": 0.2,
+            "Dexmedetomidine": 0.0
+          },
+          "rates_after": {
+            "Lidocaine": 0.0,
+            "Ketamine": 0.2,
+            "Dexmedetomidine": 0.0
+          },
+          "status": "HOLD",
+          "hold_latched": true,
+          "Cp_ng_mL": 0.0,
+          "Ce_ng_mL": 0.0
+        }
+      ],
+      "after_explicit_regeneration": {
+        "Lidocaine": 0.0,
+        "Ketamine": 0.0,
+        "Dexmedetomidine": 0.0,
+        "Ketorolac Adjunct": "LOCKED OUT (CI)"
+      },
+      "unsupported_drugs": {
+        "Propofol": [
+          false,
+          "UNASSESSED: no simulation rule for this drug"
+        ],
+        "Rocuronium": [
+          false,
+          "UNASSESSED: no simulation rule for this drug"
+        ],
+        "Fentanyl": [
+          false,
+          "UNASSESSED: no simulation rule for this drug"
+        ]
+      }
+    }
+  ],
+  "exact_boundary": {
+    "age": 65,
+    "egfr": 30,
+    "hr": 48,
+    "map_mmHg": 60,
+    "starting": {
+      "Lidocaine": 1.5,
+      "Ketamine": 0.2,
+      "Dexmedetomidine": 0.5,
+      "Ketorolac Adjunct": "No configured lockout; administration is not modeled"
+    },
+    "status": "GREEN",
+    "explanation": "Strict comparisons: exact boundary values do not trigger these configured rules; clinical acceptability remains unassessed."
+  }
+}
