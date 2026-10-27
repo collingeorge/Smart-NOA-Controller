@@ -35,6 +35,7 @@ class RevisionRegressionTests(unittest.TestCase):
 
     def test_low_hr_triggers_hold_at_zero_concentration(self):
         c = self.controller()
+        c.infusions['Dexmedetomidine'] = 0.0
         with patch('smart_noa_controller.random.randint', side_effect=[40, 80]), patch('smart_noa_controller.time.sleep'), contextlib.redirect_stdout(io.StringIO()):
             c.monitor_and_control(1)
         self.assertTrue(c.hold_latched)

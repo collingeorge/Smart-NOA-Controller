@@ -378,7 +378,7 @@ class SmartNOAController:
     def monitor_and_control(self, duration_sec: int = 30) -> None:
         """
         Phase 3: Simulates the closed-loop feedback system.
-        Reads simulated hemodynamics, updates PK model, and adjusts pump rates.
+        Reads synthetic values, updates an unvalidated model, and changes in-memory values.
         
         Args:
             duration_sec: Duration of monitoring simulation in seconds
@@ -406,7 +406,7 @@ class SmartNOAController:
             
             # 3. Dynamic Safety Interlocks (Educational Simulation Logic)
             
-            # Interlock A: Severe Bradycardia with high drug concentration
+            # Example rule A: low simulated heart rate, independent of model concentration
             if hr < hr_threshold:
                 self.hold_latched = True
                 self.infusions["Dexmedetomidine"] = 0.0
@@ -421,7 +421,7 @@ class SmartNOAController:
                 self.status = "RED"
                 print(f"T+{t:2d}s | MAP {map_val} | Ce: {dex_ce:.2f} → HYPOTENSION → PAUSING KEY INFUSIONS")
             
-            # Stable State: Maintain the calculated protocol rates
+            # A latched hold persists; there is no automatic restart policy.
             elif self.hold_latched:
                 self.status = "HOLD"
                 print(f"T+{t:2d}s | SIMULATION HOLD remains latched; no automatic restart.")
