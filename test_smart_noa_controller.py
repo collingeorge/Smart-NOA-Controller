@@ -234,7 +234,7 @@ class TestPharmacokinetics(unittest.TestCase):
             k1e=0.1
         )
         
-        # Simulate 10 minutes of infusion at 35 mcg/min (0.5 mcg/kg/hr for 70kg subject)
+        # Numerical model exercise at 35 mcg/min; not a clinical dose recommendation
         for _ in range(10):
             pk.update_concentration(infusion_rate_mcg_per_min=35, time_delta_min=1.0)
         

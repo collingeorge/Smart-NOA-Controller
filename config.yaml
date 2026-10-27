@@ -1,3 +1,5 @@
+# Illustrative simulation parameters only. No clinical values or rules are validated.
+# Do not interpret this configuration as a drug database or treatment protocol.
 # =============================================================================
 # Smart NOA Controller - Educational Simulation Configuration
 # All threshold values, simulated dose limits, and contraindication criteria
