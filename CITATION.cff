@@ -6,7 +6,7 @@ authors:
   - family-names: George
     given-names: Collin B.
     orcid: "https://orcid.org/0009-0007-8162-6839"
-version: "2026.10-rc1"
+version: "2026.10-rc2"
 license: "MIT"
 url: "https://github.com/collingeorge/Smart-NOA-Controller"
 repository-code: "https://github.com/collingeorge/Smart-NOA-Controller"

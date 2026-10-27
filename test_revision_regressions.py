@@ -80,5 +80,36 @@ class RevisionRegressionTests(unittest.TestCase):
         for drug in c.infusions:
             self.assertEqual(rates[drug], 0)
 
+    def test_simultaneous_low_hr_does_not_mask_low_pressure(self):
+        c = self.controller()
+        with patch('smart_noa_controller.random.randint', side_effect=[40, 50]), patch('smart_noa_controller.time.sleep'), contextlib.redirect_stdout(io.StringIO()):
+            c.monitor_and_control(1)
+        self.assertTrue(c.hold_latched)
+        self.assertEqual(c.status, 'RED')
+        self.assertEqual(c.infusions['Dexmedetomidine'], 0)
+        self.assertEqual(c.infusions['Lidocaine'], 0)
+
+    def test_overflow_rejected_without_partial_state_update(self):
+        model = Pharmacokinetics(10, 2, 0, 0)
+        model.update_concentration(5, 1)
+        before = (model.Cp, model.Ce)
+        with self.assertRaises(ValueError):
+            model.update_concentration(1e308, 10)
+        self.assertEqual((model.Cp, model.Ce), before)
+
+    def test_derived_volume_and_boolean_model_inputs_rejected(self):
+        for values in ((1e308, 1e308, 0, 0), (True, 1, 0, 0), (1, 1, True, 0)):
+            with self.subTest(values=values), self.assertRaises(ValueError):
+                Pharmacokinetics(*values)
+
+    def test_rate_conversion_rejects_other_drug_units(self):
+        with self.assertRaises(ValueError):
+            self.controller()._rate_to_mcg_per_min('Ketamine')
+
+    def test_invalid_duration_rejected(self):
+        for duration in (-1, True, 0.5):
+            with self.subTest(duration=duration), self.assertRaises(ValueError):
+                self.controller().monitor_and_control(duration)
+
 if __name__ == '__main__':
     unittest.main()

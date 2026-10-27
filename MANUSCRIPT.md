@@ -45,7 +45,7 @@ Configured low-heart-rate or low-mean-pressure events set selected simulated val
 ## Verification and limitations
 
 
-Software tests exercise sample lockouts, numerical updates, unknown-drug handling, invalid inputs, and latched holds. Passing tests is not clinical validation. No clinical event-prevention rate is reported. Random vital signs are independent of drug concentrations: the model does not simulate a physiologic feedback response.
+31 software tests exercise sample lockouts, numerical updates, unknown-drug handling, invalid inputs, simultaneous alerts, overflow rejection without partial state mutation, unit-conversion boundaries, and latched holds. Passing tests is not clinical validation. No clinical event-prevention rate is reported. Random vital signs are independent of drug concentrations: the model does not simulate a physiologic feedback response.
 
 The program lacks comprehensive input validation, drug interaction modeling, monitoring of actual signals, sensor-failure handling, human-factors evaluation, and a validated alarm architecture. There are no medical-device interfaces. Do not enter real patient information or connect equipment.
 
