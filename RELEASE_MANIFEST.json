@@ -1,6 +1,6 @@
 {
   "candidate": "2026.10-rc2",
-  "public_release": false,
+  "public_release": true,
   "history_included": false,
   "history_audited": false,
   "secret_scan_scope": "Listed current files only; three high-confidence patterns. Not a full credential, PHI, copyright, or clinical audit.",
@@ -23,8 +23,8 @@
     },
     {
       "path": "DEVELOPMENT.md",
-      "bytes": 767,
-      "sha256": "2f51322bda88ff05262036ff994e81824416b93fc617274996410384210c2631"
+      "bytes": 1176,
+      "sha256": "70fc7c2da80df5dc383d35e99fe46ffc4c653cb114a2ae0c46c24e0fccd71c75"
     },
     {
       "path": "DOCUMENT_BUILD.json",
@@ -63,13 +63,13 @@
     },
     {
       "path": "README.md",
-      "bytes": 3089,
-      "sha256": "78fe31254abf90e0d0c82cff27adef906fc04c5cbde42ab1f2a157486efd9b83"
+      "bytes": 3587,
+      "sha256": "1e26648a07fad5286cf9bdc7bd5b064f61eb8e76a7f8f5913187a029a7112217"
     },
     {
       "path": "RELEASE_NOTES.md",
-      "bytes": 610,
-      "sha256": "01f827257e76caabbc7bacfcd4ce085780b0dfe289a74058d2f1be760194423f"
+      "bytes": 1176,
+      "sha256": "630fd7371a54df514577a7e2dc61f00588eb5dfc438317805ce452d2d658cf49"
     },
     {
       "path": "requirements.txt",
@@ -105,6 +105,23 @@
       "path": "test_smart_noa_controller.py",
       "bytes": 12968,
       "sha256": "5f3e5aff44fe29c03df99268bb6c1cc38d7ff5c0eb87e20396db28adf048449a"
+    },
+    {
+      "path": "GUIDELINE_INFORMED_EXAMPLES.md",
+      "bytes": 14934,
+      "sha256": "8313fef08faa6ccfd1e77ca1c267003dc656dbe8cb77eae5230febeec0d0b010"
+    },
+    {
+      "path": "example_walkthrough.py",
+      "bytes": 3795,
+      "sha256": "1fbff6ecb3edfdc007276ae7244745b6d3f3befc1420ed7fc0756aecc281d9e8"
+    },
+    {
+      "path": "EXAMPLE_RESULTS.json",
+      "bytes": 12305,
+      "sha256": "2957a35077d9d10981f6e6f5f287411287ca813a753389e9765610a02f93c246"
     }
-  ]
+  ],
+  "supplement": "paired-examples-2026-10-27",
+  "visibility_note": "Repository made public at author request; this records visibility, not legal or clinical clearance."
 }

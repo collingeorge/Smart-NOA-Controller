@@ -16,6 +16,10 @@ python smart_noa_controller.py
 
 The demo uses fictional profiles and sleeps between iterations. Do not enter patient information, connect equipment, or interpret printed values as clinical advice.
 
+## Paired examples and decision flow
+
+Read [the synthetic male and female walkthroughs](GUIDELINE_INFORMED_EXAMPLES.md) for literature-supported dosing context, explicit unit arithmetic, actual software traces, decision flows, and the limits of each implemented safeguard. Four profiles and exact-threshold behavior are reproducible with `python example_walkthrough.py`; see [the recorded outputs](EXAMPLE_RESULTS.json). These examples do not change the control logic or authorize administration.
+
 ## Implementation and limitations
 
 - Reads illustrative values from config.yaml using PyYAML.
