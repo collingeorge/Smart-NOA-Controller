@@ -3,6 +3,8 @@
 
 These examples explain the existing software and selected literature. They are entirely fictional, independent of clinical encounters and shadowing notes. No drugs were administered. They are not a standardized anesthetic regimen, patient-specific recommendations, proof of safety, or a replacement for clinical assessment. The male and female labels describe fictional adults; they do not create a sex-based dosing rule.
 
+For broader procedure-specific choices, see [Anesthesia options, standards and synthetic cases](ANESTHESIA_OPTIONS_AND_CASES.md). That companion covers clinical discussion outside the simulation.
+
 ## 1. What the program actually does
 The program reads a fictional profile and config.yaml, applies a few exact-string profile rules, returns configured per-kg rate values, and repeatedly updates a dexmedetomidine toy concentration model. It samples synthetic HR and MAP independently of concentrations and changes selected in-memory rates when thresholds are crossed. There is no monitor, pump, IV line, patient connection, or clinical feedback model.
 

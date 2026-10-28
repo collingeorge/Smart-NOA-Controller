@@ -63,13 +63,13 @@
     },
     {
       "path": "README.md",
-      "bytes": 3587,
-      "sha256": "1e26648a07fad5286cf9bdc7bd5b064f61eb8e76a7f8f5913187a029a7112217"
+      "bytes": 4040,
+      "sha256": "651fca34052decf38e680d0fe005886453f6959ee68308038f6768698a393258"
     },
     {
       "path": "RELEASE_NOTES.md",
-      "bytes": 1176,
-      "sha256": "630fd7371a54df514577a7e2dc61f00588eb5dfc438317805ce452d2d658cf49"
+      "bytes": 1625,
+      "sha256": "034c4c8c33e7e05b4f1b58b7c1f900e445891d5aab6051f831a7fa6581f09d82"
     },
     {
       "path": "requirements.txt",
@@ -108,8 +108,8 @@
     },
     {
       "path": "GUIDELINE_INFORMED_EXAMPLES.md",
-      "bytes": 14934,
-      "sha256": "8313fef08faa6ccfd1e77ca1c267003dc656dbe8cb77eae5230febeec0d0b010"
+      "bytes": 15131,
+      "sha256": "9a0a95f9bc204746887ac1c869e38a2a7f26e21521c2b00a964497e537363d23"
     },
     {
       "path": "example_walkthrough.py",
@@ -120,8 +120,22 @@
       "path": "EXAMPLE_RESULTS.json",
       "bytes": 12305,
       "sha256": "2957a35077d9d10981f6e6f5f287411287ca813a753389e9765610a02f93c246"
+    },
+    {
+      "path": "ANESTHESIA_OPTIONS_AND_CASES.md",
+      "bytes": 24873,
+      "sha256": "82296c7b8cfe3a5204303f211fe1354373ac9a625fe3984148440165d0755426"
+    },
+    {
+      "path": "ANESTHESIA_SOURCE_AUDIT.json",
+      "bytes": 4088,
+      "sha256": "7e6b4417f53571ef052e3fbe5b993fcab3af84a04d544b91b30191f743ee28d4"
     }
   ],
   "supplement": "paired-examples-2026-10-27",
-  "visibility_note": "Repository made public at author request; this records visibility, not legal or clinical clearance."
+  "visibility_note": "Repository made public at author request; this records visibility, not legal or clinical clearance.",
+  "supplements": [
+    "paired-examples-2026-10-27",
+    "anesthesia-options-2026-10-28"
+  ]
 }
