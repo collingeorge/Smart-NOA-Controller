@@ -63,13 +63,13 @@
     },
     {
       "path": "README.md",
-      "bytes": 4040,
-      "sha256": "651fca34052decf38e680d0fe005886453f6959ee68308038f6768698a393258"
+      "bytes": 4445,
+      "sha256": "aa34d5dfb7bce7d74afe1ded8c24e69b9e1c265bcc3bea6f38dcb5cfa03e81f8"
     },
     {
       "path": "RELEASE_NOTES.md",
-      "bytes": 1625,
-      "sha256": "034c4c8c33e7e05b4f1b58b7c1f900e445891d5aab6051f831a7fa6581f09d82"
+      "bytes": 1816,
+      "sha256": "6bf4b6e04d48f9c6cc3fc5591e46e8fd3c14b8aeb03e31a05665b4c8e44e7e0f"
     },
     {
       "path": "requirements.txt",
@@ -130,9 +130,24 @@
       "path": "ANESTHESIA_SOURCE_AUDIT.json",
       "bytes": 4088,
       "sha256": "7e6b4417f53571ef052e3fbe5b993fcab3af84a04d544b91b30191f743ee28d4"
+    },
+    {
+      "path": "CASE_EXAMPLE_STANDARD.md",
+      "bytes": 2519,
+      "sha256": "82ee781bc5ed0dc9edee2fb607f2a877d3cdc151bf982d072eac9d999c6de93b"
+    },
+    {
+      "path": "CLINICAL_EXAMPLE_INDEX.md",
+      "bytes": 4537,
+      "sha256": "40f60e18d5ee02d18fd615d7f26edaa8dcf268f097b8f9bcd02ade5236935d04"
+    },
+    {
+      "path": "EXAMPLES_MANIFEST.json",
+      "bytes": 851,
+      "sha256": "7821743427df87eaca7386a13beaf53400d7faca04f6c1cc426c4d0bec250f7a"
     }
   ],
-  "supplement": "paired-examples-2026-10-27",
+  "supplement": "clinical-applied-cases-2026-10-28",
   "visibility_note": "Repository made public at author request; this records visibility, not legal or clinical clearance.",
   "supplements": [
     "paired-examples-2026-10-27",

@@ -11,3 +11,6 @@ Added paired fictional male/female software walkthroughs and higher-risk variant
 
 ## Multimodal anesthesia options — 28 October 2026
 Added an educational comparison of four anesthesia options, six synthetic male/female case pairs (12 cases), two decision flows and a DOI source map. Corrected IV maintenance, MAC/sedation-depth, blocker reversal and regional-adjuvant distinctions. Existing manuscript/PDF content, controller logic and configuration are retained; no new controller capability or clinical validation is claimed.
+
+## Clinical example rollout — 28 October 2026
+Added shared documentation standard and portfolio case index; existing model walkthroughs, code, configuration, manuscript and PDFs retained.

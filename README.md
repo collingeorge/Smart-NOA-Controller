@@ -46,3 +46,7 @@ No rate, threshold, or age adjustment is endorsed as a clinical recommendation. 
 The software is under the [MIT License](LICENSE). Safety warnings describe intended use; they do not add field-of-use restrictions to MIT or promise immunity from liability. Third-party material retains its own rights.
 
 Collin B. George, BS. Independent educational project; no institutional endorsement is claimed.
+
+## Portfolio-wide applied learning
+
+The [example format and verification standard](CASE_EXAMPLE_STANDARD.md) and [clinical example index](CLINICAL_EXAMPLE_INDEX.md) connect this simulation to the topic-specific casebooks across the clinical education portfolio. The shared format documents reasoning and evidence applicability; it does not validate the simulator or turn its outputs into clinical doses.

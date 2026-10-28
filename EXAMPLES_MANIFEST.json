@@ -1,0 +1,29 @@
+{
+  "date": "2026-10-28",
+  "scope": "Files added/edited for the applied-case supplement; not a full repository/history audit",
+  "case_pairs": null,
+  "full_text_audit_complete": false,
+  "clinical_validation": false,
+  "files": [
+    {
+      "path": "README.md",
+      "bytes": 4445,
+      "sha256": "aa34d5dfb7bce7d74afe1ded8c24e69b9e1c265bcc3bea6f38dcb5cfa03e81f8"
+    },
+    {
+      "path": "CASE_EXAMPLE_STANDARD.md",
+      "bytes": 2519,
+      "sha256": "82ee781bc5ed0dc9edee2fb607f2a877d3cdc151bf982d072eac9d999c6de93b"
+    },
+    {
+      "path": "CLINICAL_EXAMPLE_INDEX.md",
+      "bytes": 4537,
+      "sha256": "40f60e18d5ee02d18fd615d7f26edaa8dcf268f097b8f9bcd02ade5236935d04"
+    },
+    {
+      "path": "RELEASE_NOTES.md",
+      "bytes": 1816,
+      "sha256": "6bf4b6e04d48f9c6cc3fc5591e46e8fd3c14b8aeb03e31a05665b4c8e44e7e0f"
+    }
+  ]
+}
