@@ -1,0 +1,104 @@
+{
+  "checked_date": "2026-10-28",
+  "journal_sources": [
+    {
+      "id": "G",
+      "doi": "10.1056/NEJMra0808281",
+      "identity_checked": true,
+      "source_scope": "Publisher/PubMed record and available source passages; not an exhaustive full-text systematic appraisal"
+    },
+    {
+      "id": "W",
+      "doi": "10.1007/s12630-018-1111-5",
+      "identity_checked": true,
+      "source_scope": "Publisher/PubMed record and available source passages; not an exhaustive full-text systematic appraisal"
+    },
+    {
+      "id": "M",
+      "doi": "10.1111/anae.15501",
+      "identity_checked": true,
+      "source_scope": "Publisher/PubMed record and available source passages; not an exhaustive full-text systematic appraisal"
+    },
+    {
+      "id": "T",
+      "doi": "10.1111/anae.14428",
+      "identity_checked": true,
+      "source_scope": "Publisher/PubMed record and available source passages; not an exhaustive full-text systematic appraisal"
+    },
+    {
+      "id": "N",
+      "doi": "10.1097/ALN.0000000000004379",
+      "identity_checked": true,
+      "source_scope": "Publisher/PubMed record and available source passages; not an exhaustive full-text systematic appraisal"
+    },
+    {
+      "id": "S",
+      "doi": "10.1097/ALN.0000000000002043",
+      "identity_checked": true,
+      "source_scope": "Publisher/PubMed record and available source passages; not an exhaustive full-text systematic appraisal"
+    },
+    {
+      "id": "A",
+      "doi": "10.1136/rapm-2024-105766",
+      "identity_checked": true,
+      "source_scope": "Publisher/PubMed record and available source passages; not an exhaustive full-text systematic appraisal"
+    },
+    {
+      "id": "K",
+      "doi": "10.1097/EJA.0000000000001691",
+      "identity_checked": true,
+      "source_scope": "Publisher/PubMed record and available source passages; not an exhaustive full-text systematic appraisal"
+    },
+    {
+      "id": "B",
+      "doi": "10.1097/ALN.0000000000005790",
+      "identity_checked": true,
+      "source_scope": "Publisher/PubMed record and available source passages; not an exhaustive full-text systematic appraisal"
+    },
+    {
+      "id": "L",
+      "doi": "10.1016/j.jaad.2016.01.022",
+      "identity_checked": true,
+      "source_scope": "Publisher/PubMed record and available source passages; not an exhaustive full-text systematic appraisal"
+    },
+    {
+      "id": "R",
+      "doi": "10.1111/anae.15245",
+      "identity_checked": true,
+      "source_scope": "Publisher/PubMed record and available source passages; not an exhaustive full-text systematic appraisal"
+    },
+    {
+      "id": "O",
+      "doi": "10.1097/ALN.0000000000000975",
+      "identity_checked": true,
+      "source_scope": "Publisher/PubMed record and available source passages; not an exhaustive full-text systematic appraisal"
+    },
+    {
+      "id": "X",
+      "doi": "10.1136/rapm-2020-101986",
+      "identity_checked": true,
+      "source_scope": "Publisher/PubMed record and available source passages; not an exhaustive full-text systematic appraisal"
+    },
+    {
+      "id": "C",
+      "doi": "10.1097/ALN.0000000000000935",
+      "identity_checked": true,
+      "source_scope": "Publisher/PubMed record and available source passages; not an exhaustive full-text systematic appraisal"
+    },
+    {
+      "id": "P",
+      "doi": "10.1097/ALN.0000000000003725",
+      "identity_checked": true,
+      "source_scope": "Publisher/PubMed record and available source passages; not an exhaustive full-text systematic appraisal"
+    }
+  ],
+  "official_nonjournal_sources": [
+    "ASA basic monitoring standard",
+    "ASA sedation continuum statement",
+    "DailyMed neostigmine prescribing information"
+  ],
+  "synthetic_cases": 12,
+  "case_pairs": 6,
+  "clinical_validation": false,
+  "notes": "Journal source identities have DOIs. Official society statements and prescribing information are separately identified, not represented as peer-reviewed journal articles. Clinical principles inform fictional case discussions; no observed administrations or study participants are represented."
+}

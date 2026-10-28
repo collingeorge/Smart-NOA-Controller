@@ -20,6 +20,10 @@ The demo uses fictional profiles and sleeps between iterations. Do not enter pat
 
 Read [the synthetic male and female walkthroughs](GUIDELINE_INFORMED_EXAMPLES.md) for literature-supported dosing context, explicit unit arithmetic, actual software traces, decision flows, and the limits of each implemented safeguard. Four profiles and exact-threshold behavior are reproducible with `python example_walkthrough.py`; see [the recorded outputs](EXAMPLE_RESULTS.json). These examples do not change the control logic or authorize administration.
 
+## Anesthesia options and procedure cases
+
+[Compare anesthesia options, standards and twelve synthetic adult cases](ANESTHESIA_OPTIONS_AND_CASES.md): general, regional, procedural sedation/MAC and local anesthesia, with six male/female pairs, medication roles/routes, individualized alternatives and two discussion flows. This companion guide describes clinical concepts outside the implemented controller; it does not add drug or device capabilities.
+
 ## Implementation and limitations
 
 - Reads illustrative values from config.yaml using PyYAML.
