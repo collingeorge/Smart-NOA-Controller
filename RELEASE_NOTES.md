@@ -14,3 +14,8 @@ Added an educational comparison of four anesthesia options, six synthetic male/f
 
 ## Clinical example rollout — 28 October 2026
 Added shared documentation standard and portfolio case index; existing model walkthroughs, code, configuration, manuscript and PDFs retained.
+
+
+## 29 October 2026 — Portfolio presentation and reading path
+
+Added a concise reader’s guide, explicit AI-assistance/authorship scope and review-status notes. Linked the portfolio home and corrected navigation wording. This presentation pass preserves substantive manuscripts, casebooks, code and existing exports. Repository visibility is unchanged.
