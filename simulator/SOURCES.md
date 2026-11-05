@@ -25,7 +25,7 @@ Entries S1–S22 reuse citations and verification text from `breast-reconstructi
 | S10 | S15 (Schwenk 2018) | S21 | S33 (STOP-Bang 2016) |
 | S11 | S16 (propofol) | S22 | S35 (ASA monitoring) |
 
-S23–S39 are new. S38 and S39 are non-label sources used only for nitrous oxide (see below). S35 is the repository's own `config.yaml`. It is cited only so the simulator matches the Python controller's software ceilings and lockouts. It is **not clinical evidence**.
+S23–S43 are new (S40–S43 added later on 2026-11-05 for epinephrine, the Eleveld propofol model and sepsis fluid context). S38 and S39 are non-label sources used only for nitrous oxide (see below). S35 is the repository's own `config.yaml`. It is cited only so the simulator matches the Python controller's software ceilings and lockouts. It is **not clinical evidence**.
 
 ## Data conventions
 
@@ -365,11 +365,104 @@ Type: physiology study
 - **Used by:** nitrous_oxide
 - **Verified via:** WebSearch records of PubMed 14257336 (citation; no abstract listed), the Scilit record (conclusion "relatively contraindicated in intestinal obstruction or pneumothorax"), BestBets review table (dog data, +100% at 10 min, ~+300% at 60 min) and a textbook figure reproduction (75% N2O), 2026-11-05. Full text not opened; volume figures are from secondary reproductions. Animal study (pneumothorax created by air injection). Non-label source: used because no US nitrous oxide label states contraindications. (date 2026-11-05)
 
+### S40
+**Epinephrine injection, USP 1 mg/mL (ADRENALIN). Par Pharmaceutical / Par Health USA. FDA-approved prescribing information (DailyMed setid 3b7a4364-668d-4eb2-a20c-04adc35aabe4; FDA-hosted label files 204200s004 (2016), 204200s009/204640s009 (2019), 204640Orig1s018 (2023)).** https://dailymed.nlm.nih.gov/dailymed/drugInfo.cfm?setid=3b7a4364-668d-4eb2-a20c-04adc35aabe4  
+Identifiers: NDA 204200 / NDA 204640 (as shown in FDA-hosted label file names; not otherwise re-verified)
+
+- **Supports:** Anaphylaxis, adults and children over 30 kg: 0.3–0.5 mg (0.3–0.5 mL) undiluted IM or SC into the anterolateral thigh, up to a maximum of 0.5 mg (0.5 mL) per injection, every 5–10 min as necessary; monitor clinically for reaction severity and cardiac effects; do not inject into buttock, digits, hands or feet. Hypotension associated with septic shock: dilute 1 mg in 1000 mL D5W (1 mcg/mL), large vein, 0.05–2 mcg/kg/min titrated to the desired MAP. Contraindications: None. Contains sodium bisulfite; "presence of sulfite in this product should not deter use for anaphylaxis". "Epinephrine may induce cardiac arrhythmias and myocardial ischemia in patients, especially patients suffering from coronary artery disease, or cardiomyopathy."
+- **Used by:** epinephrine
+- **Verified via:** WebSearch records (2026-11-05) of DailyMed Adrenalin listings (setids 3b7a4364-…, 7663c49d-…, b293ad8e-…), drugs.com/pro/adrenalin-injection, the FFF Enterprises-hosted Adrenalin PI PDF, guidelinecentral.com and FDA-hosted Adrenalin labels 204200s004 / 204200s009 / 204640s018. The weight boundary appeared as "over 30 kg" (children "30 kg or less"); wording may differ between versions. Full label text not opened (DailyMed and accessdata.fda.gov unreachable from the build environment). (date 2026-11-05)
+
+### S41
+**Epinephrine injection (generic 1 mg/mL vial; NDA 215425). FDA-approved prescribing information, 2025 (215425s000lbl.pdf); and other generic epinephrine injection labels (NDA 205029, 2021–2025 revisions; Pfizer/Hospira labeling).** https://www.accessdata.fda.gov/drugsatfda_docs/label/2025/215425s000lbl.pdf  
+Identifiers: NDA 215425; NDA 205029 (as shown in FDA-hosted label file names)
+
+- **Supports:** Septic-shock hypotension: 0.05–2 mcg/kg/min titrated to the desired MAP; adjust e.g. every 10–15 min in increments of 0.05–0.2 mcg/kg/min; wean incrementally after stabilisation. "The ideal body weight (IBW) should be used as the weight parameter for dosing epinephrine in adult patients with septic shock associated hypotension" (215425 label). Sulfite should not deter use for septic-shock hypotension.
+- **Used by:** epinephrine
+- **Verified via:** WebSearch records (2026-11-05) of FDA-hosted labels 215425s000 (IBW sentence quoted verbatim), 205029Orig1s009 and 205029Orig1s015, DailyMed generic listings and a Pfizer highlights page ("0.05 mcg/kg/min to 2 mcg/kg/min, titrated to achieve desired mean arterial pressure (2.2) • Wean gradually"). The exact label carrying each titration/weaning excerpt was not pinned down. Full text not opened. (date 2026-11-05)
+
+### S42
+**Eleveld DJ, Colin P, Absalom AR, Struys MMRF. Pharmacokinetic-pharmacodynamic model for propofol for broad application in anaesthesia and sedation. Br J Anaesth. 2018;120(5):942-959. Corrigendum: Br J Anaesth. 2018;121(2):519.** https://www.bjanaesthesia.org/article/S0007-0912(18)30051-5/fulltext  
+Identifiers: doi:10.1016/j.bja.2018.01.018; PMID 29661412  
+Type: published population PK-PD model
+
+- **Supports:** The propofol PK model (see "Propofol PK model" below).
+- **Used by:** propofol (`pkModel: 'eleveld'`)
+- **Verified via:** see "Propofol PK model" below. (date 2026-11-05)
+
+### S43
+**Evans L, Rhodes A, Alhazzani W, et al. Surviving Sepsis Campaign: international guidelines for management of sepsis and septic shock 2021. Crit Care Med. 2021 (published simultaneously in Intensive Care Med. 2021).** https://sccm.org/sepsisguidelines  
+Identifiers: none confirmed (volume, pages, DOI and PMID not re-verified)  
+Type: guideline
+
+- **Supports:** "For adults with sepsis-induced hypoperfusion or septic shock, we suggest that at least 30 mL/kg of IV crystalloid fluid should be given within the first 3 hours of resuscitation" — weak recommendation, low quality of evidence (downgraded from strong in 2016).
+- **Used by:** engine only (context text logged when a sepsis patient's cumulative crystalloid reaches 30 mL/kg). No dose, threshold or effect size in the simulator is derived from it.
+- **Verified via:** WebSearch records (2026-11-05) of sccm.org/sepsisguidelines, an AMiner executive-summary record, emDocs and Red Cross summaries and a CME PDF reproducing the wording and grading. The guideline text itself was not opened. (date 2026-11-05)
+
+## Propofol PK model
+
+Propofol now uses the **Eleveld 2018** published population PK model (`pkModel: 'eleveld'`, arterial form, `engine/pk.js` `ELEVELD_2018` / `eleveldPropofol()`); `pkModelFallback: 'calibrated'` keeps the illustrative model available. Order tried: Eleveld 2018 → (Schnider 1998/1999, Marsh 1991 not needed). Eleveld was implemented because its full parameter set could be checked in more than two independent sources.
+
+**How it was verified.** The publisher page, PMC, PubMed and doi.org could not be opened from the build environment, and the PK theta values were **not** displayed in any publisher or PubMed search record. The parameter set was therefore taken from four sources that agree to the printed precision:
+
+1. CRAN package **tci** 0.2.1 (R. Jarrett), `R/poppk_mods.R` `pkmod_eleveld_ppf` (GitHub mirror cran/tci, cloned 2026-11-05).
+2. PyPI **python-anesthesia-simulator** 1.0.0 (B. Aubouin-Pairault), `pk_models.py` (thetas at full precision, e.g. Θ1 6.2830780766822).
+3. **vitaldb/tivatci**, `tivatci/__init__.py`.
+4. **stanpumpR** (S. L. Shafer) `papers/digests/PMID_29661412.md`: a digest of the paper PDF quoting Table 2/3 values with 99% CIs, page numbers, the printed equations and the corrigendum Q2 value. It is itself an AI-assisted reading, so it is secondary.
+
+Cross-check against publication records: the PD/effect-site values (ke0 0.146 arterial, 1.24 venous; Ce50 3.08; age term −0.00635; BIS0 93.0; γ 1.47/1.89) were seen in a WebSearch record of the BJA table. The model structure was also seen in search records: three compartments, covariates age, weight, height, sex and concomitant drugs, with an opioid effect lowering CL and V3 in an age-dependent way. Citation, DOI, PMID and corrigendum were seen in bvsalud/mardi4nfdi/BJA records. The owner should still compare the Θ values below with Table 2 of the paper and the corrigendum, which asks implementers to use the supplementary NONMEM control streams.
+
+| Parameter | Value | Source |
+|---|---|---|
+| Θ1 V1ref | 6.28 L | Table 2 (via 1–4) |
+| Θ2 V2ref | 25.5 L | Table 2 |
+| Θ3 V3ref | 273 L | Table 2 |
+| Θ4 CLref male | 1.79 L/min | Table 2 |
+| Θ5 Q2ref | 1.75 L/min (1.83 at reference after Θ16 term; corrigendum) | Table 2 / corrigendum |
+| Θ6 Q3ref | 1.11 L/min | Table 2 |
+| Θ7 residual error | 0.191 | Table 2 (not used) |
+| Θ8 CL maturation E50 | 42.3 weeks PMA | Table 2 |
+| Θ9 CL maturation slope | 9.06 | Table 2 |
+| Θ10 V2 age | −0.0156 /yr | Table 2 |
+| Θ11 CL age (with concomitant drugs) | −0.00286 /yr | Table 2 |
+| Θ12 V1 weight E50 | 33.6 kg | Table 2 |
+| Θ13 V3 age (with concomitant drugs) | −0.0138 /yr | Table 2 |
+| Θ14 Q3 maturation E50 | 68.3 weeks | Table 2 |
+| Θ15 CLref female | 2.10 L/min | Table 2 |
+| Θ16 Q2 maturation factor | 1.30 | Table 2 |
+| Θ17 V1 venous factor | 1.42 | Table 2 (venous form only) |
+| Θ18 Q2 venous factor | 0.68 | Table 2 (venous form only) |
+| ke0 arterial | 0.146 min⁻¹ × (WGT/70)^−0.25 | Table 3 Θ2 (also search record) |
+| ke0 venous | 1.24 min⁻¹ × (WGT/70)^−0.25 | Table 3 Θ8 (not used) |
+| Reference individual | 35 y, 70 kg, 170 cm, male | paper p943 (via 4) |
+
+Equations (as printed, p948, and identical in sources 1–4): V1 = Θ1·f(WGT)/f(70), f(x) = x/(x+Θ12); V2 = Θ2·(WGT/70)·exp(Θ10·(AGE−35)); V3 = Θ3·(FFM/FFMref)·fop(Θ13); CL = (Θ4 male | Θ15 female)·(WGT/70)^0.75·fCLmat/fCLmat,ref·fop(Θ11); Q2 = Θ5·(V2/Θ2)^0.75·(1+Θ16·(1−fQ3mat)); Q3 = Θ6·(V3/Θ3)^0.75·fQ3mat/fQ3mat,ref; fop(x) = exp(x·AGE) with concomitant drugs, else 1; fCLmat = PMA^Θ9/(PMA^Θ9+Θ8^Θ9); fQ3mat = (AGE·52+40)/(AGE·52+40+Θ14); PMA (weeks) = AGE·52+40. FFM = Al-Sallami 2015: male (0.88 + 0.12/(1+(AGE/13.4)^−12.7))·9270·WGT/(6680+216·BMI); female (1.11 − 0.11/(1+(AGE/7.1)^−1.1))·9270·WGT/(8780+244·BMI).
+
+**Reference values reproduced in tests** (`tests/models.test.mjs`, implementation verification, not validation):
+- Reference individual, no concomitant drugs: V1 6.28, V2 25.5, V3 273 L; CL 1.79, Q2 1.83 (corrigendum), Q3 1.11 L/min; ke0 0.146 min⁻¹. Female CL 2.10 L/min.
+- Same individual with concomitant opioid: CL 1.619 L/min, V3 ≈ 168.2 L, Q3 ≈ 0.771 L/min (as computed in the stanpumpR digest; this code gives V3 168.4 because it uses the 3-significant-figure Θ3 = 273).
+- Derived, not a published table value: bolus time to peak Ce ≈ 2.9 min at the reference (also the digest's derived figure).
+
+**Simulator choices (not part of the published model):** the arterial form is used. The concomitant-drug switch is set once, when the propofol model is first created: it is ON if an opioid or IV local anaesthetic is in the plan or already given. The simulated depth index, sedation level, MAP and respiratory effects still come from the illustrative PD in `engine/pd.js`. They are driven by Ce normalised to the peak Ce of a 2 mg/kg bolus in the Eleveld reference individual. The Eleveld BIS model is **not** used, and the depth index is not BIS.
+
+Cross-checking mattered: one implementation's Schnider function (tci 0.2.1 `pkmod_schnider`) uses lean body mass where Schnider's CL equation uses weight. This was noticed while comparing sources, and Schnider is not used here.
+
+## Epinephrine and IV fluids
+
+- **Epinephrine** (S40, S41): `rescue` = anaphylaxis IM 0.3 mg (range 0.3–0.5 mg; label maximum 0.5 mg per injection, hard stop), modelled with an illustrative IM absorption constant. `maintenance` = septic-shock infusion 0.05–2 mcg/kg/min on ideal body weight. The 2 mcg/kg/min hard stop is the top of the labelled range, which the label does not call a maximum. This follows the phenylephrine pattern (rescue bolus + maintenance infusion), because one regimen key cannot hold two dose kinds. Warnings: CAD, and HFrEF as a policy mapping of "cardiomyopathy". The label lists no contraindications. **Push-dose epinephrine is not included (no label/guideline dose verified).** An IV epinephrine bolus is blocked with that reason.
+- **IV fluid bolus** (`sim.action('fluid_bolus:250' | 'fluid_bolus:500' | 'fluid_bolus')`, default 500 mL crystalloid; `state.fluids = { crystalloidMl, infusingMl, boluses }`; `summary().fluids`). The response model is **illustrative** (see Model assumptions). The only cited item is S43, which is logged as context text for sepsis patients at 30 mL/kg.
+
 ## Not included, and why
 
 | Item | Reason |
 |---|---|
-| Marsh 1991 propofol PK parameters (`pkModel: 'marsh'`) | The citation was confirmed (Br J Anaesth 1991;67(1):41-48, doi:10.1093/bja/67.1.41). The adult parameter set (V1, k10, k12, k13, k21, k31, ke0) was **not** displayed in any search record, so propofol uses `pkModel: 'calibrated'`. |
+| Marsh 1991 propofol PK parameters (`pkModel: 'marsh'`) | The citation was confirmed (Br J Anaesth 1991;67(1):41-48, doi:10.1093/bja/67.1.41). The adult parameter set was **not** displayed in any search record. Two implementations (tci, python-anesthesia-simulator) agree with the engine's constants, but that is not a check of the paper. Not needed: propofol uses Eleveld 2018 (see "Propofol PK model"). |
+| Schnider 1998/1999 propofol model | Not needed, because Eleveld 2018 was verified first. Not implemented. |
+| Push-dose (IV bolus) epinephrine | Not included: no label or guideline dose was verified. The simulator blocks an IV epinephrine bolus with this reason. |
+| Epinephrine onset/peak/duration; IM absorption time course | No label timing statement was verified. The engine uses illustrative author estimates (`ILLUSTRATIVE_PK.epinephrine`, `ROUTE_KA_ILLUSTRATIVE`). |
+| Epinephrine label wording on hypovolaemia, hyperthyroidism, diabetes and Parkinson's disease | Not retrieved verbatim in this session, so no rule was added. Only the CAD/cardiomyopathy warning is used. |
+| Fluid-response physiology (volume expansion, crystalloid redistribution) | No source was verified for the size or time course of the MAP response to a crystalloid bolus. The model is illustrative. The SSC 2021 30 mL/kg statement (S43) is shown only as context. |
+| Blood products, colloids, fluid-overload harm | Not modelled. |
 | Ketamine for MAC sedation (all `sedation_*` keys) | No label or guideline sedation dose was verified. The label gives anaesthetic doses only, and Schwenk 2018 covers analgesic infusions. |
 | Fentanyl for MAC sedation (all `sedation_*` keys) | The label gives premedication (IM) and general-anaesthesia tiers only. No IV procedural-sedation dose was verified. The 2018 ASA sedation guideline (S32) gives no doses. |
 | Fentanyl high-dose tier (20–50 mcg/kg) | Not verified this session. Also not relevant to the modelled cases. |
@@ -392,9 +485,28 @@ Type: physiology study
 
 ## Model assumptions (illustrative)
 
-- All drugs use `pkModel: 'calibrated'`. The engine fits illustrative constants to the `timing` values above, or to its own fallbacks when those are null. No PK/PD parameter is a published model except the Mapleson age-adjusted MAC equation (S26).
+- All drugs except propofol use `pkModel: 'calibrated'`. The engine fits illustrative constants to the `timing` values above, or uses its own fallbacks when those are null. Propofol PK (with ke0) is the published Eleveld 2018 model (S42). Apart from that and the Mapleson age-adjusted MAC equation (S26), no PK/PD parameter is a published model. Every PD effect size (sigmoid weights, EC50s, gammas), including propofol's, is an author estimate. `sim.modelInfo().inventory` lists every parameter with its provenance.
+- **Epinephrine PD** (`engine/pd.js` `PROFILES.epinephrine`, author estimates): concentration is normalised to steady state at 0.05 mcg/kg/min (u = 1). At u ≈ 1: MAP +8%, HR +6%, bronchodilation 0.5. At the peak after 0.3 mg IM (u ≈ 6): MAP ≈ +25%, HR ≈ +24%, bronchodilation ≈ 0.97. Bronchodilation counters the bronchospasm (× (1 − 0.8·B)) and anaphylaxis (× (1 − 0.7·B)) scenario intensities. PK: k10 0.3, k12 0.05, k21 0.01, ke0 1.0 min⁻¹. IM absorption ka 0.15 min⁻¹ (SC 0.07). All are illustrative and not from the label.
+- **IV fluid bolus** (`engine/sim.js` `FLUID_MODEL`, author estimates): 250 or 500 mL crystalloid, default 500 mL. Bolus sizes are UI choices, not recommendations. Run-in is 50 mL/min. Retained intravascular volume R decays with τ = 40 min. Restoration r = 1 − exp(−R/750 mL), which gives diminishing returns. A volume-loss event (hemorrhage) has its intensity multiplied by (1 − 0.8·r). **Cap:** fluids offset at most 80% of the event, because ongoing bleeding needs surgical control. Direct MAP effect is +4%·r when euvolaemic and +10%·r with the hypovolemia or sepsis condition. With these constants, 500 mL raised MAP by about 12 mmHg in a hemorrhage case and about 2 mmHg in a euvolaemic patient (fictional 80 kg adult).
+- **Awake room-air oxygenation** (fix, 2026-11-05): FRC (obesity/OSA/elderly/COPD) now scales only the O2 store, which sets how fast SpO2 falls during apnoea. It no longer scales the steady-state alveolar balance. Before the fix, an awake obese patient with no drugs settled near SpO2 40% on room air. Regression tests check all example patients stay within 2% of baseline, and that the obese patient still desaturates faster during apnoea.
 - **Additive MAC of co-administered inhaled agents** (`LIBRARY_NOTES.inhaledMacAdditivity`). The engine treats MAC fractions as additive. This is standard teaching. **No acceptable source was verified for it in this session**, so it is uncited.
 - Isoflurane and desflurane also use the Mapleson equation (MAC40 1.17% and 6.6%, the same slope). The isoflurane label table (1.28/1.15/1.05% at mean ages 26/44/64 y) is stored for display.
 - **N2O and FiO2:** the maximum FiO2 is 1 − FiN2O (70% N2O leaves at most 0.30). This is simple arithmetic, so no source is cited.
 - **N2O cannot work alone:** its MAC40 is 104% (Mapleson), so it cannot provide anaesthesia alone at 1 atm and is modelled only as an adjunct.
 - Sevoflurane carries two MAC references: Mapleson MAC40 = 1.80% and the US label table (2.1% at 40 y in O2). They differ. The engine's effect model uses Mapleson, and the UI may show both.
+
+## Verification and validation status
+
+Terms follow the FDA computational-modelling credibility vocabulary (verification = the code does what the model says; validation = the model matches the real system). **This simulator has not been validated.**
+
+- **Verification (automated tests, `cd simulator && npm test`, 108 tests passing on 2026-11-05):**
+  - drug-library schema and source integrity (`drugs.test.mjs`): ids, ranges, `when` grammar, that every referenced S-id exists, and required contraindication rules;
+  - dosing arithmetic and ceilings (`dosing.test.mjs`);
+  - patient derivations: BMI, IBW/LBW/ABW, Apfel, STOP-Bang, flags (`patient.test.mjs`);
+  - parity with the Python Smart NOA controller (`parity.test.mjs`): reproduces the `EXAMPLE_RESULTS.json` GREEN/RED/HOLD decisions and the `test_safety_hardening.py` regressions (NaN/None fail-safe, direct-write bypass, ceilings, matching);
+  - engine behaviour (`sim.test.mjs`, run against a fixture library and the real library): PK mass balance and steady state, calibrated fits to label timing, determinism per seed, scenarios, alarms, interlocks, full GA/MAC runs;
+  - model extensions (`models.test.mjs`): the Eleveld 2018 implementation reproduces published reference-individual values (V1 6.28, V2 25.5, V3 273 L; CL 1.79/2.10, Q2 1.83, Q3 1.11 L/min; ke0 0.146) and the opioid-switch values; epinephrine regimens, route block and qualitative effects; fluid tracking and qualitative response; the parameter inventory (every parameter has a provenance and existing source ids); and the awake room-air SpO2 regression.
+  Reproducing published numbers checks the implementation only. It does not show that simulated patients behave like real ones.
+- **Face validity:** no expert (clinician) review is recorded.
+- **External validation:** none. No simulated output has been compared with patient data, monitor recordings or published clinical time courses.
+- **Parts that cannot be validated with the sources available:** all PD effect sizes (depth index, MAP/HR/respiratory effects, opioid synergy, NMB/TOF mapping); the calibrated PK constants (fitted only to label onset/duration statements); epinephrine PK/PD and IM absorption; the fluid-response model; physiology gains and time constants (stimulus, apnoea, CO2, noise); scenario perturbation magnitudes; patient-modifier multipliers; alarm and extubation thresholds (simulator choices); and the depth index itself, which is not BIS. `sim.modelInfo().inventory` labels each of these `author_estimate_unvalidated`.

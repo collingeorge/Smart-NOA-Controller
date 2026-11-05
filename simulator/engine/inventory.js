@@ -36,7 +36,7 @@ export function buildParameterInventory({ lib, patient, models = {}, fluidModel,
 
   // ---------------------------------------------------------------- PK, per drug
   for (const d of listDrugs(lib)) {
-    const pk = (name, value, unit, provenance, sourceIds, note) => add('pk', name, value, unit, provenance, sourceIds, note, { drugId: d.id });
+    const pk = (name, value, unit, provenance, sourceIds, note, extra = {}) => add('pk', name, value, unit, provenance, sourceIds, note, { drugId: d.id, ...extra });
     if (isInhaled(d)) {
       const mac = d.mac || {};
       const mac40 = Number.isFinite(mac.mac40Pct) ? mac.mac40Pct : null;
