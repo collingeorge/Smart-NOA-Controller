@@ -1,0 +1,209 @@
+// Smart NOA web simulator — UI entry point. Educational simulation with fictional patients.
+import * as LIB from '../data/drugs.js';
+import { h, clear, announce, fmtClock } from './dom.js';
+import { derivePatient, validatePatient } from '../engine/patient.js';
+import { createSimulation } from '../engine/sim.js';
+import { EXAMPLE_PATIENTS, EXAMPLE_PLANS, buildPlan } from '../data/scenarios.js';
+import { initSources, srcTags } from './sources.js';
+import { renderPatient, defaultPatientInput } from './patient-form.js';
+import { renderAssessment } from './assessment.js';
+import { renderPlan, setMode, interlockExplanation } from './plan-editor.js';
+import { renderMonitor, newRunState, readinessItem } from './monitor.js';
+import { renderDebrief } from './debrief.js';
+import { exportPlan, planIssues, stepsFromBuiltPlan } from './plan-model.js';
+import { notModeled } from './labels.js';
+import { renderModelCard, loadModelAssumptions, assumptionsList, AI_DISCLOSURE, TOOL_DESCRIPTION } from './model-card.js';
+
+const lib = LIB;
+const STEPS = [
+  { n: 1, label: 'Patient' }, { n: 2, label: 'Assessment' }, { n: 3, label: 'Anesthetic plan' }, { n: 4, label: 'Run' }, { n: 5, label: 'Debrief' },
+];
+
+const store = {
+  step: 1,
+  patientInput: defaultPatientInput(),
+  patientVersion: 1,
+  exampleId: null,
+  plan: { mode: 'GA', sedationTarget: 'moderate', steps: [], stepsByMode: null },
+  planVersion: 1,
+  planNotice: null,
+  interlocks: true,
+  seed: 1,
+  sim: null, simKey: null,
+  run: newRunState(),
+};
+store.plan.stepsByMode = { GA: store.plan.steps, MAC: [] };
+
+let derivedCache = { v: -1, p: null };
+function getPatient() {
+  if (derivedCache.v === store.patientVersion) return derivedCache.p;
+  let p = null;
+  try { if (validatePatient(store.patientInput, { library: lib }).ok) p = derivePatient(store.patientInput, { library: lib }); } catch { p = null; }
+  derivedCache = { v: store.patientVersion, p };
+  return p;
+}
+
+let fluidsCache = null;
+function fluidsSupported() {
+  if (fluidsCache !== null) return fluidsCache;
+  try {
+    const s = createSimulation({ patient: derivePatient(EXAMPLE_PATIENTS[0].patient, { library: lib }), library: lib });
+    fluidsCache = !!s.action('fluid_bolus:250').ok;
+  } catch { fluidsCache = false; }
+  return fluidsCache;
+}
+
+const simKey = () => JSON.stringify([store.patientVersion, store.planVersion, store.interlocks, store.seed]);
+function restartSim() {
+  const p = getPatient();
+  store.sim = createSimulation({ patient: p, plan: exportPlan(store.plan), seed: store.seed, interlocks: store.interlocks, library: lib });
+  store.simKey = simKey();
+  store.run = newRunState();
+  return store.sim;
+}
+function ensureSim() { if (!store.sim || store.simKey !== simKey()) restartSim(); return store.sim; }
+
+function planCtx() { return { lib, patient: getPatient(), interlocks: store.interlocks, patientVersion: store.patientVersion }; }
+
+function canGo(n) {
+  if (n <= 1) return { ok: true };
+  if (!getPatient()) return { ok: false, why: 'Complete a valid patient first.' };
+  if (n <= 3) return { ok: true };
+  if (n === 4) { const iss = planIssues(planCtx(), store.plan); return iss.errors ? { ok: false, why: `Fix ${iss.errors} blocking plan issue(s) first.` } : { ok: true }; }
+  if (n === 5) return store.sim && store.simKey === simKey() ? { ok: true } : { ok: false, why: 'Run the case first.' };
+  return { ok: true };
+}
+
+let current = null;
+function go(n) {
+  const c = canGo(n);
+  if (!c.ok) { announce(c.why, true); refreshStepper(); return false; }
+  if (current && current.leave) current.leave();
+  current = null;
+  store.step = n;
+  render();
+  const t = document.getElementById('step-title');
+  if (t) t.focus();
+  window.scrollTo({ top: 0 });
+  return true;
+}
+
+function render() {
+  const main = document.getElementById('main');
+  const views = { 1: renderPatient, 2: renderAssessment, 3: renderPlan, 4: renderMonitor, 5: renderDebrief };
+  current = views[store.step](ctx, main) || null;
+  main.dataset.step = String(store.step);
+  refreshStepper();
+}
+function rerender() { if (current && current.leave) current.leave(); current = null; render(); }
+
+function refreshStepper() {
+  const ol = document.getElementById('stepper-list');
+  clear(ol);
+  for (const s of STEPS) {
+    const c = canGo(s.n);
+    const b = h('button', { type: 'button', class: 'stepper__btn', id: `stepper-${s.n}`, 'aria-current': store.step === s.n ? 'step' : null, 'aria-disabled': c.ok ? null : 'true', title: c.ok ? null : c.why },
+      h('span', { class: 'stepper__num' }, String(s.n)), h('span', { class: 'stepper__label' }, s.label), c.ok ? null : h('span', { class: 'sr-only' }, ` (unavailable: ${c.why})`));
+    b.addEventListener('click', () => { if (store.step !== s.n) go(s.n); });
+    ol.append(h('li', { class: store.step === s.n ? 'is-current' : store.step > s.n ? 'is-done' : '' }, b));
+  }
+}
+
+function loadExample(id) {
+  const ex = EXAMPLE_PATIENTS.find((e) => e.id === id);
+  if (!ex) return;
+  store.patientInput = JSON.parse(JSON.stringify(ex.patient));
+  store.exampleId = id;
+  store.patientVersion += 1;
+  const p = getPatient();
+  const t = EXAMPLE_PLANS.find((pl) => pl.patientId === id);
+  if (p && t) {
+    const { plan, skipped } = buildPlan(t, p, lib);
+    setMode(store.plan, t.mode);
+    store.plan.sedationTarget = t.sedationTarget || store.plan.sedationTarget;
+    store.plan.steps.splice(0, store.plan.steps.length, ...stepsFromBuiltPlan(planCtx(), plan));
+    store.planNotice = `Example plan “${t.label}” loaded.${skipped.length ? ` Skipped: ${skipped.map((s) => `${s.drugId} (${s.reason})`).join('; ')}` : ''}`;
+  }
+  store.planVersion += 1;
+}
+
+// ---------------------------------------------------------------- extubation dialog
+function openExtubation(sim, after) {
+  const dlg = document.getElementById('extubate-dialog');
+  const body = document.getElementById('extubate-body');
+  const r = sim.extubationReadiness();
+  const unmet = r.criteria.filter((c) => !c.met);
+  const E = lib.SOURCE_IDS_ENGINE || {};
+  const doIt = (override) => {
+    if (override) store.run.overrides.push({ tSec: sim.state.tSec, unmet: unmet.map((c) => c.label) });
+    const res = sim.action('extubate');
+    if (override) sim.state.log.push({ tSec: Math.round(sim.state.tSec * 10) / 10, kind: 'action', message: `User confirmed extubation despite unmet readiness criteria: ${unmet.map((c) => c.label).join(', ')}` });
+    dlg.close();
+    announce(res.message, !r.ready);
+    after();
+  };
+  clear(body).append(
+    h('p', {}, `Sim time ${fmtClock(sim.state.tSec)}. TOFR ≥ 0.9 must be confirmed before extubation `, srcTags([E.tofExtubation]), '; other criteria are illustrative simulator rules.'),
+    h('ul', { class: 'ready-list ready-list--light' }, r.criteria.map((c) => readinessItem(c))),
+    r.ready ? h('p', { class: 'notice' }, 'All readiness criteria are met.')
+      : h('p', { class: 'notice notice--warn', role: 'alert' }, `Not ready: ${unmet.map((c) => c.label).join('; ')}. Extubating now is logged as a decision against the checklist.`),
+    h('div', { class: 'actions' },
+      h('button', { type: 'button', class: 'btn', onclick: () => dlg.close() }, 'Cancel — keep the tube'),
+      r.ready ? h('button', { type: 'button', class: 'btn btn--primary', id: 'ext-confirm', onclick: () => doIt(false) }, 'Extubate')
+        : h('button', { type: 'button', class: 'btn btn--danger', id: 'ext-override', onclick: () => doIt(true) }, 'Extubate anyway (logged)')));
+  dlg.showModal();
+  const first = body.querySelector('button'); if (first) first.focus();
+}
+
+// ---------------------------------------------------------------- about + model card
+async function renderAbout() {
+  const body = document.getElementById('about-body');
+  const assumptions = await loadModelAssumptions();
+  const sim = store.sim;
+  const info = sim ? sim.modelInfo() : {};
+  clear(body).append(
+    h('p', {}, h('strong', {}, TOOL_DESCRIPTION), ' It is not a medical device, not clinical decision support, and is not connected to any monitor, pump or record system. Nothing you enter leaves this page.'),
+    h('h3', {}, 'What it does'),
+    h('p', {}, 'You build a fictional adult patient, review a computed assessment, plan an anaesthetic with doses auto-filled from FDA prescribing information and society guidelines (each with its source), then run an illustrative monitor and debrief the case.'),
+    h('h3', {}, 'Model limits'),
+    h('ul', { class: 'list' },
+      h('li', {}, 'Every displayed physiological value is illustrative model output; the simulator as a whole is not validated.'),
+      h('li', {}, 'The depth number is a simulated depth index (0–100, illustrative; not BIS).'),
+      h('li', {}, 'Doses are label/guideline values; the auto-filled default within a range is a simulator convention, not a recommendation.')),
+    h('h4', {}, 'Model assumptions recorded in SOURCES.md'), assumptionsList(assumptions),
+    h('h4', {}, 'Engine model records for drugs used in the current case'),
+    Object.keys(info).length ? h('ul', { class: 'list list--tight' }, Object.entries(info).map(([id, m]) => h('li', {}, h('strong', {}, (lib.DRUGS.find((d) => d.id === id) || {}).name || id), `: ${m.type} — ${m.provenance}`)))
+      : h('p', { class: 'hint' }, 'No drugs used yet. The Model card lists every drug’s parameters.'),
+    h('h4', {}, 'Not modelled'), h('ul', { class: 'chips' }, notModeled(lib, { fluids: fluidsSupported() }).map((x) => h('li', { class: 'chip chip--muted' }, x))),
+    h('h3', {}, 'Relation to the Smart NOA Python controller'), interlockExplanation(lib),
+    h('p', {}, 'The interlock layer is a port of the decision rules in smart_noa_controller.py with the thresholds of config.yaml; automated parity tests reproduce the Python reference outcomes. The simulator adds an explicit, logged “Resume hold” action that the Python controller does not have.'),
+    h('h3', {}, 'AI assistance'), h('p', {}, AI_DISCLOSURE),
+    h('h3', {}, 'Accessibility'), h('p', {}, 'Alarms are announced to screen readers, every colour signal is paired with text, and all controls work from the keyboard.'));
+}
+
+async function renderModel() {
+  const body = document.getElementById('model-body');
+  const assumptions = await loadModelAssumptions();
+  const p = getPatient() || derivePatient(EXAMPLE_PATIENTS[0].patient, { library: lib });
+  renderModelCard(body, { lib, patient: store.sim ? store.sim.patient : p, sim: store.sim, assumptions });
+}
+
+const ctx = { store, lib, go, rerender, refreshStepper, getPatient, loadExample, ensureSim, restartSim, openExtubation, fluidsSupported,
+  patientChanged() { store.patientVersion += 1; },
+  planChanged() { store.planVersion += 1; } };
+
+function init() {
+  initSources(lib);
+  document.getElementById('loading')?.remove();
+  document.getElementById('open-sources').addEventListener('click', (e) => { document.getElementById('sources-dialog').showModal(); const r = e.currentTarget; document.getElementById('sources-dialog').addEventListener('close', () => r.focus(), { once: true }); });
+  document.getElementById('open-about').addEventListener('click', async (e) => { const r = e.currentTarget; await renderAbout(); const d = document.getElementById('about-dialog'); d.showModal(); d.addEventListener('close', () => r.focus(), { once: true }); });
+  document.getElementById('open-model').addEventListener('click', async (e) => { const r = e.currentTarget; await renderModel(); const d = document.getElementById('model-dialog'); d.showModal(); d.addEventListener('close', () => r.focus(), { once: true }); });
+  document.addEventListener('click', (e) => { const b = e.target.closest('[data-close-dialog]'); if (b) b.closest('dialog').close(); });
+  for (const d of document.querySelectorAll('dialog')) d.addEventListener('click', (e) => { if (e.target === d) d.close(); });
+  render();
+}
+
+// Expose a read-only handle for automated smoke tests (no effect on the simulation).
+window.__smartNoa = { store, getPatient };
+
+init();

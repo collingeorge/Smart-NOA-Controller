@@ -26,10 +26,11 @@
     <div class="app-head__inner">
       <div class="app-title">
         <h1>Smart NOA Simulator</h1>
-        <p class="app-sub">Educational anaesthesia simulation &middot; illustrative model output</p>
+        <p class="app-sub">Educational, label-calibrated anesthesia pharmacology simulator &middot; fictional patients</p>
       </div>
       <div class="app-panels">
         <button type="button" class="btn btn--ghost" id="open-sources" aria-haspopup="dialog">Sources</button>
+        <button type="button" class="btn btn--ghost" id="open-model" aria-haspopup="dialog">Model card</button>
         <button type="button" class="btn btn--ghost" id="open-about" aria-haspopup="dialog">About &amp; limitations</button>
       </div>
     </div>
@@ -60,6 +61,14 @@
       <button type="button" class="btn btn--ghost" data-close-dialog>Close</button>
     </div>
     <div class="panel-dialog__body" id="about-body"></div>
+  </dialog>
+
+  <dialog id="model-dialog" class="panel-dialog" aria-labelledby="model-title">
+    <div class="panel-dialog__head">
+      <h2 id="model-title">Model card</h2>
+      <button type="button" class="btn btn--ghost" data-close-dialog>Close</button>
+    </div>
+    <div class="panel-dialog__body" id="model-body"></div>
   </dialog>
 
   <dialog id="extubate-dialog" class="panel-dialog panel-dialog--narrow" aria-labelledby="extubate-title">
