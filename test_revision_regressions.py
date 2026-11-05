@@ -42,22 +42,25 @@ class RevisionRegressionTests(unittest.TestCase):
     def test_low_hr_triggers_hold_at_zero_concentration(self):
         c = self.controller()
         c.infusions['Dexmedetomidine'] = 0.0
-        with patch('smart_noa_controller.random.randint', side_effect=[40, 80]), patch('smart_noa_controller.time.sleep'), contextlib.redirect_stdout(io.StringIO()):
+        with patch('smart_noa_controller.random.randint', side_effect=[40, 80]), \
+                patch('smart_noa_controller.time.sleep'), contextlib.redirect_stdout(io.StringIO()):
             c.monitor_and_control(1)
         self.assertTrue(c.hold_latched)
         self.assertEqual(c.infusions['Dexmedetomidine'], 0)
 
     def test_hold_does_not_restart_after_one_normal_reading(self):
         c = self.controller()
-        with patch('smart_noa_controller.random.randint', side_effect=[80, 50, 80, 90]), patch('smart_noa_controller.time.sleep'), contextlib.redirect_stdout(io.StringIO()):
+        with patch('smart_noa_controller.random.randint', side_effect=[80, 50, 80, 90]), \
+                patch('smart_noa_controller.time.sleep'), contextlib.redirect_stdout(io.StringIO()):
             c.monitor_and_control(2)
         self.assertEqual(c.status, 'HOLD')
         self.assertEqual(c.infusions['Dexmedetomidine'], 0)
         self.assertEqual(c.infusions['Lidocaine'], 0)
 
     def test_invalid_profiles_are_rejected(self):
-        base = dict(age=40, weight_kg=70, asa_class=2, egfr=90, allergies=[], comorbidities=[])
-        for field, value in [('age', -1), ('age', True), ('asa_class', 7), ('egfr', math.nan), ('weight_kg', 0), ('allergies', 'NSAID'), ('comorbidities', [None])]:
+        base = {'age': 40, 'weight_kg': 70, 'asa_class': 2, 'egfr': 90, 'allergies': [], 'comorbidities': []}
+        for field, value in [('age', -1), ('age', True), ('asa_class', 7), ('egfr', math.nan), ('weight_kg', 0),
+                             ('allergies', 'NSAID'), ('comorbidities', [None])]:
             with self.subTest(field=field, value=value), self.assertRaises(ValueError):
                 Patient(**{**base, field: value})
 
@@ -85,7 +88,8 @@ class RevisionRegressionTests(unittest.TestCase):
 
     def test_simultaneous_low_hr_does_not_mask_low_pressure(self):
         c = self.controller()
-        with patch('smart_noa_controller.random.randint', side_effect=[40, 50]), patch('smart_noa_controller.time.sleep'), contextlib.redirect_stdout(io.StringIO()):
+        with patch('smart_noa_controller.random.randint', side_effect=[40, 50]), \
+                patch('smart_noa_controller.time.sleep'), contextlib.redirect_stdout(io.StringIO()):
             c.monitor_and_control(1)
         self.assertTrue(c.hold_latched)
         self.assertEqual(c.status, 'RED')

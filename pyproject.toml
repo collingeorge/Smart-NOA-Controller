@@ -3,7 +3,7 @@
 
 [tool.ruff]
 line-length = 120
-target-version = "py39"
+target-version = "py310"
 extend-exclude = ["simulator", "venv", ".venv"]
 
 [tool.ruff.lint]

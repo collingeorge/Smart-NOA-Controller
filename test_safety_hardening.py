@@ -12,7 +12,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from smart_noa_controller import ConfigLoader, Patient, SmartNOAController
+from smart_noa_controller import RATE_CEILING_TOLERANCE, ConfigLoader, Patient, SmartNOAController
 
 CONFIG = str(Path(__file__).with_name("config.yaml"))
 
@@ -100,7 +100,8 @@ class RateCeilings(unittest.TestCase):
     def test_missing_ceiling_section_is_rejected(self):
         tmp = Path(tempfile.mkdtemp())
         try:
-            text = Path(CONFIG).read_text().split("simulation_rate_ceilings:")[0] + "age_adjustments:\n  geriatric:\n    age_threshold: 65\n"
+            text = (Path(CONFIG).read_text().split("simulation_rate_ceilings:")[0]
+                    + "age_adjustments:\n  geriatric:\n    age_threshold: 65\n")
             (tmp / "config.yaml").write_text(text)
             with self.assertRaises(ValueError):
                 ConfigLoader(str(tmp / "config.yaml"))
@@ -127,6 +128,42 @@ class Matching(unittest.TestCase):
     def test_ketorolac_listed_once_when_both_rules_fire(self):
         c = make(egfr=20, allergies=["NSAID"])
         self.assertEqual(c.hard_lockouts.count("Ketorolac"), 1)
+
+
+class AuditNovember2026(unittest.TestCase):
+    """2026-11 audit: malformed scripted readings fail safe; ceiling tolerance shared with the web simulator."""
+
+    def _scripted(self, c, vitals):
+        with patch("smart_noa_controller.time.sleep"), contextlib.redirect_stdout(io.StringIO()):
+            c.monitor_and_control(len(vitals), vitals=vitals, sleep_sec=0)
+
+    def test_malformed_scripted_reading_fails_safe(self):
+        for bad in [None, (80,), "8080", (80, 80, 80), 42]:
+            with self.subTest(reading=bad):
+                c = make()
+                self._scripted(c, [(80, 80), bad])
+                self.assertEqual(c.status, "RED")
+                self.assertTrue(c.hold_latched)
+                self.assertTrue(all(v == 0 for v in c.infusions.values()), c.infusions)
+
+    def test_rate_at_ceiling_within_tolerance_is_allowed(self):
+        self.assertEqual(RATE_CEILING_TOLERANCE, 1e-9)
+        for drug, rate in [("Dexmedetomidine", 0.5), ("Dexmedetomidine", 0.5000000000000001),
+                           ("Lidocaine", 1.5), ("Ketamine", 0.2 + 1e-12)]:
+            with self.subTest(drug=drug, rate=rate):
+                c = make()
+                c.infusions[drug] = rate
+                run(c, [(80, 80)])
+                self.assertEqual(c.status, "GREEN")
+                self.assertFalse(c.hold_latched)
+                self.assertEqual(c.infusions[drug], rate)
+
+    def test_rate_beyond_tolerance_is_a_fault(self):
+        c = make()
+        c.infusions["Dexmedetomidine"] = 0.5 + 1e-6
+        run(c, [(80, 80)])
+        self.assertTrue(c.hold_latched)
+        self.assertEqual(c.infusions["Dexmedetomidine"], 0)
 
 
 class Inputs(unittest.TestCase):

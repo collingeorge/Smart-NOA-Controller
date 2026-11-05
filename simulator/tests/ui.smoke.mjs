@@ -1,27 +1,50 @@
 // Browser smoke test for the simulator UI (Playwright + Chromium).
-// Not part of `node --test simulator/tests` (only *.test.mjs files are loaded there).
-// Run:  (cd <repo root> && python3 -m http.server 8765) &   then
-//       node --test simulator/tests/ui.smoke.mjs
-// Env:  SIM_URL (default http://localhost:8765/simulator/index.html), SHOTS_DIR (optional screenshot folder).
-// Skips itself when Playwright or the static server is unavailable.
+// Not part of `npm test` (only *.test.mjs files are loaded there). Run it with `npm run test:ui`.
+// It starts its own static file server (Node http, no dependencies) on a free port, serving the
+// repository root, and opens /simulator/index.html?test=1 (the ?test=1 flag enables the
+// read-only window.__smartNoa.snapshot() hook).
+// Playwright is required: if it cannot be loaded the test FAILS, unless SMOKE_SKIP=1 is set.
+// Env:  SIM_URL (use an already running server instead), SHOTS_DIR (optional screenshot folder),
+//       SMOKE_SKIP=1 (skip when Playwright is unavailable), PLAYWRIGHT_BROWSERS_PATH / NODE_PATH as needed.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
-import { mkdirSync } from 'node:fs';
-import { join } from 'node:path';
+import { createServer } from 'node:http';
+import { mkdirSync, readFile } from 'node:fs';
+import { join, normalize, extname, sep } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const URL_ = process.env.SIM_URL || 'http://localhost:8765/simulator/index.html';
+const ROOT = fileURLToPath(new URL('../../', import.meta.url));
 const SHOTS = process.env.SHOTS_DIR || null;
 if (SHOTS) mkdirSync(SHOTS, { recursive: true });
 
 let chromium = null;
 try { chromium = createRequire(import.meta.url)('playwright').chromium; } catch { try { chromium = (await import('playwright')).chromium; } catch { chromium = null; } }
-let serverUp = false;
-try { const r = await fetch(URL_); serverUp = r.ok; } catch { serverUp = false; }
-const skip = !chromium ? 'playwright not installed' : !serverUp ? `no static server at ${URL_}` : false;
+const skip = !chromium && process.env.SMOKE_SKIP === '1' ? 'playwright not installed (SMOKE_SKIP=1)' : false;
+
+const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8',
+  '.md': 'text/markdown; charset=utf-8', '.json': 'application/json', '.svg': 'image/svg+xml', '.png': 'image/png', '.jpg': 'image/jpeg', '.ico': 'image/x-icon' };
+/** Minimal static server for the repository root (GET/HEAD only; no directory listing; no path traversal). */
+function startServer() {
+  const server = createServer((req, res) => {
+    let path;
+    try { path = decodeURIComponent(new URL(req.url, 'http://x').pathname); } catch { res.writeHead(400).end(); return; }
+    const file = normalize(join(ROOT, path));
+    if (!file.startsWith(ROOT.endsWith(sep) ? ROOT : ROOT + sep) || (req.method !== 'GET' && req.method !== 'HEAD')) { res.writeHead(403).end(); return; }
+    readFile(file, (err, data) => {
+      if (err) { res.writeHead(404).end(); return; }
+      res.writeHead(200, { 'content-type': TYPES[extname(file)] || 'application/octet-stream', 'cache-control': 'no-store' });
+      res.end(req.method === 'HEAD' ? undefined : data);
+    });
+  });
+  return new Promise((resolve) => server.listen(0, '127.0.0.1', () => resolve(server)));
+}
+let URL_ = process.env.SIM_URL || null;
+let server = null;
 
 const shot = async (page, name, full = true) => { if (SHOTS) await page.screenshot({ path: join(SHOTS, name), fullPage: full }); };
-const simState = (page) => page.evaluate(() => { const s = window.__smartNoa.store.sim; return s ? JSON.parse(JSON.stringify({ t: s.state.tSec, phase: s.state.phase, v: s.state.vitals, il: s.state.interlocks.status, airway: s.state.airway, ready: s.extubationReadiness().ready })) : null; });
+const snap = (page) => page.evaluate(() => window.__smartNoa.snapshot());
+const simState = async (page) => (await snap(page)).sim;
 async function waitSim(page, pred, { timeout = 60000, label = 'condition' } = {}) {
   const t0 = Date.now();
   for (;;) {
@@ -49,7 +72,8 @@ async function toRun(page) {
 
 
 // ---- guided / automatic modes
-const autoStatus = (page) => page.evaluate(() => { const a = window.__smartNoa.store.run.auto; const s = window.__smartNoa.store.sim; return a ? JSON.parse(JSON.stringify({ ...a.status(), t: s.state.tSec, phase: s.state.phase, v: s.state.vitals, ready: s.extubationReadiness().ready })) : null; });
+const autoStatus = async (page) => { const x = await snap(page); return x.auto ? { ...x.auto, t: x.sim.t, phase: x.sim.phase, v: x.sim.v, ready: x.sim.ready } : null; };
+const simLog = async (page) => (await snap(page)).sim.log;
 /** Acts as the user when the runner pauses: acknowledge HIGH alarms, release a latched hold, press Resume. */
 async function userResolvesPause(page) {
   for (const b of await page.locator('#mon-alarms button[data-ack]:not([disabled])').all()) await b.click();
@@ -88,11 +112,13 @@ const GUIDED_BANNER = 'Guided mode: each phase runs from your approved plan; you
 const FULL_BANNER = 'Automatic demonstration: scripted sequence, not a closed-loop controller or a clinical recommendation';
 
 test('simulator UI smoke', { skip, timeout: 900000 }, async (t) => {
+  assert.ok(chromium, 'Playwright (chromium) could not be loaded: install it (npm i -D playwright; npx playwright install chromium) or set SMOKE_SKIP=1 to skip explicitly');
+  if (!URL_) { server = await startServer(); URL_ = `http://127.0.0.1:${server.address().port}/simulator/index.html?test=1`; }
   const browser = await chromium.launch();
   const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 }, acceptDownloads: true });
   const page = await ctx.newPage();
   const problems = [];
-  page.on('console', (m) => { if (m.type() === 'error' || /Content Security Policy|Refused to/i.test(m.text())) problems.push(`console ${m.type()}: ${m.text()}`); });
+  page.on('console', (m) => { if (m.type() === 'error' || m.type() === 'warning' || /Content Security Policy|Refused to/i.test(m.text())) problems.push(`console ${m.type()}: ${m.text()}`); });
   page.on('pageerror', (e) => problems.push(`pageerror: ${e.message}`));
   page.on('requestfailed', (r) => problems.push(`requestfailed: ${r.url()}`));
   page.on('request', (r) => { if (!r.url().startsWith(new URL(URL_).origin) && !r.url().startsWith('blob:') && !r.url().startsWith('data:')) problems.push(`external request: ${r.url()}`); });
@@ -151,7 +177,7 @@ test('simulator UI smoke', { skip, timeout: 900000 }, async (t) => {
       await page.click('#ph-endsurgery');
       await page.click('#ph-emergence');
       s = await waitSim(page, (x) => x.v.tofRatio >= 0.9, { label: 'TOFR ≥ 0.9 after sugammadex' });
-      const log = await page.evaluate(() => window.__smartNoa.store.sim.state.log.map((e) => e.message).join('\n'));
+      const log = (await simLog(page)).map((e) => e.message).join('\n');
       assert.match(log, /Sugammadex .* bolus/);
       s = await waitSim(page, (x) => x.ready, { timeout: 90000, label: 'extubation readiness' });
       await page.click('#mon-play'); // pause
@@ -179,7 +205,7 @@ test('simulator UI smoke', { skip, timeout: 900000 }, async (t) => {
       await page.click('#ph-extubate');
       await page.waitForSelector('#ext-override');
       await page.click('#ext-override');
-      const log = await page.evaluate(() => window.__smartNoa.store.sim.state.log.map((e) => e.message).join('\n'));
+      const log = (await simLog(page)).map((e) => e.message).join('\n');
       assert.match(log, /User confirmed extubation despite unmet readiness/);
     });
 
@@ -234,7 +260,7 @@ test('simulator UI smoke', { skip, timeout: 900000 }, async (t) => {
       assert.ok((await autoStatus(page)).t > t1);
       await gate(page, 'Enter maintenance mode');
       s = await waitAuto(page, (x) => x.current && x.current.id === 'end_surgery', { label: 'surgery started automatically' });
-      assert.ok(await page.evaluate(() => window.__smartNoa.store.sim.state.log.some((e) => e.kind === 'auto' && /^AUTO: step 4\/8 — Start surgery \(automatic within the approved phase\)/.test(e.message))), 'surgery started automatically (logged)');
+      assert.ok((await simLog(page)).some((e) => e.kind === 'auto' && /^AUTO: step 4\/8 — Start surgery \(automatic within the approved phase\)/.test(e.message)), 'surgery started automatically (logged)');
       await shot(page, 'auto-guided-maintenance.png');
       await gate(page, 'End surgery');
       await gate(page, 'Enter emergence / extubation mode');
@@ -271,7 +297,7 @@ test('simulator UI smoke', { skip, timeout: 900000 }, async (t) => {
         assert.equal((await page.textContent('#auto-banner')).trim(), FULL_BANNER);
         await shot(page, `auto-full-${id}-running.png`);
         await waitAuto(page, (x) => x.state === 'completed', { label: `full ${id} complete` });
-        const log = await page.evaluate(() => window.__smartNoa.store.sim.state.log);
+        const log = await simLog(page);
         assert.ok(log.some((e) => e.kind === 'auto' && /^AUTO: step 1\//.test(e.message)));
         assert.ok(!log.some((e) => /despite unmet readiness/.test(e.message)), 'override never used');
         await page.click('#mon-debrief'); await page.waitForSelector('#db-auto-note');
@@ -321,5 +347,6 @@ test('simulator UI smoke', { skip, timeout: 900000 }, async (t) => {
     assert.deepEqual(problems, [], `console/CSP/network problems:\n${problems.join('\n')}`);
   } finally {
     await browser.close();
+    if (server) await new Promise((r) => server.close(r));
   }
 });

@@ -11,6 +11,7 @@ import random
 import time
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 import yaml
 
@@ -19,6 +20,11 @@ import yaml
 # The web simulator uses the same value (simulator/engine/interlocks.js RATE_CEILING_EPS; a parity
 # test keeps them equal).
 RATE_CEILING_TOLERANCE = 1e-9
+
+
+def _is_finite_number(value) -> bool:
+    """A finite int/float that is not a bool."""
+    return not isinstance(value, bool) and isinstance(value, (int, float)) and math.isfinite(value)
 
 # --- Data Structures ---
 
@@ -50,7 +56,7 @@ class Patient:
         if isinstance(self.asa_class, bool) or not isinstance(self.asa_class, int) or not 1 <= self.asa_class <= 6:
             raise ValueError("Simulated ASA class must be an integer from 1 to 6")
         for name, value, positive in (("weight_kg", self.weight_kg, True), ("egfr", self.egfr, False)):
-            if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or (value <= 0 if positive else value < 0):
+            if not _is_finite_number(value) or (value <= 0 if positive else value < 0):
                 raise ValueError(f"{name} must be finite and within the simulation input domain")
         for value in (self.allergies, self.comorbidities):
             if not isinstance(value, list) or any(not isinstance(item, str) for item in value):
@@ -138,13 +144,15 @@ class ConfigLoader:
         }
         for keys, positive in numeric_paths.items():
             value = self.get(*keys)
-            if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or (value <= 0 if positive else value < 0):
+            if not _is_finite_number(value) or (value <= 0 if positive else value < 0):
                 raise ValueError("Invalid or missing simulation parameter: " + '.'.join(keys))
-        for keys in [('contraindications', 'dexmedetomidine', 'cardiac_conditions'), ('contraindications', 'ketorolac', 'allergy_triggers')]:
+        for keys in [('contraindications', 'dexmedetomidine', 'cardiac_conditions'),
+                     ('contraindications', 'ketorolac', 'allergy_triggers')]:
             value = self.get(*keys)
             if not isinstance(value, list) or any(not isinstance(item, str) for item in value):
                 raise ValueError("Expected a list of strings: " + '.'.join(keys))
-        if self.get('age_adjustments', 'geriatric', 'age_threshold') != self.get('drug_dosing', 'dexmedetomidine', 'geriatric_age_threshold'):
+        geriatric_threshold = self.get('age_adjustments', 'geriatric', 'age_threshold')
+        if geriatric_threshold != self.get('drug_dosing', 'dexmedetomidine', 'geriatric_age_threshold'):
             raise ValueError("Simulation age thresholds must agree")
         # A configured starting value may never exceed the simulation ceiling for that agent.
         for drug, key in (('Dexmedetomidine', 'dexmedetomidine'), ('Ketamine', 'ketamine'), ('Lidocaine', 'lidocaine')):
@@ -152,7 +160,8 @@ class ConfigLoader:
             for field in ('standard_dose', 'geriatric_dose'):
                 value = self.get('drug_dosing', key, field)
                 if value is not None and value > ceiling:
-                    raise ValueError(f"drug_dosing.{key}.{field} ({value}) exceeds simulation_rate_ceilings.{drug} ({ceiling})")
+                    raise ValueError(
+                        f"drug_dosing.{key}.{field} ({value}) exceeds simulation_rate_ceilings.{drug} ({ceiling})")
 
     def get(self, *keys: str, default=None):
         """
@@ -229,9 +238,9 @@ class Pharmacokinetics:
         Returns:
             Tuple of (plasma_concentration, effect_site_concentration) in ng/mL
         """
-        if isinstance(infusion_rate_mcg_per_min, bool) or not isinstance(infusion_rate_mcg_per_min, (int, float)) or not math.isfinite(infusion_rate_mcg_per_min) or infusion_rate_mcg_per_min < 0:
+        if not _is_finite_number(infusion_rate_mcg_per_min) or infusion_rate_mcg_per_min < 0:
             raise ValueError("Infusion input must be finite and nonnegative")
-        if isinstance(time_delta_min, bool) or not isinstance(time_delta_min, (int, float)) or not math.isfinite(time_delta_min) or time_delta_min <= 0:
+        if not _is_finite_number(time_delta_min) or time_delta_min <= 0:
             raise ValueError("Time step must be finite and positive")
         if max(self.k10, self.k1e) * time_delta_min > 1:
             raise ValueError("Time step exceeds this explicit Euler model stability bound")
@@ -249,7 +258,8 @@ class Pharmacokinetics:
             ce_candidate = self.Ce + self.k1e * (cp_candidate - self.Ce) * time_delta_min
         except (OverflowError, ZeroDivisionError) as error:
             raise ValueError("Model arithmetic exceeded the finite input domain") from error
-        if not all(math.isfinite(value) for value in (infusion_mass, elimination_mass, new_mass, cp_candidate, ce_candidate)):
+        candidates = (infusion_mass, elimination_mass, new_mass, cp_candidate, ce_candidate)
+        if not all(math.isfinite(value) for value in candidates):
             raise ValueError("Model arithmetic exceeded the finite input domain")
         self.Cp, self.Ce = cp_candidate, max(0.0, ce_candidate)
 
@@ -378,7 +388,8 @@ class SmartNOAController:
         # Soft Ceiling (Warning — in a real system, licensed clinician override would be possible)
         age_threshold = self.config.get('age_adjustments', 'geriatric', 'age_threshold')
         if drug == "Dexmedetomidine" and self.patient.age > age_threshold:
-            return True, f"SOFT WARNING: Geriatric patient (>{age_threshold}yo). Illustrative age-adjusted configuration applies; no clinical dose recommendation."
+            return True, (f"SOFT WARNING: Geriatric patient (>{age_threshold}yo). Illustrative age-adjusted "
+                          "configuration applies; no clinical dose recommendation.")
 
         return True, "No configured lockout triggered; clinical safety is unassessed"
 
@@ -481,7 +492,7 @@ class SmartNOAController:
         """
         if isinstance(duration_sec, bool) or not isinstance(duration_sec, int) or duration_sec < 0:
             raise ValueError("Simulation duration must be a nonnegative integer")
-        if isinstance(sleep_sec, bool) or not isinstance(sleep_sec, (int, float)) or not math.isfinite(sleep_sec) or sleep_sec < 0:
+        if not _is_finite_number(sleep_sec) or sleep_sec < 0:
             raise ValueError("sleep_sec must be finite and nonnegative")
         if isinstance(log_every, bool) or not isinstance(log_every, int) or log_every < 1:
             raise ValueError("log_every must be a positive integer")
@@ -496,11 +507,14 @@ class SmartNOAController:
 
         time_step_min = 1/60.0  # Each loop iteration represents 1 second (1/60th of a minute)
 
+        hr: Any
+        map_val: Any
         for t in range(duration_sec):
             # 1. Simulate data feed from vital signs monitor (educational simulation)
             if readings is None:
-                hr = random.randint(40, 95)  # nosec B311 - fictional demo reading, not security-relevant
-                map_val = random.randint(50, 105)  # nosec B311 - fictional demo reading, not security-relevant
+                # Fictional demo readings; `random` is not used for any security purpose (bandit B311).
+                hr = random.randint(40, 95)  # nosec B311
+                map_val = random.randint(50, 105)  # nosec B311
             else:
                 try:
                     reading = next(readings)
@@ -522,7 +536,8 @@ class SmartNOAController:
             if not (self._is_valid_reading(hr) and self._is_valid_reading(map_val)):
                 self._latch_hold(self.infusions.keys())
                 self.status = "RED"
-                print(f"T+{t:2d}s | INVALID SENSOR READING (HR={hr!r}, MAP={map_val!r}) → ALL SIMULATED VALUES SET TO ZERO")
+                print(f"T+{t:2d}s | INVALID SENSOR READING (HR={hr!r}, MAP={map_val!r}) "
+                      "→ ALL SIMULATED VALUES SET TO ZERO")
                 time.sleep(sleep_sec)
                 continue
 
@@ -607,7 +622,8 @@ if __name__ == "__main__":
     # readings; a gradual vagal-type fall in HR below 48 stops dexmedetomidine and latches a hold.
     # ----------------------------------------------------
     print("\n--- SCENARIO 2: HEALTHY ADULT, DEXMEDETOMIDINE RUNNING (scripted) ---")
-    controller_b = SmartNOAController(Patient(age=30, weight_kg=85, asa_class=2, egfr=95, allergies=[], comorbidities=[]))
+    controller_b = SmartNOAController(Patient(age=30, weight_kg=85, asa_class=2, egfr=95,
+                                              allergies=[], comorbidities=[]))
     print("Starting values:", controller_b.generate_starting_rates())
     vitals_b = _steady(600, 70, 85) + _ramp(60, 70, 44, 85, 78) + _steady(60, 62, 80)
     controller_b.monitor_and_control(len(vitals_b), vitals=vitals_b, sleep_sec=pause, log_every=120)
@@ -618,7 +634,8 @@ if __name__ == "__main__":
     # Expected: the unusable reading fails safe — all simulated values set to zero and the hold latches.
     # ----------------------------------------------------
     print("\n--- SCENARIO 3: HEART-RATE SENSOR FAULT (scripted) ---")
-    controller_c = SmartNOAController(Patient(age=45, weight_kg=70, asa_class=2, egfr=90, allergies=[], comorbidities=[]))
+    controller_c = SmartNOAController(Patient(age=45, weight_kg=70, asa_class=2, egfr=90,
+                                              allergies=[], comorbidities=[]))
     controller_c.generate_starting_rates()
     vitals_c = _steady(30, 76, 84) + [(None, 84)] + _steady(29, 76, 84)
     controller_c.monitor_and_control(len(vitals_c), vitals=vitals_c, sleep_sec=pause, log_every=15)
