@@ -3,8 +3,11 @@ import { h, clear, announce, fmtClock, parseClock, isNum } from './dom.js';
 import { recommend } from '../engine/dosing.js';
 import { EXAMPLE_PLANS, buildPlan } from '../data/scenarios.js';
 import { srcTags, sourcesInText } from './sources.js';
-import { CLASS_LABELS, CLASS_ORDER, PHASE_LABELS, PHASE_LABELS_MAC, REGIMEN_LABELS, KIND_LABELS, SCALAR_LABELS } from './labels.js';
-import { phasesFor, keyForPhase, makeSteps, refillStep, checkStep, planIssues, getDrugById, stepsFromBuiltPlan, interlockCeiling, isInhaledDrug } from './plan-model.js';
+import { CLASS_LABELS, CLASS_ORDER, PHASE_LABELS, PHASE_LABELS_MAC, REGIMEN_LABELS, KIND_LABELS, SCALAR_LABELS, fluidCompositionText } from './labels.js';
+import { phasesFor, keyForPhase, makeSteps, refillStep, checkStep, planIssues, getDrugById, stepsFromBuiltPlan, interlockCeiling, isInhaledDrug, makeFluidStep, makeAntibioticStep, isFluidStep, prophylaxisIndicated, setProphylaxisIndicated } from './plan-model.js';
+import { TECHNIQUE_TEMPLATES, buildTemplatePlan, templateOptions, getTemplate } from '../engine/templates.js';
+import { selectProphylaxis } from '../engine/prophylaxis.js';
+import { FLUID_MODEL } from '../engine/sim.js';
 import { NOA_CONFIG } from '../engine/interlocks.js';
 
 export const SEDATION_TARGETS = [
@@ -68,7 +71,7 @@ export function renderPlan(ctx, main) {
     plan.sedationTarget = t;
     const key = keyForPhase('sedation', t);
     let refilled = 0, unavailable = 0;
-    for (const s of plan.steps.filter((x) => x.phase === 'sedation' && x.kind !== 'stop')) {
+    for (const s of plan.steps.filter((x) => x.phase === 'sedation' && x.kind !== 'stop' && !isFluidStep(x) && x.kind !== 'antibiotic')) {
       const d = getDrugById(lib, s.drugId);
       s.regimenKey = key;
       if (d.regimens && d.regimens[key]) { refillStep(c(), s); refilled++; } else unavailable++;
@@ -98,6 +101,59 @@ export function renderPlan(ctx, main) {
     ctx.planChanged(); renderAll();
     announce(`Example plan loaded with ${plan.steps.length} steps.${skipped.length ? ` ${skipped.length} skipped.` : ''}`);
   });
+
+  // ---------- technique templates (data/templates.js; doses filled by recommend() at runtime)
+  const tplSel = h('select', { id: 'pl-template', class: 'input' }, h('option', { value: '' }, 'Choose a technique template…'),
+    TECHNIQUE_TEMPLATES.map((t) => h('option', { value: t.id, selected: !!plan.template && plan.template.id === t.id }, t.label)));
+  const tplDesc = h('p', { class: 'hint', id: 'pl-template-desc' });
+  const tplOpts = h('fieldset', { class: 'fieldset fieldset--plain', id: 'pl-template-opts', hidden: true }, h('legend', {}, 'Optional steps'));
+  const tplBtn = h('button', { type: 'button', class: 'btn btn--primary', id: 'pl-template-apply' }, 'Apply template');
+  const tplNotes = h('div', { id: 'pl-template-notes', 'aria-live': 'polite' });
+  function renderTemplateChoice() {
+    const t = getTemplate(tplSel.value);
+    setTextSafe(tplDesc, t ? t.description : 'A template fills the plan steps from the drug library for this patient (no fixed doses); every step stays editable.');
+    while (tplOpts.children.length > 1) tplOpts.lastChild.remove();
+    const opts = t ? templateOptions(t) : [];
+    tplOpts.hidden = !opts.length;
+    for (const o of opts) {
+      const id = `pl-tpl-opt-${o.id}`;
+      tplOpts.append(h('div', { class: 'check' }, h('input', { type: 'checkbox', id, checked: o.default, dataset: { opt: o.id } }), h('label', { for: id }, o.label)));
+    }
+  }
+  function renderTemplateNotes() {
+    clear(tplNotes);
+    const notes = plan.templateNotes && plan.template && plan.template.mode === plan.mode ? plan.templateNotes : [];
+    for (const n of notes) tplNotes.append(h('p', { class: `note note--template note--${n.key}`, dataset: { note: n.key } }, n.text, ' ', srcTags(n.sources)));
+  }
+  tplSel.addEventListener('change', renderTemplateChoice);
+  tplBtn.addEventListener('click', () => {
+    const t = getTemplate(tplSel.value);
+    if (!t) { tplSel.focus(); announce('Choose a template first.'); return; }
+    const include = Object.fromEntries([...tplOpts.querySelectorAll('input[data-opt]')].map((i) => [i.dataset.opt, i.checked]));
+    const r = buildTemplatePlan(t.id, patient, { library: lib, interlocks: store.interlocks, prefillCeilings: false, sedationTarget: t.mode === 'MAC' && plan.mode === 'MAC' ? plan.sedationTarget : null, include });
+    setMode(plan, t.mode); if (t.mode === 'MAC') plan.sedationTarget = r.plan.sedationTarget;
+    plan.steps.splice(0, plan.steps.length, ...stepsFromBuiltPlan(c(), r.plan));
+    plan.template = { id: t.id, label: t.label, mode: t.mode }; plan.templateNotes = r.notes;
+    if (r.plan.steps.some((x) => x.kind === 'antibiotic')) setProphylaxisIndicated(plan, true);
+    const bits = [];
+    if (r.skipped.length) bits.push(`Skipped for this patient: ${r.skipped.map((x) => `${getDrugById(lib, x.drugId)?.name || x.drugId} (${x.reason})`).join('; ')}`);
+    if (r.substitutions.length) bits.push(`Substituted: ${r.substitutions.map((x) => `${getDrugById(lib, x.from).name} → ${getDrugById(lib, x.to).name} (${x.reason})`).join('; ')}`);
+    if (r.omitted.length) bits.push(`Omitted: ${r.omitted.map((x) => `lidocaine pretreatment (${x.reason})`).join('; ')}`);
+    store.planNotice = bits.length ? `Template “${t.label}”. ${bits.join('. ')}.` : null;
+    ctx.planChanged(); renderAll();
+    announce(`Template ${t.label} applied: ${plan.steps.length} steps.${r.skipped.length ? ` ${r.skipped.length} skipped.` : ''}`);
+  });
+  const tplCard = h('section', { class: 'card', id: 'pl-template-card', 'aria-labelledby': 'pl-template-h' },
+    h('h3', { id: 'pl-template-h' }, 'Start from a technique template'),
+    h('div', { class: 'inline-form' }, h('label', { class: 'label', for: 'pl-template' }, 'Template'), tplSel, tplBtn), tplDesc, tplOpts, tplNotes,
+    h('p', { class: 'hint' }, 'Templates name drugs, regimens and offsets only; doses and rates are filled from the drug library for this patient (with sources) and stay editable. Offsets are simulator conventions, not recommendations.'));
+
+  // ---------- antibiotic prophylaxis indication (simulator does not know the procedure)
+  const abxBox = h('input', { type: 'checkbox', id: 'pl-abx-indicated', checked: prophylaxisIndicated(plan) });
+  abxBox.addEventListener('change', () => { setProphylaxisIndicated(plan, abxBox.checked); ctx.planChanged(); renderSummary(); announce(`Antibiotic prophylaxis ${abxBox.checked ? 'marked as indicated' : 'not indicated'}.`); });
+  const abxSel = selectProphylaxis(patient, lib);
+  const abxField = h('div', { class: 'check check--block' }, abxBox, h('label', { for: 'pl-abx-indicated' }, h('strong', {}, 'Surgical antibiotic prophylaxis indicated'),
+    h('span', { class: 'hint block' }, `When ticked, starting surgery without a dose started within the guideline window raises a MEDIUM alarm, and guided mode asks you to acknowledge a checklist warning first. Guideline agent for this patient: ${abxSel.drugId ? getDrugById(lib, abxSel.drugId).name : 'none available'} — ${abxSel.reason} `, srcTags(abxSel.sources))));
 
   const phasesWrap = h('div', { class: 'phases', id: 'pl-phases' });
   const timeline = h('section', { class: 'card', 'aria-labelledby': 'pl-tl-title' });
@@ -135,7 +191,13 @@ export function renderPlan(ctx, main) {
     const time = h('input', { type: 'text', inputmode: 'numeric', id: fid('t'), class: 'input input--time', value: fmtClock(s.atSec), 'aria-describedby': fid('t-hint'), pattern: '(\\d{1,2}:[0-5]\\d:[0-5]\\d|\\d{1,3}:[0-5]\\d|\\d{1,5})' });
     time.addEventListener('change', () => { const v = parseClock(time.value); s.atSec = v; if (v !== null) time.value = fmtClock(v); update(); });
     fields.append(h('div', { class: 'field field--sm' }, h('label', { class: 'label', for: fid('t') }, 'Time offset in phase'), time, h('p', { class: 'hint', id: fid('t-hint') }, 'mm:ss (or h:mm:ss) from phase start')));
-    if (s.kind === 'bolus') {
+    if (s.kind === 'fluid' || s.kind === 'fluid_bolus' || s.kind === 'antibiotic') {
+      const isRate = s.kind === 'fluid';
+      const inp = h('input', { type: 'number', step: 'any', min: 0, id: fid(isRate ? 'r' : 'a'), class: 'input input--num', value: isRate ? s.rate : s.amount });
+      inp.addEventListener('change', () => { const v = inp.value === '' ? NaN : Number(inp.value); if (isRate) s.rate = v; else s.amount = v; update(); });
+      fields.append(h('div', { class: 'field field--sm' }, h('label', { class: 'label', for: inp.id }, isRate ? 'Maintenance rate' : s.kind === 'fluid_bolus' ? 'Volume' : 'Dose', h('span', { class: 'unit' }, ` (${isRate ? 'mL/h' : s.amountUnit})`)), inp,
+        isRate ? h('p', { class: 'hint' }, '0 stops the maintenance infusion') : null));
+    } else if (s.kind === 'bolus') {
       const amt = h('input', { type: 'number', step: 'any', min: 0, id: fid('a'), class: 'input input--num', value: s.amount });
       amt.addEventListener('change', () => { s.amount = amt.value === '' ? NaN : Number(amt.value); update(); });
       const over = h('input', { type: 'number', step: 'any', min: 0, id: fid('o'), class: 'input input--num', value: isNum(s.overSec) && s.overSec > 0 ? Math.round(s.overSec / 6) / 10 : '', placeholder: 'push' });
@@ -166,7 +228,15 @@ export function renderPlan(ctx, main) {
       const r = checkStep(c(), s, plan.steps);
       clear(info);
       const rec = r.rec;
-      if (rec && rec.available && !rec.locked) {
+      if (isFluidStep(s)) {
+        info.append(h('p', {}, h('strong', {}, `${drug.name}: `), `${drug.type}; ${fluidCompositionText(drug)} (approx., label) `, srcTags(drug.sources)),
+          h('p', { class: 'hint' }, `${drug.dosing} Default ${FLUID_MODEL.MAINTENANCE_DEFAULT_ML_H} mL/h; boluses ${FLUID_MODEL.ALLOWED_ML.join(' / ')} mL (simulator conventions). Maintenance continues across phases until changed. Same illustrative volume model for every fluid type.`));
+        if (lib.FLUID_EVIDENCE_NOTE) info.append(h('p', { class: 'note' }, lib.FLUID_EVIDENCE_NOTE.text, ' ', srcTags(lib.FLUID_EVIDENCE_NOTE.sources)));
+      } else if (s.kind === 'antibiotic' && rec && !rec.locked) {
+        info.append(h('p', {}, h('strong', {}, 'Guideline dose: '), `${rec.dose.range.min === rec.dose.range.max ? rec.dose.value : `${rec.dose.range.min}–${rec.dose.range.max}`} ${rec.dose.unit}${rec.dose.perKg ? ` (${rec.dose.perKg.value} ${rec.dose.perKg.unit} × ${rec.weightUsedKg} kg ${rec.scalar})` : ''} `, srcTags(rec.sources)),
+          h('p', { class: 'hint' }, h('strong', {}, 'Timing (guideline): '), rec.timing),
+          ...rec.notes.map((n) => h('p', { class: 'note' }, h('strong', {}, 'Note: '), n)));
+      } else if (rec && rec.available && !rec.locked) {
         const wt = `${rec.weightUsedKg} kg ${rec.scalar}`;
         const lines = [];
         if (s.kind === 'bolus') {
@@ -210,7 +280,7 @@ export function renderPlan(ctx, main) {
         const p = h('p', { class: 'error-text' }, h('span', { class: 'badge badge--lock' }, 'Blocked'), ' ', e.text);
         if (e.fix) {
           const b = h('button', { type: 'button', class: 'btn btn--small' }, e.fix.label);
-          b.addEventListener('click', () => { e.fix.apply(s); const ri = document.getElementById(fid(s.kind === 'bolus' ? 'a' : 'r')); if (ri) ri.value = s.kind === 'bolus' ? s.amount : s.rate; update(); announce('Value updated.'); });
+          b.addEventListener('click', () => { e.fix.apply(s); const ri = document.getElementById(fid(s.kind === 'bolus' || s.kind === 'fluid_bolus' || s.kind === 'antibiotic' ? 'a' : 'r')); if (ri) ri.value = s.kind === 'bolus' ? s.amount : s.rate; update(); announce('Value updated.'); });
           p.append(' ', b);
         }
         info.append(p);
@@ -241,6 +311,11 @@ export function renderPlan(ctx, main) {
       CLASS_ORDER.filter((cl) => groups.has(cl)).concat([...groups.keys()].filter((cl) => !CLASS_ORDER.includes(cl))).map((cl) => h('optgroup', { label: CLASS_LABELS[cl] || cl },
         groups.get(cl).map(({ d, rec }) => h('option', { value: `${d.id}|${key}`, disabled: rec.locked }, `${d.name}${rec.locked ? ' — LOCKED for this patient' : rec.warnings.length ? ' — warning' : ''}`)))),
       rescue.length ? h('optgroup', { label: 'Rescue / as needed' }, rescue.map(({ d, rec, key: rk }) => h('option', { value: `${d.id}|${rk}`, disabled: rec.locked }, `${d.name} (${REGIMEN_LABELS[rk] || rk}${rec.route && rec.route !== 'IV' ? `, ${rec.route}` : rk !== 'rescue' && rec.route ? `, ${rec.route}` : ''})${rec.locked ? ' — LOCKED' : ''}`))) : null);
+    // Lidocaine pretreatment before propofol (propofol label) is offered in the induction phase.
+    if (ph === 'induction') {
+      const lido = lib.DRUGS.find((d) => d.id === 'lidocaine' && d.regimens && d.regimens.pretreatment);
+      if (lido) { const rec = recommend(patient, 'pretreatment', 'lidocaine', lib); sel.append(h('optgroup', { label: 'Pretreatment (before propofol)' }, h('option', { value: 'lidocaine|pretreatment', disabled: rec.locked }, `Lidocaine pretreatment (propofol injection pain)${rec.locked ? ' — LOCKED' : ''}`))); }
+    }
     const add = h('button', { type: 'button', class: 'btn', id: `pl-add-${ph}` }, 'Add');
     add.addEventListener('click', () => {
       if (!sel.value) { sel.focus(); announce('Choose a drug first.'); return; }
@@ -271,9 +346,39 @@ export function renderPlan(ctx, main) {
     }
     return h('div', { class: 'picker' },
       h('div', { class: 'inline-form' }, h('label', { class: 'sr-only', for: `pl-pick-${ph}` }, `Add a drug to ${phaseLabels()[ph]}`), sel, add),
-      stopRow,
+      stopRow, fluidRow(ph), antibioticRow(ph),
       locked.length ? h('details', { class: 'locked-list' }, h('summary', {}, `${locked.length} locked for this patient`),
         h('ul', { class: 'list list--tight' }, locked.map(({ d, rec }) => h('li', {}, h('strong', {}, d.name), ': ', rec.lockReasons.join('; '), ' ', srcTags((rec.contraindications || []).filter((x) => x.severity === 'lock').flatMap((x) => x.sources).concat(sourcesInText(rec.lockReasons.join(' ')))))))) : null);
+  }
+
+  function addSteps(steps, reason, ph, what) {
+    if (!steps.length) { announce(reason, true); return; }
+    plan.steps.push(...steps);
+    ctx.planChanged(); renderPhases(); renderTimeline(); renderSummary();
+    const card = document.getElementById(`card-${steps[0].uid}`); const first = card && card.querySelector('input'); if (first) first.focus();
+    announce(`${what} added to ${phaseLabels()[ph]}.`);
+  }
+  /** "Fluids" row per phase: type, maintenance rate (mL/h) and 250/500 mL boluses (simulator conventions). */
+  function fluidRow(ph) {
+    const fl = lib.FLUIDS || []; if (!fl.length) return null;
+    const tSel = h('select', { id: `pl-fluid-${ph}`, class: 'input' }, fl.map((f) => h('option', { value: f.id }, f.name)));
+    const rate = h('input', { type: 'number', min: 0, max: FLUID_MODEL.MAINTENANCE_MAX_ML_H, step: 'any', id: `pl-fluid-rate-${ph}`, class: 'input input--num', value: FLUID_MODEL.MAINTENANCE_DEFAULT_ML_H });
+    const mb = h('button', { type: 'button', class: 'btn', id: `pl-fluid-maint-${ph}` }, 'Set maintenance');
+    mb.addEventListener('click', () => { const { steps, reason } = makeFluidStep(c(), tSel.value, 'fluid', rate.value === '' ? NaN : Number(rate.value), ph); addSteps(steps, reason, ph, `${getDrugById(lib, tSel.value).name} maintenance ${rate.value} mL/h`); });
+    const bb = FLUID_MODEL.ALLOWED_ML.map((ml) => { const b = h('button', { type: 'button', class: 'btn', id: `pl-fluid-bolus-${ml}-${ph}` }, `Bolus ${ml} mL`); b.addEventListener('click', () => { const { steps, reason } = makeFluidStep(c(), tSel.value, 'fluid_bolus', ml, ph); addSteps(steps, reason, ph, `${getDrugById(lib, tSel.value).name} bolus ${ml} mL`); }); return b; });
+    return h('div', { class: 'inline-form fluid-row' }, h('span', { class: 'label' }, 'Fluids'),
+      h('label', { class: 'sr-only', for: `pl-fluid-${ph}` }, `Fluid type in ${phaseLabels()[ph]}`), tSel,
+      h('label', { class: 'label', for: `pl-fluid-rate-${ph}` }, 'mL/h'), rate, mb, ...bb);
+  }
+  /** Antibiotic prophylaxis row (before incision: premedication / induction or sedation). */
+  function antibioticRow(ph) {
+    const abx = lib.ANTIBIOTICS || [];
+    if (!abx.length || !['premed', 'induction', 'sedation'].includes(ph)) return null;
+    const best = selectProphylaxis(patient, lib);
+    const aSel = h('select', { id: `pl-abx-${ph}`, class: 'input' }, abx.map((a) => { const r = recommend(patient, 'prophylaxis', a.id, lib); return h('option', { value: a.id, disabled: r.locked, selected: a.id === best.drugId }, `${a.name}${a.id === best.drugId ? ' (guideline choice)' : ''}${r.locked ? ' — LOCKED' : ''}`); }));
+    const b = h('button', { type: 'button', class: 'btn', id: `pl-abx-add-${ph}` }, 'Add prophylaxis');
+    b.addEventListener('click', () => { const { steps, reason } = makeAntibioticStep(c(), aSel.value, ph); addSteps(steps, reason, ph, `${getDrugById(lib, aSel.value).name} prophylaxis`); if (steps.length) { setProphylaxisIndicated(plan, true); abxBox.checked = true; } });
+    return h('div', { class: 'inline-form abx-row' }, h('label', { class: 'label', for: `pl-abx-${ph}` }, 'Antibiotic prophylaxis'), aSel, b);
   }
 
   function renderPhases() {
@@ -310,13 +415,13 @@ export function renderPlan(ctx, main) {
         const left = ((s.atSec || 0) / maxT) * 100;
         const m = h('span', { class: `tl-mark tl-mark--${s.kind}` }, String(i + 1));
         m.style.left = `${Math.min(left, 97)}%`;
-        if (s.kind === 'infusion' || s.kind === 'inhaled') { const bar = h('span', { class: 'tl-bar' }); bar.style.left = `${left}%`; bar.style.right = '0'; track.append(bar); }
+        if (s.kind === 'infusion' || s.kind === 'inhaled' || (s.kind === 'fluid' && s.rate > 0)) { const bar = h('span', { class: 'tl-bar' }); bar.style.left = `${left}%`; bar.style.right = '0'; track.append(bar); }
         if (s.kind === 'bolus' && isNum(s.overSec) && s.overSec >= 60) { const bar = h('span', { class: 'tl-bar tl-bar--timed' }); bar.style.left = `${left}%`; bar.style.width = `${(s.overSec / maxT) * 100}%`; track.append(bar); }
         track.append(m);
       });
       const legend = h('ol', { class: 'tl-legend' }, steps.map((s) => {
         const d = getDrugById(lib, s.drugId);
-        const what = s.kind === 'bolus' ? `${s.amount} ${s.amountUnit}${isNum(s.overSec) && s.overSec >= 60 ? ` over ${Math.round(s.overSec / 60)} min` : ''}` : s.kind === 'stop' ? 'stop' : `${s.rate} ${s.rateUnit}`;
+        const what = s.kind === 'bolus' || s.kind === 'antibiotic' || s.kind === 'fluid_bolus' ? `${s.amount} ${s.amountUnit}${s.kind === 'fluid_bolus' ? ' bolus' : s.kind === 'antibiotic' ? ' (prophylaxis)' : ''}${isNum(s.overSec) && s.overSec >= 60 ? ` over ${Math.round(s.overSec / 60)} min` : ''}` : s.kind === 'stop' ? 'stop' : s.kind === 'fluid' ? `${s.rate} mL/h maintenance` : `${s.rate} ${s.rateUnit}`;
         return h('li', {}, h('span', { class: 'mono' }, fmtClock(s.atSec)), ` ${d.name} ${what}`);
       }));
       timeline.append(h('div', { class: 'tl-row' }, h('div', { class: 'tl-label' }, L[ph]), track, steps.length ? legend : h('p', { class: 'hint' }, 'No steps')));
@@ -358,7 +463,8 @@ export function renderPlan(ctx, main) {
     targetBox.hidden = plan.mode !== 'MAC';
     for (const r of targetBox.querySelectorAll('input')) r.checked = r.value === plan.sedationTarget;
     for (const r of modeBox.querySelectorAll('input')) r.checked = r.value === plan.mode;
-    ilBox.checked = store.interlocks;
+    ilBox.checked = store.interlocks; abxBox.checked = prophylaxisIndicated(plan);
+    renderTemplateNotes();
     renderPhases(); renderTimeline(); renderSummary();
   }
 
@@ -367,8 +473,9 @@ export function renderPlan(ctx, main) {
       h('h2', { id: 'step-title', tabindex: '-1' }, '3 · Anesthetic plan'),
       h('p', { class: 'muted' }, 'Doses are auto-filled from the drug library for this patient. Every value shows its sourced range, the weight scalar used and its source. Defaults are a simulator convention, not a recommendation.')),
     notice,
+    tplCard,
     h('div', { class: 'grid grid--2' },
-      h('section', { class: 'card' }, h('h3', {}, 'Technique & target'), modeBox, targetBox),
+      h('section', { class: 'card' }, h('h3', {}, 'Technique & target'), modeBox, targetBox, abxField),
       h('section', { class: 'card' }, h('h3', {}, 'Simulation settings'),
         h('div', { class: 'check check--block' }, ilBox, h('label', { for: ilId }, h('strong', {}, 'Interlocks (Smart NOA rules)'))),
         interlockExplanation(lib),
@@ -381,5 +488,8 @@ export function renderPlan(ctx, main) {
         h('button', { type: 'button', class: 'btn', onclick: () => ctx.go(2) }, '← Back'),
         contBtn)),
   );
+  renderTemplateChoice();
   renderAll();
 }
+
+function setTextSafe(el, t) { el.textContent = t; }

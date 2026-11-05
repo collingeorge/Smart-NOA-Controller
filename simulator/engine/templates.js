@@ -36,11 +36,12 @@ function rateWeight(drug, p) {
 }
 
 /**
- * buildTemplatePlan(templateId, patientDerived, { library, interlocks = true, sedationTarget, include })
+ * buildTemplatePlan(templateId, patientDerived, { library, interlocks = true, sedationTarget, include, prefillCeilings = interlocks })
+ * (the plan editor passes prefillCeilings:false and applies the same ceiling itself, with its note)
  *  -> { plan, skipped, notes:[{ key, text, sources }], substitutions:[…], omitted:[…], prefilled:[…], template }
  * include: { [optionalId]: boolean } (absent → the option's default).
  */
-export function buildTemplatePlan(templateId, patient, { library = null, interlocks = true, sedationTarget = null, include = {} } = {}) {
+export function buildTemplatePlan(templateId, patient, { library = null, interlocks = true, sedationTarget = null, include = {}, prefillCeilings = interlocks } = {}) {
   const lib = resolveLibrary(library);
   const tpl = getTemplate(templateId);
   if (!tpl) throw new Error(`Unknown template '${templateId}'`);
@@ -73,7 +74,7 @@ export function buildTemplatePlan(templateId, patient, { library = null, interlo
   built.plan.steps = built.plan.steps.filter((s) => s.kind !== 'stop' || started.has(s.drugId));
   // interlock ceiling pre-fill (same rule as the plan editor)
   const prefilled = [];
-  if (interlocks) {
+  if (interlocks && prefillCeilings) {
     for (const s of built.plan.steps) {
       if (s.kind !== 'infusion') continue;
       const py = SIM_TO_PY_ID[s.drugId];

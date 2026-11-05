@@ -52,8 +52,11 @@ export function renderDebrief(ctx, main) {
       stat('Minimum SpO2', isNum(s.minSpo2) ? `${s.minSpo2} %` : '—'),
       stat('HR range', isNum(s.minHr) ? `${s.minHr}–${s.maxHr} /min` : '—'),
       stat('Alarms raised', String(s.alarms.length)),
-      fl !== null ? stat('Crystalloid given', `${fl} mL`) : null),
+      fl !== null ? stat('Crystalloid given', `${fmtNum(fl, 0)} mL`) : null),
+    fluidsCard(s.fluids, p),
+    prophylaxisCard(s.prophylaxis, lib),
     h('section', { class: 'card' }, h('h3', {}, 'Drug totals'),
+      s.lidocaine && s.lidocaine.totalMg > 0 ? h('p', { id: 'db-lido' }, `Lidocaine total ${fmtNum(s.lidocaine.totalMg, 3)} mg (${fmtNum(s.lidocaine.perKgIbw, 3)} mg/kg IBW), including pretreatment ${fmtNum(s.lidocaine.pretreatmentMg, 3)} mg (${s.lidocaine.pretreatmentDoses} dose${s.lidocaine.pretreatmentDoses === 1 ? '' : 's'}).${s.lidocaine.overlapWarning ? ' Pretreatment and IV lidocaine analgesic dosing overlapped (Foo 2021 check) ' : ' '}`, s.lidocaine.overlapWarning ? srcTags(['S1']) : null) : null,
       totals.length ? h('div', { class: 'table-wrap' }, h('table', { class: 'table', id: 'db-totals' },
         h('thead', {}, h('tr', {}, h('th', { scope: 'col' }, 'Drug'), h('th', { scope: 'col' }, 'Total'), h('th', { scope: 'col' }, `Per kg (TBW ${p.weightKg} kg)`))),
         h('tbody', {}, totals.map(([id, t]) => h('tr', {}, h('th', { scope: 'row' }, getDrugById(lib, id)?.name || id), h('td', { class: 'mono' }, `${fmtNum(t.amount, 3)} ${t.unit}`),
@@ -108,6 +111,28 @@ function autoCard(A) {
     A.steps.length ? h('ol', { class: 'list list--tight' }, A.steps.map((x) => h('li', {}, h('span', { class: 'mono' }, fmtClock(x.tSec)), ` ${x.label} — ${x.by === 'clinician' ? 'confirmed by the clinician' : 'automatic'}`))) : null,
     A.pauses.length ? h('p', {}, `Pauses: ${A.pauses.map((p) => `${fmtClock(p.tSec)} (${p.reasons.join(' ')})${p.resumedAtSec !== null ? ` → resumed ${fmtClock(p.resumedAtSec)}` : ''}`).join('; ')}`) : null,
     h('p', { class: 'hint' }, 'Automatic steps are marked “AUTO:” (log kind “auto”) in the event log and in the downloaded session JSON (automaticMode).'));
+}
+
+function fluidsCard(F, p) {
+  if (!F || !F.byType || !Object.keys(F.byType).length) return null;
+  const rows = Object.entries(F.byType);
+  return h('section', { class: 'card', id: 'db-fluids' }, h('h3', {}, 'IV fluids by type'),
+    h('div', { class: 'table-wrap' }, h('table', { class: 'table', id: 'db-fluid-totals' },
+      h('thead', {}, h('tr', {}, h('th', { scope: 'col' }, 'Fluid'), h('th', { scope: 'col' }, 'Boluses'), h('th', { scope: 'col' }, 'Maintenance'), h('th', { scope: 'col' }, 'Total'), h('th', { scope: 'col' }, `mL/kg (TBW ${p.weightKg} kg)`))),
+      h('tbody', {}, rows.map(([id, v]) => h('tr', { dataset: { fluid: id } }, h('th', { scope: 'row' }, v.name), h('td', { class: 'mono' }, `${fmtNum(v.bolusMl, 0)} mL`), h('td', { class: 'mono' }, `${fmtNum(v.maintenanceMl, 0)} mL`), h('td', { class: 'mono' }, `${fmtNum(v.totalMl, 0)} mL`), h('td', { class: 'mono' }, fmtNum(v.totalMl / p.weightKg, 3))))))),
+    h('p', { class: 'hint' }, `All crystalloid: ${fmtNum(F.crystalloidMl, 0)} mL. ${F.model}. Rates and volumes are simulator choices; the labels give no fixed dose.`));
+}
+
+function prophylaxisCard(P, lib) {
+  if (!P) return null;
+  const name = (id) => ((lib.ANTIBIOTICS || []).find((a) => a.id === id) || { name: id }).name;
+  return h('section', { class: 'card', id: 'db-abx' }, h('h3', {}, 'Antibiotic prophylaxis (timing only)'),
+    h('p', {}, P.indicated ? 'Marked as indicated for this plan.' : 'Not marked as indicated for this plan.',
+      P.window ? [' At incision: ', h('strong', {}, P.window.ok ? 'in the recommended window' : 'NOT in the recommended window'), ` — ${P.window.message}. `, srcTags(P.window.sources || [])] : ' Surgery/procedure was not started.'),
+    P.doses.length ? h('ul', { class: 'list list--tight' }, P.doses.map((d) => h('li', {}, h('span', { class: 'mono' }, fmtClock(d.tSec)), ` ${name(d.drugId)} ${d.amount} ${d.unit}`))) : h('p', {}, 'No antibiotic dose given.'),
+    P.checklistAcknowledged ? h('p', { class: 'warn-text' }, `Checklist warning acknowledged by the clinician at ${fmtClock(P.checklistAcknowledged.tSec)}: ${P.checklistAcknowledged.message}`) : null,
+    P.redose && P.redose.items.some((x) => x.due) ? h('p', { class: 'warn-text' }, `Redose due at the end of the session: ${P.redose.items.filter((x) => x.due).map((x) => x.name).join(', ')}.`) : null,
+    h('p', { class: 'hint' }, P.note));
 }
 
 function stat(label, value) { return h('div', { class: 'card stat' }, h('p', { class: 'stat__label' }, label), h('p', { class: 'stat__value mono' }, value)); }

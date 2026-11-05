@@ -238,7 +238,9 @@ function testSnapshot() {
   return copy({
     step: store.step, interlocksOn: store.interlocks, overrides: store.run.overrides,
     sim: sim ? { t: sim.state.tSec, phase: sim.state.phase, v: sim.state.vitals, il: sim.state.interlocks.status, interlocks: sim.state.interlocks,
-      airway: sim.state.airway, ready: sim.extubationReadiness().ready, readiness: sim.extubationReadiness(), log: sim.state.log, playing: store.run.playing } : null,
+      airway: sim.state.airway, ready: sim.extubationReadiness().ready, readiness: sim.extubationReadiness(), log: sim.state.log, playing: store.run.playing,
+      fluids: sim.state.fluids, prophylaxis: sim.state.prophylaxis, checklist: sim.prophylaxisChecklist(), alarms: sim.state.alarms, drugs: { lidocaine: sim.state.drugs.lidocaine } } : null,
+    plan: { mode: store.plan.mode, sedationTarget: store.plan.sedationTarget, template: store.plan.template || null, steps: store.plan.steps.map((x) => ({ drugId: x.drugId, kind: x.kind, phase: x.phase, regimenKey: x.regimenKey, amount: x.amount, rate: x.rate, atSec: x.atSec })) },
     auto: a ? { ...a.status(), idx: a.idx, history: a.history } : null,
   });
 }

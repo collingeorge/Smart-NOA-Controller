@@ -381,6 +381,107 @@ test('simulator UI smoke', { skip, timeout: 900000 }, async (t) => {
       assert.equal(s.state, 'manual', 'giving a drug is manual control and ends automatic mode');
     });
 
+    // ---- 2026-11 additions: technique templates, fluids, antibiotic checklist
+    const toPlan = async (id) => { await loadCase(page, id); await page.click('#pf-continue'); await page.waitForSelector('#as-continue'); await page.click('#as-continue'); await page.waitForSelector('#pl-template'); };
+    const elShot = async (sel, name) => { if (SHOTS) await page.locator(sel).screenshot({ path: join(SHOTS, name) }); };
+    const planSteps = async () => (await snap(page)).plan.steps;
+
+    await t.test('technique templates: selector, opioid-free plan with POFA note, opioid-based pretreatment, dexmedetomidine MAC', async () => {
+      await toPlan('healthy_adult');
+      const labels = await page.$$eval('#pl-template option', (o) => o.map((x) => x.textContent));
+      for (const l of ['GA — opioid-based (balanced)', 'GA — opioid-free', 'MAC — dexmedetomidine', 'MAC — propofol (existing technique)']) assert.ok(labels.includes(l), l);
+      await page.selectOption('#pl-template', 'ga_opioid');
+      assert.ok(await page.isVisible('#pl-tpl-opt-lidocainePretreatment'));
+      await elShot('#pl-template-card', 'template-selector.png');
+      await page.click('#pl-template-apply');
+      let st = await planSteps();
+      const pre = st.find((x) => x.drugId === 'lidocaine' && x.regimenKey === 'pretreatment'); const pro = st.find((x) => x.drugId === 'propofol' && x.regimenKey === 'induction');
+      assert.ok(pre && pro && pre.amount === 10 && pre.atSec < pro.atSec, JSON.stringify(st));
+      for (const d of ['cefazolin', 'lactated_ringers', 'fentanyl', 'sevoflurane', 'sugammadex']) assert.ok(st.some((x) => x.drugId === d), d);
+      assert.ok(await page.isVisible('#pl-template-notes [data-note="propofolPain"]'));
+      assert.match(await page.textContent('#pl-template-notes'), /pH of 7 to 8\.5/);
+      await page.selectOption('#pl-template', 'ga_opioid_free'); await page.click('#pl-template-apply');
+      st = await planSteps();
+      assert.ok(!st.some((x) => ['fentanyl'].includes(x.drugId)) && !st.some((x) => x.regimenKey === 'pretreatment'));
+      for (const d of ['dexmedetomidine', 'ketamine', 'lidocaine', 'propofol']) assert.ok(st.some((x) => x.drugId === d), d);
+      const pofa = await page.textContent('#pl-template-notes [data-note="pofa"]');
+      assert.match(pofa, /POFA/); assert.match(pofa, /severe bradycardia/); assert.match(pofa, /S49/);
+      assert.match(await page.textContent('#pl-notice'), /Omitted: lidocaine pretreatment/);
+      assert.match(await page.textContent('#pl-summary'), /no blocking issues/);
+      await elShot('#pl-template-card', 'opioid-free-pofa-note.png');
+      await shot(page, 'opioid-free-plan.png');
+      await page.selectOption('#pl-template', 'mac_dex'); await page.click('#pl-template-apply');
+      const sp = (await snap(page)).plan;
+      assert.equal(sp.mode, 'MAC');
+      assert.ok(sp.steps.some((x) => x.drugId === 'dexmedetomidine' && x.kind === 'infusion' && x.rate === 0.5), JSON.stringify(sp.steps));
+      assert.ok(await page.isVisible('#pl-template-notes [data-note="dexMac"]')); assert.ok(await page.isVisible('#pl-template-notes [data-note="dexInterlock"]'));
+      assert.match(await page.textContent('#pl-template-notes'), /use a GA template/);
+      await page.check('#pl-target-deep'); assert.match(await page.textContent('#pl-summary'), /no blocking issues/);
+      await shot(page, 'dex-mac-plan.png');
+    });
+
+    await t.test('antibiotic checklist in guided mode: warning before Start surgery waits for the clinician; alarm at incision', async () => {
+      await toPlan('healthy_adult');
+      assert.equal(await page.isChecked('#pl-abx-indicated'), true);
+      const card = page.locator('.step-card', { hasText: 'Cefazolin' });
+      await card.locator('[data-del]').click();
+      assert.ok(!(await planSteps()).some((x) => x.kind === 'antibiotic'));
+      await page.click('#pl-continue'); await page.waitForSelector('#mon-play');
+      await page.click('[data-speed="60"]');
+      await page.click('#auto-guided');
+      await gate(page, 'Approve & start induction'); await gate(page, 'Intubate (secure airway)'); await gate(page, 'Enter maintenance mode');
+      await waitAuto(page, (s) => s.current && s.current.id === 'start_surgery' && !!s.current.checklist, { label: 'checklist shown' });
+      await page.waitForSelector('#auto-checklist:not([hidden])'); await page.waitForSelector('#abx-checklist:not([hidden])');
+      const t0 = (await simState(page)).t;
+      await waitSim(page, (s) => s.t > t0 + 240, { label: 'time passes while waiting' });
+      const s1 = await snap(page);
+      assert.equal(s1.auto.current.id, 'start_surgery', 'surgery has not started');
+      assert.equal(s1.sim.prophylaxis.checklistAcknowledged, null, 'never auto-acknowledged');
+      await elShot('#auto-panel', 'antibiotic-checklist-guided.png');
+      await page.click('#auto-abx-ack');
+      await waitAuto(page, (s) => s.current && s.current.id === 'end_surgery', { label: 'surgery started after acknowledgement' });
+      const s2 = await snap(page);
+      assert.ok(s2.sim.prophylaxis.checklistAcknowledged);
+      assert.ok(s2.sim.alarms.some((a) => a.id === 'abx_window' && a.priority === 'medium'), JSON.stringify(s2.sim.alarms));
+      assert.match(await page.textContent('#mon-alarms'), /Surgery started without antibiotic prophylaxis in the recommended window/);
+      await shot(page, 'antibiotic-alarm-guided.png');
+      await page.click('#auto-takeover');
+    });
+
+    await t.test('fluids panel: type, boluses and maintenance; debrief totals by type and lidocaine pretreatment', async () => {
+      await toPlan('healthy_adult');
+      await page.selectOption('#pl-template', 'ga_opioid'); await page.click('#pl-template-apply');
+      await page.selectOption('#pl-fluid-maintenance', 'sodium_chloride_0_9');
+      await page.click('#pl-fluid-bolus-250-maintenance');
+      assert.ok((await planSteps()).some((x) => x.kind === 'fluid_bolus' && x.drugId === 'sodium_chloride_0_9' && x.phase === 'maintenance'));
+      await page.click('#pl-continue'); await page.waitForSelector('#mon-fluids-panel');
+      await page.click('[data-speed="60"]');
+      await page.click('[data-step="60"]'); // the planned LR maintenance (premedication 00:00) starts first
+      assert.equal((await simState(page)).fluids.maintenance.fluidId, 'lactated_ringers');
+      await page.selectOption('#fl-type', 'sodium_chloride_0_9'); await page.click('#fl-500');
+      await page.fill('#fl-rate', '150'); await page.click('#fl-maint-set');
+      for (let i = 0; i < 2; i++) await page.click('[data-step="60"]');
+      const F = (await simState(page)).fluids;
+      assert.equal(F.byType.sodium_chloride_0_9.bolusMl, 500);
+      assert.equal(F.maintenance.fluidId, 'sodium_chloride_0_9'); assert.equal(F.maintenance.rateMlH, 150);
+      assert.ok(F.byType.lactated_ringers.maintenanceMl > 0 || F.byType.sodium_chloride_0_9.maintenanceMl > 0);
+      assert.match(await page.textContent('#mon-fluid-totals'), /0\.9% sodium chloride/);
+      assert.match(await page.textContent('#fl-maint-state'), /150 mL\/h/);
+      await elShot('#mon-fluids-panel', 'fluids-panel.png');
+      // run the whole template case as the automatic demonstration (restarts from 00:00 with the plan), then debrief
+      await page.click('#auto-full');
+      await waitAuto(page, (s) => s.state === 'completed', { label: 'full case with fluids', timeout: 400000 });
+      const s = await simState(page);
+      assert.equal(s.fluids.byType.sodium_chloride_0_9.bolusMl, 250, 'planned 0.9% NaCl bolus ran');
+      assert.ok(s.fluids.byType.lactated_ringers.maintenanceMl > 0, 'LR maintenance from the template ran across phases');
+      assert.equal(s.prophylaxis.doses[0].drugId, 'cefazolin');
+      await page.click('#mon-debrief'); await page.waitForSelector('#db-fluids');
+      assert.match(await page.textContent('#db-fluid-totals'), /Lactated Ringer's/);
+      assert.match(await page.textContent('#db-abx'), /in the recommended window/);
+      assert.match(await page.textContent('#db-lido'), /including pretreatment 10 mg/);
+      await shot(page, 'debrief-totals.png');
+    });
+
     await t.test('panels open', async () => {
       for (const id of ['open-sources', 'open-model', 'open-about']) {
         await page.click(`#${id}`);

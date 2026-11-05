@@ -4,11 +4,13 @@ import { recommend, regimenKeyForPhase } from '../engine/dosing.js';
 import { SCENARIOS } from '../data/scenarios.js';
 import { drawChart, SERIES_COLORS, WINDOW_SEC } from './charts.js';
 import { srcTags } from './sources.js';
-import { CLASS_LABELS, CLASS_ORDER, PHASE_LABELS, PHASE_LABELS_MAC, PRIORITY_LABELS, PRIORITY_SHAPES, INTERLOCK_TEXT, KIND_LABELS } from './labels.js';
+import { CLASS_LABELS, CLASS_ORDER, PHASE_LABELS, PHASE_LABELS_MAC, PRIORITY_LABELS, PRIORITY_SHAPES, INTERLOCK_TEXT, KIND_LABELS, fluidCompositionText } from './labels.js';
 import { getDrugById, isInhaledDrug, interlockCeiling, interlockNote, exceedsInterlockCeiling } from './plan-model.js';
 import { interlockExplanation } from './plan-editor.js';
 import { CASE_ACTIONS, surgeryState } from '../engine/case-actions.js';
 import { createAutoRunner, BANNERS, MODE_LABELS } from '../engine/autorun.js';
+import { FLUID_MODEL } from '../engine/sim.js';
+import { selectProphylaxis } from '../engine/prophylaxis.js';
 
 const SPEEDS = [1, 5, 20, 60];
 const TILE_ALARMS = {
@@ -171,7 +173,46 @@ export function renderMonitor(ctx, main) {
   // ---------------- interventions: fluids, complications, sensor faults
   const fluids = ctx.fluidsSupported();
   const fluidOut = h('span', { id: 'mon-fluids' });
-  const fluidBtns = [250, 500].map((ml) => { const b = h('button', { type: 'button', class: 'btn btn--hmi', id: `fl-${ml}`, disabled: !fluids }, `Fluid bolus ${ml} mL`); b.addEventListener('click', () => { act(`fluid_bolus:${ml}`, `Crystalloid ${ml} mL given`); render(true); }); return b; });
+  const FL = lib.FLUIDS || [];
+  const flType = h('select', { id: 'fl-type', class: 'input input--hmi', disabled: !fluids || !FL.length }, FL.map((f) => h('option', { value: f.id, selected: f.id === FLUID_MODEL.DEFAULT_FLUID }, f.name)));
+  const flName = () => (FL.find((f) => f.id === flType.value) || { name: 'Crystalloid' }).name;
+  const fluidBtns = [250, 500].map((ml) => { const b = h('button', { type: 'button', class: 'btn btn--hmi', id: `fl-${ml}`, disabled: !fluids }, `Bolus ${ml} mL`); b.addEventListener('click', () => { act(FL.length ? `fluid_bolus:${ml}:${flType.value}` : `fluid_bolus:${ml}`, `${flName()} ${ml} mL given`); render(true); }); return b; });
+  const flRate = h('input', { type: 'number', min: 0, max: FLUID_MODEL.MAINTENANCE_MAX_ML_H, step: 'any', id: 'fl-rate', class: 'input input--hmi input--num', value: FLUID_MODEL.MAINTENANCE_DEFAULT_ML_H, disabled: !fluids || !FL.length });
+  const flSet = h('button', { type: 'button', class: 'btn btn--hmi', id: 'fl-maint-set', disabled: !fluids || !FL.length }, 'Set maintenance');
+  flSet.addEventListener('click', () => { act(`fluid_maintenance:${flType.value}:${flRate.value === '' ? 'x' : Number(flRate.value)}`); render(true); });
+  const flStop = h('button', { type: 'button', class: 'btn btn--hmi btn--danger', id: 'fl-maint-stop', disabled: !fluids || !FL.length }, 'Stop maintenance');
+  flStop.addEventListener('click', () => { act('fluid_maintenance_stop'); render(true); });
+  const flMaint = h('p', { class: 'hint hint--hmi', id: 'fl-maint-state' });
+  const flTotals = h('tbody', { id: 'mon-fluid-totals' });
+  const flComp = h('p', { class: 'hint hint--hmi', id: 'fl-comp' });
+  const renderComp = () => { const f = FL.find((x) => x.id === flType.value); clear(flComp); if (f) flComp.append(`${f.name} (${f.type}): ${fluidCompositionText(f)} (approx., label) `, srcTags(f.sources), `. ${f.labelNotes.join(' ')}`); };
+  flType.addEventListener('change', renderComp); renderComp();
+  const fluidPanel = h('section', { class: 'hmi-panel', id: 'mon-fluids-panel', 'aria-labelledby': 'mon-fl-h' }, h('h3', { id: 'mon-fl-h' }, 'IV fluids'),
+    h('div', { class: 'inline-form' }, h('label', { for: 'fl-type', class: 'label' }, 'Fluid'), flType),
+    h('div', { class: 'btn-row' }, fluidBtns),
+    h('div', { class: 'inline-form' }, h('label', { for: 'fl-rate', class: 'label' }, 'Maintenance (mL/h)'), flRate, flSet, flStop), flMaint,
+    h('div', { class: 'table-wrap' }, h('table', { class: 'table table--hmi table--compact' }, h('caption', { class: 'sr-only' }, 'Fluid totals by type'),
+      h('thead', {}, h('tr', {}, h('th', { scope: 'col' }, 'Fluid'), h('th', { scope: 'col' }, 'Boluses'), h('th', { scope: 'col' }, 'Maintenance'), h('th', { scope: 'col' }, 'Total'))), flTotals)),
+    h('p', { class: 'hint hint--hmi' }, fluids ? ['Cumulative crystalloid: ', fluidOut, '. Rates and volumes are simulator choices (labels give no fixed dose); both fluids use the same illustrative volume model.'] : 'Fluids are not available in this engine version.'),
+    flComp,
+    lib.FLUID_EVIDENCE_NOTE ? h('p', { class: 'hint hint--hmi' }, lib.FLUID_EVIDENCE_NOTE.text, ' ', srcTags(lib.FLUID_EVIDENCE_NOTE.sources)) : null);
+
+  // ---------------- antibiotic prophylaxis (timing only; engine/prophylaxis.js)
+  const ABX = lib.ANTIBIOTICS || [];
+  const abxBest = selectProphylaxis(patient, lib);
+  const abxSel = h('select', { id: 'abx-drug', class: 'input input--hmi' }, ABX.map((a) => { const r = recommend(patient, 'prophylaxis', a.id, lib); return h('option', { value: a.id, disabled: r.locked, selected: a.id === abxBest.drugId }, `${a.name} ${r.locked ? '— LOCKED' : `${r.dose.value} ${r.dose.unit}`}`); }));
+  const abxGive = h('button', { type: 'button', class: 'btn btn--hmi', id: 'abx-give' }, 'Give prophylaxis dose');
+  abxGive.addEventListener('click', () => { const r0 = recommend(patient, 'prophylaxis', abxSel.value, lib); const r = sim.administer({ drugId: abxSel.value, kind: 'antibiotic', amount: r0.dose ? r0.dose.value : NaN, amountUnit: r0.dose ? r0.dose.unit : 'mg' }); const n = getDrugById(lib, abxSel.value).name; feedback(r.ok ? `${n} given (timing only).${r.warnings.length ? ` Warnings: ${r.warnings.join('; ')}` : ''}` : `BLOCKED: ${n} — ${r.reasons.join('; ')}`, !r.ok, r.warnings.length > 0); render(true); });
+  const abxState = h('p', { class: 'hint hint--hmi', id: 'abx-state' });
+  const abxCheck = h('div', { class: 'checklist', id: 'abx-checklist', role: 'group', 'aria-label': 'Antibiotic prophylaxis checklist', hidden: true });
+  const abxCheckMsg = h('p', { class: 'checklist__msg', id: 'abx-checklist-msg' });
+  const abxAck = h('button', { type: 'button', class: 'btn btn--hmi btn--warn', id: 'abx-ack', 'data-auto-safe': 'acknowledge' }, 'Acknowledge: proceed without prophylaxis in window');
+  abxAck.addEventListener('click', () => { const r = sim.action('acknowledge_checklist:antibiotic'); feedback(r.message, !r.ok); announce(r.message); render(true); });
+  abxCheck.append(h('p', { class: 'checklist__title' }, '☐ Checklist before Start surgery: antibiotic prophylaxis'), abxCheckMsg, abxAck);
+  const abxPanel = ABX.length ? h('section', { class: 'hmi-panel', id: 'abx-panel', 'aria-labelledby': 'abx-h' }, h('h3', { id: 'abx-h' }, 'Antibiotic prophylaxis'),
+    abxCheck,
+    h('div', { class: 'inline-form' }, h('label', { for: 'abx-drug', class: 'label' }, 'Agent'), abxSel, abxGive), abxState,
+    h('p', { class: 'hint hint--hmi' }, `Guideline (Bratzler 2013): start within 60 min before incision (vancomycin 120 min); redose cefazolin every 4 h, clindamycin every 6 h. ${abxBest.reason} Timing only — antibiotic pharmacology is not modelled. `, srcTags(abxBest.sources))) : null;
   const nonSensor = SCENARIOS.filter((s) => !s.perturbation.sensor);
   const sensor = SCENARIOS.filter((s) => s.perturbation.sensor);
   const cxSel = h('select', { id: 'cx-select', class: 'input input--hmi' }, h('option', { value: '' }, 'Choose a complication…'), nonSensor.map((s) => h('option', { value: s.id }, s.label)));
@@ -181,7 +222,6 @@ export function renderMonitor(ctx, main) {
   cxBtn.addEventListener('click', () => { if (!cxSel.value) { cxSel.focus(); return; } inject(cxSel.value); });
   const sensorBtns = sensor.map((s) => { const b = h('button', { type: 'button', class: 'btn btn--hmi', id: `sf-${s.id}` }, s.label); b.addEventListener('click', () => inject(s.id)); return b; });
   const intPanel = h('section', { class: 'hmi-panel', 'aria-labelledby': 'mon-int-h' }, h('h3', { id: 'mon-int-h' }, 'Interventions & complications'),
-    h('div', { class: 'btn-row' }, fluidBtns), h('p', { class: 'hint hint--hmi' }, fluids ? ['Cumulative crystalloid: ', fluidOut] : 'Fluid boluses are not available in this engine version.'),
     h('div', { class: 'inline-form' }, h('label', { for: 'cx-select', class: 'label' }, 'Complication'), cxSel, cxBtn),
     h('div', { class: 'btn-row' }, h('span', { class: 'label' }, 'Sensor faults:'), sensorBtns), teach);
 
@@ -296,6 +336,12 @@ export function renderMonitor(ctx, main) {
   const autoBanner = h('p', { class: 'auto-banner', id: 'auto-banner', hidden: true });
   const autoGate = h('button', { type: 'button', class: 'btn btn--hmi btn--primary auto-gate', id: 'auto-gate', hidden: true });
   const autoUnmet = h('ul', { class: 'auto-unmet', id: 'auto-unmet' });
+  // Antibiotic checklist item before "Start surgery" (guided: waits; full: pauses). Never acknowledged automatically.
+  const autoCkMsg = h('p', { class: 'checklist__msg' });
+  const autoCkAck = h('button', { type: 'button', class: 'btn btn--hmi btn--warn', id: 'auto-abx-ack' }, 'Acknowledge checklist warning');
+  autoCkAck.addEventListener('click', () => { const r = sim.action('acknowledge_checklist:antibiotic'); feedback(r.message, !r.ok); announce(r.message); render(true); });
+  const autoCk = h('div', { class: 'checklist', id: 'auto-checklist', role: 'group', 'aria-label': 'Checklist before Start surgery', hidden: true },
+    h('p', { class: 'checklist__title' }, '☐ Checklist item before Start surgery — antibiotic prophylaxis (warning; you must acknowledge it)'), autoCkMsg, autoCkAck);
   const autoSeq = h('ol', { class: 'auto-seq', id: 'auto-seq' });
   const autoPause = h('button', { type: 'button', class: 'btn btn--hmi', id: 'auto-pause' }, 'Pause');
   const autoResume = h('button', { type: 'button', class: 'btn btn--hmi', id: 'auto-resume' }, 'Resume');
@@ -307,7 +353,7 @@ export function renderMonitor(ctx, main) {
   const autoPanel = h('section', { class: 'hmi-panel auto-panel', id: 'auto-panel', 'aria-labelledby': 'auto-h', 'data-auto-safe': 'auto-panel' },
     h('h3', { id: 'auto-h' }, 'Guided & automatic modes'), autoBanner,
     h('p', { class: 'hint hint--hmi', id: 'auto-intro' }, `Use the patient and plan already entered (doses are not changed) and start the case from 00:00. Guided mode runs each phase from your plan and waits for you at every transition; the full demonstration walks the same sequence on fixed timings. Both pause for an interlock hold or a HIGH-priority alarm (never clearing or acknowledging it), never extubate unless the readiness checklist is met, and end as soon as you use any manual control. Every step is logged (log kind "auto").`),
-    autoStartRow, autoStatus, autoGate, autoUnmet, autoCtlRow, autoSeq);
+    autoStartRow, autoStatus, autoGate, autoCk, autoUnmet, autoCtlRow, autoSeq);
   const startAuto = (mode) => {
     if (sim.state.tSec > 0 || sim.state.phase !== 'premed') { ctx.restartSim(); store.run.autoStart = mode; ctx.rerender(); return; }
     beginAuto(mode);
@@ -370,6 +416,8 @@ export function renderMonitor(ctx, main) {
     autoGate.hidden = !showGate;
     if (showGate) { setText(autoGate, c.gateLabel); autoGate.disabled = !c.enabled || gateBusy; autoGate.dataset.gate = c.id; }
     else delete autoGate.dataset.gate;
+    const ckText = active && c && c.checklist ? c.checklist : null;
+    autoCk.hidden = !ckText; if (ckText) setText(autoCkMsg, ckText);
     const unmet = st.state === 'stopped' ? st.unmetAtStop : active && c && !c.conditionsMet ? c.unmet : [];
     const usig = unmet.join('|') + st.state;
     if (autoUnmet.dataset.sig !== usig) {
@@ -409,7 +457,7 @@ export function renderMonitor(ctx, main) {
       fb, autoPanel,
       h('div', { class: 'hmi-grid' },
         h('div', { class: 'hmi-main' }, tileGrid, chartGrid, drugPanel),
-        h('div', { class: 'hmi-side' }, alarmPanel, ilPanel, phasePanel, readyPanel, airwayPanel, intPanel)),
+        h('div', { class: 'hmi-side' }, alarmPanel, ilPanel, abxPanel, phasePanel, readyPanel, airwayPanel, fluidPanel, intPanel)),
       logPanel),
     h('div', { class: 'actions' }, h('button', { type: 'button', class: 'btn', onclick: () => ctx.go(3) }, '← Back to plan'), toDebrief));
 
@@ -526,7 +574,8 @@ export function renderMonitor(ctx, main) {
     jawBtn.setAttribute('aria-pressed', String(!!A.jawThrust)); jawBtn.textContent = A.jawThrust ? 'Release jaw thrust' : 'Jaw thrust';
     secBtn.disabled = A.secured; ventOn.disabled = !A.secured || A.ventilated; ventOff.disabled = !A.ventilated;
     if (document.activeElement !== fio2Sel) fio2Sel.value = String([0.21, 0.3, 0.4, 0.5, 0.6, 0.8, 1].find((v) => Math.abs(v - A.fio2) < 1e-6) ?? fio2Sel.value);
-    if (fluids) setText(fluidOut, S.fluids && isNum(S.fluids.crystalloidMl) ? `${S.fluids.crystalloidMl} mL` : '0 mL');
+    if (fluids) setText(fluidOut, S.fluids && isNum(S.fluids.crystalloidMl) ? `${fmtNum(S.fluids.crystalloidMl, 0)} mL` : '0 mL');
+    renderFluids(); renderAbx();
     // drugs
     renderDrugs();
     // readiness
@@ -540,6 +589,29 @@ export function renderMonitor(ctx, main) {
     renderAuto();
     renderLog();
     drawCharts();
+  }
+
+  function renderFluids() {
+    const F = sim.state.fluids; if (!F || !F.byType) return;
+    const M = F.maintenance;
+    setText(flMaint, M && M.rateMlH > 0 ? `Maintenance running: ${(FL.find((f) => f.id === M.fluidId) || {}).name} ${M.rateMlH} mL/h (continues across phases)` : 'No maintenance infusion running.');
+    flStop.disabled = !(M && M.rateMlH > 0);
+    const rows = Object.entries(F.byType).map(([id, v]) => `${id}:${Math.round(v.bolusMl)}:${Math.round(v.maintenanceMl)}`).join('|');
+    if (flTotals.dataset.sig === rows) return; flTotals.dataset.sig = rows;
+    clear(flTotals).append(...Object.entries(F.byType).map(([id, v]) => h('tr', { dataset: { fluid: id } }, h('th', { scope: 'row' }, (FL.find((f) => f.id === id) || {}).name || id),
+      h('td', { class: 'mono' }, `${fmtNum(v.bolusMl, 0)} mL`), h('td', { class: 'mono' }, `${fmtNum(v.maintenanceMl, 0)} mL`), h('td', { class: 'mono' }, `${fmtNum(v.bolusMl + v.maintenanceMl, 0)} mL`))));
+  }
+  function renderAbx() {
+    if (!abxPanel) return;
+    const P = sim.state.prophylaxis; const surg = surgeryState(sim);
+    const ck = sim.prophylaxisChecklist();
+    const showCk = ck.indicated && !surg.started && (!ck.window || !ck.window.ok);
+    abxCheck.hidden = !showCk;
+    abxCheck.classList.toggle('checklist--ack', !!ck.acknowledged);
+    if (showCk) { setText(abxCheckMsg, ck.message); abxAck.disabled = !!ck.acknowledged; setText(abxAck, ck.acknowledged ? 'Warning acknowledged' : 'Acknowledge: proceed without prophylaxis in window'); }
+    const last = P.doses[P.doses.length - 1];
+    const red = P.redose && P.redose.items ? P.redose.items.filter((x) => x.drugId) : [];
+    setText(abxState, `${ck.indicated ? 'Indicated for this plan.' : 'Not marked as indicated for this plan.'} ${last ? `Last dose: ${(getDrugById(lib, last.drugId) || {}).name} ${last.amount} ${last.unit} at ${fmtClock(last.tSec)}.` : 'No dose given.'}${red.length ? ` Next redose: ${red.map((x) => `${x.name} at ${fmtClock(x.dueAtSec)}`).join('; ')}.` : ''}${P.window ? ` At incision: ${P.window.ok ? 'in window' : 'NOT in window'} (${P.window.message}).` : ''}`);
   }
 
   function renderAlarms() {
