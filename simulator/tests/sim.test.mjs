@@ -177,7 +177,7 @@ for (const { name, lib } of LIBS) {
     assert.ok(plan.steps.length >= 5);
     for (const s of plan.steps) if (s.kind === 'bolus') assert.ok(s.amount > 0 && s.amountUnit);
     const sim = createSimulation({ patient: pat, plan, seed: 1, library: lib });
-    runFor(sim, 60); sim.setPhase('induction'); sim.action('set_fio2:1'); runFor(sim, 240);
+    runFor(sim, 60); sim.setPhase('induction'); sim.action('set_fio2:1'); runFor(sim, 360);
     assert.equal(sim.state.vitals.sedationLevel, 'general');
     assert.ok(sim.action('secure_airway').ok); assert.ok(sim.action('start_ventilation').ok);
     assert.equal(sim.state.surgery.stimulus, 'laryngoscopy');

@@ -12,7 +12,8 @@
 //   appliesTo  'both' | 'guided' | 'full'          — 'full' = only the automatic demonstration
 //                                                    (in guided mode the clinician decides when)
 // Times are simulated seconds, counted from the moment the sequence reaches that step.
-// Engine readouts used (depth index, sedation level, TOF) are illustrative model outputs.
+// Engine readouts used (processed-EEG depth index (BIS-style, simulated), sedation level, TOF) are
+// illustrative model outputs. Pre-op holding / OR / pre-incision timings: engine/timing.js TIMING_CONFIG.
 // EXTUBATION_TOFR_MIN mirrors sim.js ALARM_THRESHOLDS.TOFR_EXTUBATION (a test keeps them equal; not
 // imported here to avoid an import cycle sim.js → inventory.js → autorun-config.js → sim.js).
 
@@ -26,14 +27,14 @@ const e = (value, unit, appliesTo, rationale, provenance = CONVENTION, sourceIds
 export const AUTORUN_CONFIG = Object.freeze({
   // ---------------------------------------------------------------- start
   PRE_INDUCTION_DWELL_SEC: e(60, 's', 'full',
-    'Full demonstration waits this long after 00:00 (premedication steps run at their offsets) before "Start induction" / "Start sedation". In guided mode the clinician presses "Approve & start".'),
+    'Full demonstration waits at least this long after 00:00 (premedication steps run at their offsets) before "Transfer to OR". Transfer also waits for the premedication interval (engine/timing.js TIMING_CONFIG.PREMED_TO_TRANSFER_SEC). In guided mode the clinician presses "Transfer to OR".'),
   INDUCTION_FIO2: e(1, 'fraction', 'both',
-    'At "Start induction" the sequence sets FiO2 1.0 (pre-oxygenation) and starts bag-mask ventilation, using the same set_fio2 and mask_ventilate actions as the Airway panel buttons.'),
+    'After transfer and OR setup the sequence starts preoxygenation (FiO2 1.0, set_fio2 — the Airway panel action); at "Start induction" it starts bag-mask ventilation (mask_ventilate). Durations: engine/timing.js TIMING_CONFIG (OR_SETUP_SEC, PREOXYGENATION_SEC).'),
   SEDATION_FIO2: e(0.4, 'fraction', 'both',
     'At "Start sedation" the sequence sets supplemental oxygen FiO2 0.4 with the Airway panel set_fio2 action (the same value the browser smoke test uses for the MAC example).'),
   // ---------------------------------------------------------------- GA: intubating conditions
-  INTUBATION_DEPTH_MAX: e(60, 'depth index (0–100, illustrative; not BIS)', 'both',
-    'Intubating conditions: simulated depth index ≤ 60. The engine notes laryngoscopy above 70 as light; 60 is the depth the existing GA smoke test waits for.'),
+  INTUBATION_DEPTH_MAX: e(60, 'processed-EEG depth index (BIS-style, simulated)', 'both',
+    'Intubating conditions: simulated processed-EEG depth index ≤ 60 (upper end of the GA band, engine/timing.js). The engine notes laryngoscopy above 70 as light; 60 is the depth the existing GA smoke test waits for.'),
   INTUBATION_TOF_COUNT_MAX: e(1, 'TOF count', 'both',
     'Intubating conditions: TOF count ≤ 1 (the Run screen hint "asleep and paralysed (TOF count 0–1)"). All induction plan steps must also have run.'),
   INTUBATION_TIMEOUT_SEC: e(600, 's', 'both',
@@ -41,14 +42,10 @@ export const AUTORUN_CONFIG = Object.freeze({
   // ---------------------------------------------------------------- GA: maintenance and surgery
   MAINTENANCE_AFTER_AIRWAY_SEC: e(60, 's', 'full',
     'Full demonstration enters maintenance this long after the airway is secured. In guided mode the clinician presses "Enter maintenance mode".'),
-  SURGERY_START_MIN_SEC: e(120, 's', 'both',
-    'Surgery (start_surgery) starts automatically no earlier than this after maintenance begins (a short pre-incision period; in the example cases a longer unstimulated period makes MAP < 60 more frequent in this illustrative model).'),
-  SURGERY_DEPTH_MAX: e(60, 'depth index (0–100, illustrative; not BIS)', 'both',
-    'Surgery starts automatically only when the simulated depth index is ≤ 60.'),
   SURGERY_START_TIMEOUT_SEC: e(900, 's', 'both',
-    'If the surgery-start condition is not met within this time after maintenance begins, automatic mode stops and reports the unmet condition.'),
+    'Pre-incision verification ("Start surgery" gate, both modes; no time-based start): if its state items are not met within this time after maintenance begins, the full demonstration stops and guided mode shows the unmet items. Items: airway + ventilation, processed-EEG index in the GA band (or below it with the clinician\'s acknowledgement), analgesia given per plan, neuromuscular block (TOF), antibiotic in window, WHO time out (clinician only) — engine/timing.js preIncisionItems() and TIMING_CONFIG.'),
   SURGERY_DURATION_SEC: e(1800, 's', 'full',
-    'Full demonstration ends surgery after this time (the plan has no maintenance-duration field). In guided mode the clinician presses "End surgery".'),
+    'Full demonstration ends surgery after this time (the plan has no maintenance-duration field); it is also the planned end of surgery that anchors "stop X min before the end of surgery" plan steps. In guided mode the clinician presses "End surgery" (such stops then run at that moment if not earlier).'),
   CLOSING_BEFORE_EMERGENCE_SEC: e(300, 's', 'full',
     'Full demonstration begins emergence this long after surgery ends (matches the engine closing-stimulus duration). In guided mode the clinician presses "Enter emergence / extubation mode".'),
   // ---------------------------------------------------------------- GA: extubation
@@ -63,7 +60,7 @@ export const AUTORUN_CONFIG = Object.freeze({
     'After extubation the sequence observes for this time, then reports the case complete.'),
   // ---------------------------------------------------------------- MAC
   SEDATION_TARGET_LEVEL: e('plan.sedationTarget', 'ASA continuum level', 'both',
-    'The procedure starts automatically once the simulated sedation level reaches the plan target (minimal / moderate / deep, ASA continuum definitions) and all sedation plan steps have run. The mapping from depth index to level is an illustrative engine rule.',
+    'The procedure can start once the simulated sedation level reaches the plan target (minimal / moderate / deep, ASA continuum definitions), all sedation plan steps have run, antibiotic prophylaxis (if indicated) is in window and the clinician has confirmed the WHO time out. The mapping from the processed-EEG depth index to level is an illustrative engine rule.',
     'guideline', ['S31']),
   SEDATION_TARGET_HOLD_SEC: e(10, 's', 'both',
     'The sedation target must be met for this many consecutive simulated seconds before the procedure starts, so a single noisy sample does not start it (2026-11 audit; same idea as READINESS_HOLD_SEC and RECOVERY_HOLD_SEC).'),

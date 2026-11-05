@@ -78,7 +78,7 @@ test('A4 plan scheduler passes the regimen key, so a planned pretreatment is rec
   const pro = plan.steps.find((s) => s.drugId === 'propofol' && s.regimenKey === 'induction');
   assert.ok(pre && pro); assert.equal(pre.phase, 'induction'); assert.ok(pre.atSec < pro.atSec);
   assert.equal(pre.amount, recommend(p, 'pretreatment', 'lidocaine', REAL).dose.value);
-  const s = sim0(p, plan); s.setPhase('induction'); runFor(s, 120);
+  const s = sim0(p, plan); s.setPhase('induction'); runFor(s, 240);
   assert.equal(s.summary().lidocaine.pretreatmentMg, 10);
   // the template option can be switched off
   const off = buildTemplatePlan('ga_opioid', p, { library: REAL, include: { lidocainePretreatment: false } });

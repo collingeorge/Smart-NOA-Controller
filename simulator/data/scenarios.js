@@ -132,8 +132,8 @@ export const EXAMPLE_PLANS = [
       { phase: 'premed', atSec: 0, drugId: 'midazolam', regimenKey: 'premed', kind: 'bolus' },
       { phase: 'induction', atSec: 0, drugId: 'fentanyl', regimenKey: 'induction', kind: 'bolus' },
       { phase: 'induction', atSec: 0, drugId: 'dexamethasone', regimenKey: 'induction', kind: 'bolus' },
-      { phase: 'induction', atSec: 60, drugId: 'propofol', regimenKey: 'induction', kind: 'bolus' },
-      { phase: 'induction', atSec: 90, drugId: 'rocuronium', regimenKey: 'induction', kind: 'bolus' },
+      { phase: 'induction', atSec: 180, drugId: 'propofol', regimenKey: 'induction', kind: 'bolus' },
+      { phase: 'induction', atSec: 240, drugId: 'rocuronium', regimenKey: 'induction', kind: 'bolus' },
       { phase: 'maintenance', atSec: 0, drugId: 'sevoflurane', regimenKey: 'maintenance', kind: 'inhaled', dial: 'mac1' },
       { phase: 'maintenance', atSec: 900, drugId: 'fentanyl', regimenKey: 'maintenance', kind: 'bolus' },
       { phase: 'emergence', atSec: 0, drugId: 'sevoflurane', kind: 'stop' },
@@ -146,8 +146,8 @@ export const EXAMPLE_PLANS = [
     steps: [
       { phase: 'premed', atSec: 0, drugId: 'auto', kind: 'antibiotic' },
       { phase: 'induction', atSec: 0, drugId: 'fentanyl', regimenKey: 'induction', kind: 'bolus' },
-      { phase: 'induction', atSec: 60, drugId: 'propofol', regimenKey: 'induction', kind: 'bolus' },
-      { phase: 'induction', atSec: 90, drugId: 'rocuronium', regimenKey: 'induction', kind: 'bolus' },
+      { phase: 'induction', atSec: 180, drugId: 'propofol', regimenKey: 'induction', kind: 'bolus' },
+      { phase: 'induction', atSec: 240, drugId: 'rocuronium', regimenKey: 'induction', kind: 'bolus' },
       { phase: 'maintenance', atSec: 0, drugId: 'sevoflurane', regimenKey: 'maintenance', kind: 'inhaled', dial: 'mac1' },
       { phase: 'maintenance', atSec: 120, drugId: 'phenylephrine', regimenKey: 'rescue', kind: 'bolus' },
       { phase: 'emergence', atSec: 0, drugId: 'sevoflurane', kind: 'stop' },
@@ -168,8 +168,8 @@ export const EXAMPLE_PLANS = [
     steps: [
       { phase: 'premed', atSec: 0, drugId: 'auto', kind: 'antibiotic' },
       { phase: 'induction', atSec: 0, drugId: 'fentanyl', regimenKey: 'induction', kind: 'bolus' },
-      { phase: 'induction', atSec: 60, drugId: 'propofol', regimenKey: 'induction', kind: 'bolus' },
-      { phase: 'induction', atSec: 90, drugId: 'rocuronium', regimenKey: 'induction', kind: 'bolus' },
+      { phase: 'induction', atSec: 180, drugId: 'propofol', regimenKey: 'induction', kind: 'bolus' },
+      { phase: 'induction', atSec: 240, drugId: 'rocuronium', regimenKey: 'induction', kind: 'bolus' },
       { phase: 'maintenance', atSec: 0, drugId: 'propofol', regimenKey: 'maintenance', kind: 'infusion' },
       { phase: 'emergence', atSec: 0, drugId: 'propofol', kind: 'stop' },
       { phase: 'emergence', atSec: 0, drugId: 'ondansetron', regimenKey: 'emergence', kind: 'bolus' },
@@ -193,15 +193,16 @@ export function buildPlan(template, patient, library = null, options = {}) {
   const steps = []; const skipped = [];
   let order = 0;
   for (const s of template.steps) {
-    const base = { phase: s.phase, atSec: s.atSec, drugId: s.drugId };
+    const extra = { ...(s.timingRationale ? { timingRationale: s.timingRationale } : {}), ...(s.afterLoadingOf ? { afterLoadingOf: s.afterLoadingOf } : {}) };
+    const base = { phase: s.phase, atSec: s.atSec, drugId: s.drugId, ...extra };
     if (s.kind === 'fluid' || s.kind === 'fluid_bolus') {
       const f = getFluid(library, s.fluidId);
       if (!f) { skipped.push({ drugId: s.fluidId, reason: 'Fluid not in library' }); continue; }
       const rate = s.rate === 'default' ? options.fluidDefaultMlH : s.rate;
       if (s.kind === 'fluid') {
         if (!(typeof rate === 'number' && Number.isFinite(rate) && rate >= 0)) { skipped.push({ drugId: s.fluidId, reason: 'No maintenance rate given' }); continue; }
-        steps.push({ phase: s.phase, atSec: s.atSec, drugId: f.id, fluidId: f.id, id: `s${++order}`, order, kind: 'fluid', rate, rateUnit: 'mL/h', sources: [...f.sources] });
-      } else steps.push({ phase: s.phase, atSec: s.atSec, drugId: f.id, fluidId: f.id, id: `s${++order}`, order, kind: 'fluid_bolus', amount: s.amount, amountUnit: 'mL', sources: [...f.sources] });
+        steps.push({ phase: s.phase, atSec: s.atSec, drugId: f.id, fluidId: f.id, id: `s${++order}`, order, kind: 'fluid', rate, rateUnit: 'mL/h', sources: [...f.sources], ...extra });
+      } else steps.push({ phase: s.phase, atSec: s.atSec, drugId: f.id, fluidId: f.id, id: `s${++order}`, order, kind: 'fluid_bolus', amount: s.amount, amountUnit: 'mL', sources: [...f.sources], ...extra });
       continue;
     }
     if (s.kind === 'antibiotic') {
@@ -209,11 +210,11 @@ export function buildPlan(template, patient, library = null, options = {}) {
       if (!sel.drugId || !getAntibiotic(library, sel.drugId)) { skipped.push({ drugId: s.drugId === 'auto' ? 'antibiotic prophylaxis' : s.drugId, reason: sel.reason || 'Antibiotic not in library' }); continue; }
       const rec = recommend(patient, 'prophylaxis', sel.drugId, library);
       if (rec.locked) { skipped.push({ drugId: sel.drugId, reason: rec.lockReasons.join('; ') }); continue; }
-      steps.push({ phase: s.phase, atSec: s.atSec, drugId: sel.drugId, regimenKey: 'prophylaxis', sources: rec.sources, id: `s${++order}`, order, kind: 'antibiotic', amount: rec.dose.value, amountUnit: rec.dose.unit, ...(sel.reason ? { selection: sel.reason } : {}) });
+      steps.push({ phase: s.phase, atSec: s.atSec, drugId: sel.drugId, regimenKey: 'prophylaxis', sources: rec.sources, id: `s${++order}`, order, kind: 'antibiotic', amount: rec.dose.value, amountUnit: rec.dose.unit, ...(sel.reason ? { selection: sel.reason } : {}), ...extra });
       continue;
     }
     if (!getDrug(library, s.drugId)) { skipped.push({ drugId: s.drugId, reason: 'Drug not in library' }); continue; }
-    if (s.kind === 'stop') { steps.push({ ...base, id: `s${++order}`, order, kind: 'stop' }); continue; }
+    if (s.kind === 'stop') { steps.push({ ...base, id: `s${++order}`, order, kind: 'stop', ...(typeof s.beforeEndSec === 'number' ? { beforeEndSec: s.beforeEndSec } : {}) }); continue; }
     const rec = recommend(patient, s.regimenKey, s.drugId, library);
     if (rec.locked) { skipped.push({ drugId: s.drugId, reason: rec.lockReasons.join('; ') }); continue; }
     if (!rec.available) { skipped.push({ drugId: s.drugId, reason: rec.warnings.join('; ') }); continue; }
@@ -221,8 +222,15 @@ export function buildPlan(template, patient, library = null, options = {}) {
     if (s.kind === 'bolus' && rec.dose) {
       steps.push({ ...base, ...src, id: `s${++order}`, order, kind: 'bolus', amount: rec.dose.value, amountUnit: rec.dose.unit, overSec: rec.route && rec.route !== 'IV' ? null : overSecFromTiming(rec.timing), ...(rec.route ? { route: rec.route } : {}) });
     } else if (s.kind === 'infusion' && rec.rate) {
-      if (rec.loading && rec.loading.value) steps.push({ ...base, ...src, id: `s${++order}`, order, kind: 'bolus', amount: rec.loading.value, amountUnit: rec.loading.unit, overSec: rec.loading.overSec || null, loading: true });
-      steps.push({ ...base, ...src, id: `s${++order}`, order, kind: 'infusion', rate: rec.rate.value, rateUnit: rec.rate.unit });
+      // Loading dose, then the maintenance infusion WHEN THE LOADING ENDS (label sequence: dexmedetomidine
+      // loading over 10 min "followed by" maintenance; propofol MAC initiation over 3–5 min, then maintenance).
+      let infAt = s.atSec;
+      if (rec.loading && rec.loading.value) {
+        const ov = rec.loading.overSec || null;
+        steps.push({ ...base, ...src, id: `s${++order}`, order, kind: 'bolus', amount: rec.loading.value, amountUnit: rec.loading.unit, overSec: ov, loading: true });
+        if (ov) infAt = (s.atSec || 0) + ov;
+      }
+      steps.push({ ...base, ...src, atSec: infAt, id: `s${++order}`, order, kind: 'infusion', rate: rec.rate.value, rateUnit: rec.rate.unit, ...(infAt !== s.atSec ? { afterLoadingAtSec: s.atSec } : {}) });
     } else if (s.kind === 'inhaled' && rec.rate) {
       let dial = rec.rate.value;
       if (s.dial === 'mac1') {

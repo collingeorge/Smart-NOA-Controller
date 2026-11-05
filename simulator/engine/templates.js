@@ -56,7 +56,7 @@ export function buildTemplatePlan(templateId, patient, { library = null, interlo
     if (!rec.locked) return s;
     swap.set(s.drugId, s.fallback.drugId);
     substitutions.push({ from: s.drugId, to: s.fallback.drugId, reason: rec.lockReasons.join('; ') });
-    return { phase: s.phase, atSec: s.atSec, ...s.fallback };
+    return { phase: s.phase, atSec: s.atSec, ...s.fallback, ...(s.timingRationale ? { timingRationale: s.timingRationale } : {}) };
   });
   steps = steps.map((s) => (s.kind === 'stop' && swap.has(s.drugId) ? { ...s, drugId: swap.get(s.drugId) } : s));
   // lidocaine pretreatment omitted when an IV lidocaine analgesic regimen is planned (Foo 2021 note)
