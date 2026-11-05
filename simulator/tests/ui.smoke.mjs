@@ -173,7 +173,7 @@ test('simulator UI smoke', { skip, timeout: 900000 }, async (t) => {
       assert.ok((await page.locator('.src-tag').count()) > 5, 'source tags on plan');
       await shot(page, '3-plan.png');
       await page.click('#pl-continue'); await page.waitForSelector('#mon-play');
-      await adv(page, 600); // pre-op holding: premedication, then transfer/setup/preoxygenation time (manual mode)
+      await adv(page, 760); // pre-op holding: premedication, then transfer/setup/preoxygenation time (manual mode)
       await page.selectOption('#aw-fio2', '1'); await page.click('#aw-fio2-set');
       await page.click('#ph-induction');
       await page.click('#aw-mask');
