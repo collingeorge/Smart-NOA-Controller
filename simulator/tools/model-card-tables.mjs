@@ -68,7 +68,9 @@ const timingSection = [
   '|---|---|---|---|---|---|',
   ...TECHNIQUE_TEMPLATES.flatMap((t) => t.steps.map((st) => `| ${t.id} | ${st.kind === 'fluid' ? st.fluidId : st.kind === 'antibiotic' ? 'antibiotic (guideline agent)' : st.drugId} ${st.kind}${st.regimenKey ? ` (${st.regimenKey})` : ''}${st.optional ? ' — optional' : ''} | ${typeof st.beforeEndSec === 'number' ? `end of surgery − ${mmss(st.beforeEndSec)}` : `${st.phase} +${mmss(st.atSec)}${st.afterLoadingOf ? ', after the loading dose ends' : ''}`} | ${st.timingRationale ? st.timingRationale.provenance : ''} | ${st.timingRationale ? st.timingRationale.sources.join(', ') : ''} | ${st.timingRationale ? cell(st.timingRationale.text) : ''} |`)),
   '',
-  'Same-phase loading → maintenance: `buildPlan()` and the plan editor start the maintenance infusion at loading start + loading duration (mac_dex: dexmedetomidine maintenance at +10:00; mac_propofol: propofol maintenance at +7:00); the plan editor warns when a user schedules them overlapping.',
+  'Same-phase loading → maintenance: `buildPlan()` and the plan editor start the maintenance infusion at loading start + loading duration (mac_dex: dexmedetomidine maintenance at +10:00; mac_propofol: propofol initiation at +4:00, maintenance at +9:00); the plan editor warns when a user schedules them overlapping.',
+  '',
+  'Every timed element was cross-checked against FDA labels and guidelines in November 2026: see [TIMING_EVIDENCE.md](TIMING_EVIDENCE.md) (what each source says, agreement, classification, the one conflict fixed, and a clinician-review checklist — no clinician review recorded yet).',
   '',
 ].join('\n');
 

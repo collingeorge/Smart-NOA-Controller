@@ -159,7 +159,7 @@ export const EXAMPLE_PLANS = [
     id: 'mac_obese_osa', label: 'MAC moderate sedation: obese OSA — midazolam + propofol infusion', patientId: 'obese_osa', mode: 'MAC', sedationTarget: 'moderate',
     steps: [
       { phase: 'sedation', atSec: 0, drugId: 'midazolam', regimenKey: 'sedation_moderate', kind: 'bolus' },
-      { phase: 'sedation', atSec: 120, drugId: 'propofol', regimenKey: 'sedation_moderate', kind: 'infusion' },
+      { phase: 'sedation', atSec: 240, drugId: 'propofol', regimenKey: 'sedation_moderate', kind: 'infusion' }, // after midazolam over ≥ 2 min + ≥ 2 min to evaluate (S17, S32; timing cross-check 2026-11)
       { phase: 'emergence', atSec: 0, drugId: 'propofol', kind: 'stop' },
     ],
   },

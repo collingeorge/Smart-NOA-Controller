@@ -50,16 +50,16 @@ if (REAL) {
     }
   });
 
-  test('T2 mac_propofol: propofol initiation 0.5 mg/kg over 5 min at +2:00, maintenance at +7:00 (label: initiation, then maintenance)', () => {
+  test('T2 mac_propofol: propofol initiation 0.5 mg/kg over 5 min at +4:00 (after midazolam over ≥ 2 min + ≥ 2 min to evaluate; timing cross-check 2026-11), maintenance at +9:00 (label: initiation, then maintenance)', () => {
     for (const ex of EXAMPLE_PATIENTS) {
       const { plan } = buildTemplatePlan('mac_propofol', EX(ex.id), { library: REAL });
       const load = plan.steps.find((s) => s.drugId === 'propofol' && s.loading);
       const inf = plan.steps.find((s) => s.drugId === 'propofol' && s.kind === 'infusion');
-      assert.equal(load.atSec, 120); assert.equal(load.overSec, 300); assert.equal(inf.atSec, 420, ex.id);
+      assert.equal(load.atSec, TIMING_CONFIG.MAC_SEDATIVE_AFTER_MIDAZOLAM_SEC.value); assert.equal(load.atSec, 240); assert.equal(load.overSec, 300); assert.equal(inf.atSec, 540, ex.id);
     }
     // the MAC example plan uses the same rule
     const p = EX('obese_osa'); const { plan } = buildPlan(EXAMPLE_PLANS.find((x) => x.id === 'mac_obese_osa'), p, REAL);
-    assert.equal(plan.steps.find((s) => s.drugId === 'propofol' && s.kind === 'infusion').atSec, 420);
+    assert.equal(plan.steps.find((s) => s.drugId === 'propofol' && s.kind === 'infusion').atSec, 540);
   });
 
   test('T3 plan editor: adding a loading regimen schedules maintenance at loading end; an overlap gives a warning (editor + validator)', () => {

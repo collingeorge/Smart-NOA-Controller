@@ -100,10 +100,10 @@ export const TECHNIQUE_TEMPLATES = [
   },
   {
     id: 'mac_propofol', label: 'MAC — propofol (existing technique)', mode: 'MAC', sedationTarget: 'moderate', notes: [],
-    description: 'Midazolam (optional) then a propofol MAC-sedation infusion (label slow initiation over 3–5 min, then the maintenance infusion), as in the MAC example plan.',
+    description: 'Midazolam (optional) then, 4 min after it starts (injection ≥ 2 min + ≥ 2 min to evaluate its effect), a propofol MAC-sedation infusion (label slow initiation over 3–5 min, then the maintenance infusion), as in the MAC example plan.',
     steps: [
       { phase: 'sedation', atSec: 0, kind: 'bolus', drugId: 'midazolam', regimenKey: 'sedation', optional: { id: 'midazolam', label: 'Midazolam (no deep-sedation regimen in the label)', default: true }, timingRationale: R('First, given over at least 2 min (label) [S17].', 'label', ['S17']) },
-      { phase: 'sedation', atSec: 120, kind: 'infusion', drugId: 'propofol', regimenKey: 'sedation', timingRationale: R('Initiation (slow injection 0.5 mg/kg over 3–5 min) once the midazolam injection is complete, then the maintenance infusion when the initiation ends (label) [S11, S17].', 'label', ['S11', 'S17']) },
+      { phase: 'sedation', atSec: 240, kind: 'infusion', drugId: 'propofol', regimenKey: 'sedation', timingRationale: R('Started 4 min after the midazolam starts: midazolam is given over at least 2 min and its effect is evaluated over at least 2 more min before more sedative is added (midazolam label [S17]; ASA 2018 moderate-sedation guideline: allow sufficient time between doses to assess the effect of each [S32]). Then propofol initiation (slow injection 0.5 mg/kg over 3–5 min) and the maintenance infusion when the initiation ends (label) [S11]. Timing cross-check 2026-11: was +2:00 (before the midazolam effect could be evaluated).', 'label', ['S17', 'S32', 'S11']) },
       { phase: 'emergence', atSec: 0, kind: 'stop', drugId: 'propofol', timingRationale: R('Stopped when the procedure ends (recovery) (convention).', CONV) },
     ],
   },

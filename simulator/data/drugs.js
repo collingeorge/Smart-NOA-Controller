@@ -340,8 +340,8 @@ export const SOURCES = {
     url: 'https://pubmed.ncbi.nlm.nih.gov/29334501/',
     identifiers: 'doi:10.1097/ALN.0000000000002043; PMID 29334501',
     type: 'society guideline',
-    supports: 'Framework for moderate procedural sedation (monitoring, titration, personnel). No dose is taken from it in this library.',
-    verifiedVia: 'WebSearch record of PubMed 29334501 and qxmd.com/r/29334501 (citation, DOI), 2026-11-05. Its capnography recommendation text was not retrieved; capnography statements in the simulator are tagged to S22.',
+    supports: 'Framework for moderate procedural sedation (monitoring, titration, personnel). No dose is taken from it in this library. Timing cross-check (2026-11): intravenous sedative/analgesic drugs are titrated in small increments (or by infusion) and sufficient time is allowed between doses for the effect of each to be assessed before more is given (recommendation as summarised in search records; verbatim wording not retrieved). Used for the MAC second-sedative spacing (TIMING_CONFIG.MAC_SEDATIVE_AFTER_MIDAZOLAM_SEC).',
+    verifiedVia: 'WebSearch record of PubMed 29334501 and qxmd.com/r/29334501 (citation, DOI), 2026-11-05. Its capnography recommendation text was not retrieved; capnography statements in the simulator are tagged to S22. Timing cross-check 2026-11-05: WebSearch records of the LWW Anesthesiology full-text listing and PDF reproductions (mercycare.org, sedationsystems.com, researchgate) summarising the titration recommendation; the exact sentence was not retrieved and is not quoted.',
   },
   S33: {
     id: 'S33',
@@ -545,6 +545,26 @@ export const SOURCES = {
     type: 'guideline / checklist',
     supports: 'Three-phase checklist: Sign In (before induction of anaesthesia), Time Out (before skin incision) and Sign Out. At the Time Out the team members introduce themselves and the surgeon, anaesthesia professional and nurse verbally confirm the patient, site and procedure; the checklist asks "Has antibiotic prophylaxis been given within the last 60 minutes?" (Yes / Not applicable). The checklist is not intended to be comprehensive; local modification is encouraged.',
     verifiedVia: 'WebSearch records (2026-11-05) of the WHO Safe Surgery Checklist Implementation Manual copy (leapfroggroup.org), checklist reproductions (caho.in, hqontario.ca), a PMC table and Wikipedia summaries. The who.int originals were not opened; the URL is the implementation-manual copy seen in the search record.',
+  },
+  // Timing cross-check (2026-11-05): S55–S56. Page fetches were blocked in this session (egress proxy
+  // refused accessdata.fda.gov / pubmed); what each search record showed is in TIMING_EVIDENCE.md.
+  S55: {
+    id: 'S55',
+    citation: 'Frerk C, Mitchell VS, McNarry AF, et al. Difficult Airway Society 2015 guidelines for management of unanticipated difficult intubation in adults. Br J Anaesth. 2015;115(6):827-848.',
+    url: 'https://pmc.ncbi.nlm.nih.gov/articles/PMC4650961/',
+    identifiers: 'PMID 26556848; PMCID PMC4650961 (DOI not seen in a search record; not shown)',
+    type: 'guideline',
+    supports: 'Preoxygenation: all patients should be preoxygenated before induction of general anaesthesia with 100% oxygen at an appropriate flow, maintaining an effective face-mask seal until the end-tidal oxygen fraction is 0.87–0.9. Head-up (20–25°) position with CPAP delays hypoxia in obese patients. The guideline gives an end point (end-tidal O2), not a duration. Superseded by DAS 2025 (Br J Anaesth 2026;136(1):283-307; PMID 41203471), whose preoxygenation figures were not confirmed in this session.',
+    verifiedVia: 'WebSearch records (2026-11-05, timing cross-check) of the PMC4650961 full-text record (preoxygenation sentence with the 0.87–0.9 end-tidal oxygen fraction; head-up/CPAP sentence), the PubMed record 26556848 and a UKZN-hosted PDF copy. The pages themselves could not be fetched (egress proxy). A 3-min tidal-breathing duration was NOT found in the DAS 2015 text in these records.',
+  },
+  S56: {
+    id: 'S56',
+    citation: '2022 American Society of Anesthesiologists Practice Guidelines for Management of the Difficult Airway. Anesthesiology. 2022;136(1):31-81.',
+    url: 'https://pubmed.ncbi.nlm.nih.gov/34762729/',
+    identifiers: 'doi:10.1097/ALN.0000000000004002; PMID 34762729',
+    type: 'guideline',
+    supports: 'Supplemental oxygen before initiating and throughout difficult-airway management, including extubation (wording seen in secondary reproductions: "administer supplemental oxygen before initiating management of the difficult airway, and continue to deliver supplemental oxygen whenever feasible"). No preoxygenation duration or end-tidal target was found.',
+    verifiedVia: 'WebSearch records (2026-11-05, timing cross-check) of the PubMed record 34762729 (citation, DOI), the APSF update article and two secondary summaries reproducing the oxygen recommendation. Guideline full text not opened (egress proxy); author list not confirmed and not shown.',
   },
 };
 
@@ -1529,4 +1549,5 @@ export const SOURCE_IDS_ENGINE = Object.freeze({
   propofolPk: 'S42', sepsisFluids: 'S43',
   prophylaxis: 'S46', fluidLactatedRingers: 'S47', fluidSaline: 'S48', pofaTrial: 'S49', smartTrial: 'S50', propofolPainMeta: 'S51',
   depthBandBUnaware: 'S52', depthBandBagRecall: 'S53', whoChecklist: 'S54',
+  preoxygenationDas2015: 'S55', difficultAirwayAsa2022: 'S56',
 });

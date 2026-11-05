@@ -508,6 +508,28 @@ Type: guideline / checklist
 - **Used by:** `engine/timing.js` `TIME_OUT_REQUIRED` (pre-incision / pre-procedure item; only the clinician confirms it)
 - **Verified via:** WebSearch records of the Implementation Manual copy (leapfroggroup.org), checklist reproductions (caho.in, hqontario.ca), a PMC table and Wikipedia summaries; who.int originals not opened. (date 2026-11-05)
 
+## 2026-11 timing cross-check (S55–S56; addition to S32)
+
+Every timed element was cross-checked against labels and guidelines on 2026-11-05; the full table (element, simulator value, what each source says, agreement, classification, action) and the clinician-review checklist are in [`TIMING_EVIDENCE.md`](TIMING_EVIDENCE.md). Page fetches were refused by the session's egress proxy (accessdata.fda.gov, pubmed.ncbi.nlm.nih.gov), so every statement comes from WebSearch result records; exact wording that was not seen is marked as such there. **S32** gained the titration statement (allow sufficient time between doses to assess each dose's effect; summarised in search records, verbatim sentence not retrieved), used for `TIMING_CONFIG.MAC_SEDATIVE_AFTER_MIDAZOLAM_SEC`.
+
+### S55
+**Frerk C, Mitchell VS, McNarry AF, et al. Difficult Airway Society 2015 guidelines for management of unanticipated difficult intubation in adults. Br J Anaesth. 2015;115(6):827-848.** https://pmc.ncbi.nlm.nih.gov/articles/PMC4650961/  
+Identifiers: PMID 26556848; PMCID PMC4650961 (DOI not seen in a search record; not shown)  
+Type: guideline
+
+- **Supports:** All patients preoxygenated before induction with 100% oxygen, effective face-mask seal, until the end-tidal oxygen fraction is 0.87–0.9; head-up 20–25° with CPAP delays hypoxia in obese patients. An end point, not a duration. Superseded by DAS 2025 (PMID 41203471), whose preoxygenation figures were not confirmed.
+- **Used by:** `engine/timing.js` `PREOXYGENATION_END_POINT` (documentation entry; end-tidal O2 is not modelled) and the `PREOXYGENATION_SEC` rationale
+- **Verified via:** WebSearch records of PMC4650961, PubMed 26556848 and a UKZN PDF copy; pages not fetched. No 3-min duration found in the DAS 2015 text. (date 2026-11-05)
+
+### S56
+**2022 American Society of Anesthesiologists Practice Guidelines for Management of the Difficult Airway. Anesthesiology. 2022;136(1):31-81.** https://pubmed.ncbi.nlm.nih.gov/34762729/  
+Identifiers: doi:10.1097/ALN.0000000000004002; PMID 34762729  
+Type: guideline
+
+- **Supports:** Supplemental oxygen before initiating and throughout difficult-airway management, including extubation. No preoxygenation duration or end-tidal target found.
+- **Used by:** `engine/timing.js` `PREOXYGENATION_END_POINT`
+- **Verified via:** WebSearch records of PubMed 34762729, the APSF update article and secondary summaries; full text not opened; author list not shown. (date 2026-11-05)
+
 ## Propofol PK model
 
 Propofol now uses the **Eleveld 2018** published population PK model (`pkModel: 'eleveld'`, arterial form, `engine/pk.js` `ELEVELD_2018` / `eleveldPropofol()`); `pkModelFallback: 'calibrated'` keeps the illustrative model available. Order tried: Eleveld 2018 → (Schnider 1998/1999, Marsh 1991 not needed). Eleveld was implemented because its full parameter set could be checked in more than two independent sources.

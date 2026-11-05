@@ -32,7 +32,10 @@ export const TIMING_CONFIG = Object.freeze({
   OR_SETUP_SEC: e(120, 's',
     'Transfer to the OR, monitors applied (ECG, NIBP, SpO2) before preoxygenation. No source gives a duration; teaching value.'),
   PREOXYGENATION_SEC: e(180, 's',
-    'Preoxygenation (FiO2 1.0 by face mask) before induction. The 3-min tidal-breathing technique is widely described, but no guideline giving this duration was verified in this session, so the value is a simulator convention.'),
+    'Preoxygenation (FiO2 1.0 by face mask) before induction. The 3-min tidal-breathing technique is widely described, but no guideline giving this duration was verified, so the value is a simulator convention. Guidelines set an end point, not a time: DAS 2015 — preoxygenate all patients with 100% oxygen until the end-tidal oxygen fraction is 0.87–0.9 (S55); ASA 2022 — supplemental oxygen before initiating difficult-airway management (S56). End-tidal O2 is not modelled (see PREOXYGENATION_END_POINT; timing cross-check 2026-11, TIMING_EVIDENCE.md).'),
+  PREOXYGENATION_END_POINT: e('end-tidal O2 fraction 0.87–0.9 (not modelled)', 'fraction',
+    'Guideline end point for preoxygenation, recorded for teaching and shown in the Timing evidence page: DAS 2015 — all patients preoxygenated with 100% oxygen, face-mask seal maintained, until the end-tidal oxygen fraction is 0.87–0.9 [S55]; ASA 2022 difficult-airway guideline — supplemental oxygen before initiating difficult-airway management [S56]. The simulator does not model end-tidal O2, so the guided/automatic gate uses the PREOXYGENATION_SEC time convention instead; nothing in the engine reads this value.',
+    'guideline', ['S55', 'S56']),
   // ---------------------------------------------------------------- induction order
   OPIOID_LEAD_SEC: e(180, 's',
     'Opioid given about 3 min before the hypnotic so it approaches peak effect before laryngoscopy. Fentanyl label: onset almost immediate IV, but the maximal analgesic and respiratory depressant effect may not be noted for several minutes [S13]; the label gives no number, so 3 min is a simulator convention anchored to that statement.'),
@@ -45,6 +48,10 @@ export const TIMING_CONFIG = Object.freeze({
   LOADING_THEN_MAINTENANCE: e('loading start + loading duration', 's',
     'A maintenance infusion starts when its loading dose ends (dexmedetomidine: loading over 10 min, followed by the maintenance infusion [S9]; propofol MAC sedation: initiation over 3–5 min, then maintenance [S11]; IV lidocaine: loading over about 10 min, then infusion [S1]). Overlap of the two is flagged.',
     'fda_label', ['S9', 'S11', 'S1']),
+  // ---------------------------------------------------------------- MAC: second sedative after midazolam
+  MAC_SEDATIVE_AFTER_MIDAZOLAM_SEC: e(240, 's',
+    'MAC templates/example plan: a second sedative (propofol initiation) starts no earlier than 4 min after the midazolam bolus starts — midazolam label: give over at least 2 minutes, then wait an additional 2 or more minutes to fully evaluate the sedative effect [S17]; ASA 2018 moderate-sedation guideline: titrate in small increments and allow sufficient time between doses to assess the effect of each [S32]. Timing cross-check 2026-11: mac_propofol and the MAC example plan started propofol at +2:00 (end of the midazolam injection, before its effect could be evaluated) — moved to +4:00. Template offset (data/templates.js); a test keeps them equal.',
+    'fda_label', ['S17', 'S32']),
   // ---------------------------------------------------------------- repeat boluses (state/interval gated)
   MIDAZOLAM_REPEAT_MIN_SEC: e(240, 's',
     'No repeat midazolam bolus within 4 min of the previous one: label — give over at least 2 minutes, then wait an additional 2 or more minutes to evaluate the effect [S17].',
