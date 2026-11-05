@@ -3,7 +3,7 @@ import { h, clear, fmtNum } from './dom.js';
 import { evaluateContraindications } from '../engine/dosing.js';
 import { createSimulation } from '../engine/sim.js';
 import { srcTags, sourcesInText } from './sources.js';
-import { FLAG_LABELS, CLASS_LABELS, NOT_MODELED } from './labels.js';
+import { FLAG_LABELS, CLASS_LABELS, notModeled } from './labels.js';
 
 export function computeLockouts(patient, lib) {
   // The simulation computes the full lockout set (library LOCK rules + Python controller free-text lockouts).
@@ -82,7 +82,7 @@ export function renderAssessment(ctx, main) {
         : h('p', {}, 'No lockouts or warnings for this patient.'),
       h('p', { class: 'hint' }, 'Locked drugs cannot be given in the simulator, even with the Smart NOA interlocks switched off.')),
     h('section', { class: 'card card--muted' }, h('h3', {}, 'Not modelled'),
-      h('ul', { class: 'chips' }, NOT_MODELED.map((x) => h('li', { class: 'chip chip--muted' }, x)))),
+      h('ul', { class: 'chips' }, notModeled(lib, { fluids: ctx.fluidsSupported() }).map((x) => h('li', { class: 'chip chip--muted' }, x)))),
     h('div', { class: 'actions' },
       h('button', { type: 'button', class: 'btn', onclick: () => ctx.go(1) }, '← Back to patient'),
       h('button', { type: 'button', class: 'btn btn--primary', id: 'as-continue', onclick: () => ctx.go(3) }, 'Continue to anesthetic plan →')),

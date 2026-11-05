@@ -1,0 +1,505 @@
+// Step 4 — Run: HMI monitor dashboard driving sim.step() from requestAnimationFrame.
+import { h, clear, setText, fmtClock, fmtNum, isNum, announce } from './dom.js';
+import { recommend, regimenKeyForPhase } from '../engine/dosing.js';
+import { SCENARIOS } from '../data/scenarios.js';
+import { drawChart, SERIES_COLORS, WINDOW_SEC } from './charts.js';
+import { srcTags } from './sources.js';
+import { CLASS_LABELS, CLASS_ORDER, PHASE_LABELS, PHASE_LABELS_MAC, PRIORITY_LABELS, PRIORITY_SHAPES, INTERLOCK_TEXT, KIND_LABELS } from './labels.js';
+import { getDrugById, isInhaledDrug, interlockCeiling, interlockNote } from './plan-model.js';
+import { interlockExplanation } from './plan-editor.js';
+
+const SPEEDS = [1, 5, 20, 60];
+const TILE_ALARMS = {
+  hr: ['hr_critical', 'hr_high', 'sensor_fault_hr'], bp: ['map_critical', 'map_low', 'map_high', 'sensor_fault_map'],
+  spo2: ['spo2_low', 'sensor_fault_spo2'], rr: ['apnea'], etco2: ['apnea'], depth: ['depth_over_target'], tof: ['tofr_extubation'],
+};
+const RANK = { high: 3, medium: 2, low: 1 };
+const SAMPLE_SEC = 2;
+
+export function tofDepthText(count, ratio) {
+  if (count === 0) return 'deep block (TOF count 0)';
+  if (count < 4) return `moderate block (TOF count ${count})`;
+  if (ratio < 0.4) return 'shallow block (TOFR < 0.4)';
+  if (ratio < 0.9) return 'minimal block (TOFR 0.4 to < 0.9)';
+  return 'TOFR ≥ 0.9 (adequate recovery)';
+}
+
+export function newRunState() {
+  return { speed: 20, playing: false, hist: { t: [], hr: [], map: [], spo2: [], depth: [], mac: [], ce: {} }, lastSample: -Infinity, overrides: [], surgery: { started: false, ended: false }, seenAlarms: new Set(), uiLog: [] };
+}
+
+export function renderMonitor(ctx, main) {
+  const { store, lib } = ctx;
+  const sim = ctx.ensureSim();
+  const run = store.run;
+  const patient = sim.patient;
+  const isGA = sim.plan.mode === 'GA';
+  const phaseLabel = (p) => (isGA ? PHASE_LABELS : PHASE_LABELS_MAC)[p] || p;
+  const E = lib.SOURCE_IDS_ENGINE || {};
+  let raf = null; let lastTs = null; let acc = 0; let lastRender = 0; let alive = true;
+
+  // ---------------- toolbar
+  const clock = h('span', { class: 'hmi-clock mono', id: 'mon-clock' }, '00:00');
+  const phaseEl = h('span', { class: 'hmi-phase', id: 'mon-phase' });
+  const playBtn = h('button', { type: 'button', class: 'btn btn--hmi btn--play', id: 'mon-play', 'aria-pressed': 'false' }, '▶ Play');
+  playBtn.addEventListener('click', () => setPlaying(!run.playing));
+  const stepBtns = [[1, '+1 s'], [10, '+10 s'], [60, '+1 min']].map(([s, l]) => {
+    const b = h('button', { type: 'button', class: 'btn btn--hmi', dataset: { step: s }, 'aria-label': `Step ${l.slice(1)} of simulated time` }, l);
+    b.addEventListener('click', () => { advance(s); render(true); });
+    return b;
+  });
+  const speedBtns = SPEEDS.map((sp) => {
+    const b = h('button', { type: 'button', class: 'btn btn--hmi btn--speed', dataset: { speed: sp }, 'aria-pressed': String(run.speed === sp) }, `${sp}×`);
+    b.addEventListener('click', () => { run.speed = sp; for (const x of speedBtns) x.setAttribute('aria-pressed', String(Number(x.dataset.speed) === sp)); announce(`Speed ${sp} times.`); });
+    return b;
+  });
+  const ilBadge = h('span', { class: 'il-badge', id: 'mon-il-badge' });
+  const restartBtn = h('button', { type: 'button', class: 'btn btn--hmi' }, 'Restart case');
+  restartBtn.addEventListener('click', () => { ctx.restartSim(); ctx.rerender(); announce('Case restarted from time zero.'); });
+
+  // ---------------- tiles
+  const tiles = {};
+  const tile = (key, label, unit, extraClass = '') => {
+    const val = h('span', { class: 'tile__value mono' }, '—');
+    const sub = h('span', { class: 'tile__sub' });
+    const alarm = h('span', { class: 'tile__alarm' });
+    const el = h('div', { class: `tile ${extraClass}`, id: `tile-${key}`, role: 'group', 'aria-label': label },
+      h('span', { class: 'tile__label' }, label, unit ? h('span', { class: 'tile__unit' }, ` ${unit}`) : null), val, sub, alarm);
+    tiles[key] = { el, val, sub, alarm };
+    return el;
+  };
+  const tileGrid = h('div', { class: 'tiles', id: 'mon-tiles' },
+    tile('hr', 'HR', '/min', 'tile--hr'), tile('bp', 'BP (MAP)', 'mmHg', 'tile--bp'), tile('spo2', 'SpO2', '%', 'tile--spo2'),
+    tile('rr', 'RR', '/min'), tile('etco2', 'EtCO2', 'mmHg'), tile('depth', 'Simulated depth index', '0–100', 'tile--depth'),
+    tile('tof', 'TOF', ''), tile('mac', 'Total MAC', ''), tile('fio2', 'FiO2', ''));
+
+  // ---------------- charts
+  const charts = [
+    { key: 'hr', title: 'HR (/min)', min: 30, max: 160, th: [{ v: 48, label: '48 interlock' }] },
+    { key: 'map', title: 'MAP (mmHg)', min: 30, max: 140, th: [{ v: 65, label: '65' }, { v: 60, label: '60 interlock' }] },
+    { key: 'spo2', title: 'SpO2 (%)', min: 50, max: 100, th: [{ v: 90, label: '90' }] },
+    { key: 'depth', title: 'Simulated depth index (illustrative; not BIS)', min: 0, max: 100, th: [{ v: 80, label: '80 awake' }] },
+    { key: 'ce', title: 'Total MAC / drug Ce (× reference peak, illustrative)', min: 0, max: 1.5, autoMax: true, th: [] },
+  ].map((c) => {
+    const canvas = h('canvas', { class: 'chart__canvas', id: `chart-${c.key}`, role: 'img', 'aria-label': c.title });
+    const legend = h('ul', { class: 'chart__legend' });
+    const el = h('figure', { class: 'chart' }, h('figcaption', {}, c.title), canvas, legend);
+    return { ...c, canvas, legend, el };
+  });
+  const chartGrid = h('div', { class: 'charts', id: 'mon-charts' }, charts.map((c) => c.el),
+    h('p', { class: 'hint hint--hmi' }, 'Last 15 simulated minutes · illustrative model output · dashed lines are alarm/interlock thresholds.'));
+
+  // ---------------- alarms
+  const alarmList = h('ul', { class: 'alarm-list', id: 'mon-alarms' });
+  const alarmPanel = h('section', { class: 'hmi-panel', 'aria-labelledby': 'mon-alarms-h' }, h('h3', { id: 'mon-alarms-h' }, 'Alarms'), alarmList);
+  let alarmSig = '';
+
+  // ---------------- interlocks
+  const ilStatus = h('p', { class: 'il-status', id: 'mon-il-status' });
+  const ilHeld = h('p', { class: 'il-held', id: 'mon-il-held' });
+  const resumeBtn = h('button', { type: 'button', class: 'btn btn--hmi btn--warn', id: 'mon-resume' }, 'Resume hold');
+  resumeBtn.addEventListener('click', () => { const r = sim.action('resume_hold'); feedback(r.ok ? 'Hold released (logged). Held infusions stay at zero — restart them yourself if appropriate.' : r.message, !r.ok); render(true); });
+  const ilToggle = h('input', { type: 'checkbox', id: 'mon-il-toggle', checked: store.interlocks });
+  const ilConfirm = h('div', { class: 'il-confirm', hidden: true });
+  ilToggle.addEventListener('change', () => {
+    const want = ilToggle.checked;
+    if (sim.state.tSec <= 0) { store.interlocks = want; ctx.restartSim(); ctx.rerender(); announce(`Interlocks ${want ? 'on' : 'off'}.`); return; }
+    ilToggle.checked = !want;
+    clear(ilConfirm).append(h('p', {}, `Changing interlocks restarts the case from 00:00 with interlocks ${want ? 'ON' : 'OFF'}.`),
+      h('button', { type: 'button', class: 'btn btn--hmi btn--warn', onclick: () => { store.interlocks = want; ctx.restartSim(); ctx.rerender(); announce(`Case restarted with interlocks ${want ? 'on' : 'off'}.`); } }, `Restart with interlocks ${want ? 'ON' : 'OFF'}`),
+      ' ', h('button', { type: 'button', class: 'btn btn--hmi', onclick: () => { ilConfirm.hidden = true; ilToggle.focus(); } }, 'Cancel'));
+    ilConfirm.hidden = false; ilConfirm.querySelector('button').focus();
+  });
+  const lockouts = Object.entries(sim.state.interlocks.lockouts);
+  const ilPanel = h('section', { class: 'hmi-panel', 'aria-labelledby': 'mon-il-h' }, h('h3', { id: 'mon-il-h' }, 'Interlocks (Smart NOA rules)'),
+    ilStatus, ilHeld, resumeBtn,
+    h('div', { class: 'check check--hmi' }, ilToggle, h('label', { for: 'mon-il-toggle' }, 'Interlocks on')), ilConfirm,
+    h('details', { class: 'hmi-details' }, h('summary', {}, 'What the interlocks do'), interlockExplanation(lib)),
+    lockouts.length ? h('details', { class: 'hmi-details' }, h('summary', {}, `Lockouts (${lockouts.length}) — apply even with interlocks off`),
+      h('ul', { class: 'list list--tight' }, lockouts.map(([id, rs]) => h('li', {}, h('strong', {}, getDrugById(lib, id)?.name || id), ': ', rs.join('; '))))) : null);
+
+  // ---------------- phase controls
+  const phaseBtns = {};
+  const pbtn = (id, label, fn, hint = null) => { const b = h('button', { type: 'button', class: 'btn btn--hmi', id: `ph-${id}` }, label); b.addEventListener('click', () => { fn(); render(true); }); phaseBtns[id] = b; return hint ? h('span', { class: 'pbtn' }, b, h('span', { class: 'hint hint--hmi' }, hint)) : b; };
+  const nextHint = h('p', { class: 'hint hint--hmi', id: 'mon-next' });
+  const act = (id, okMsg = null) => { const r = sim.action(id); feedback(r.ok ? (okMsg || r.message) : r.message, !r.ok); return r; };
+  const phaseCtl = isGA ? [
+    pbtn('induction', 'Start induction', () => { sim.setPhase('induction'); feedback('Induction started — plan induction steps run from now.'); }),
+    pbtn('secure', 'Secure airway', () => { const r = act('secure_airway'); if (r.ok) { sim.action('start_ventilation'); feedback(`${r.message}. Mechanical ventilation started.`); } }),
+    pbtn('maintenance', 'Start maintenance', () => { sim.setPhase('maintenance'); feedback('Maintenance phase started.'); }),
+    pbtn('surgery', 'Start surgery', () => { const r = act('start_surgery'); if (r.ok) { run.surgery.started = true; run.surgery.ended = false; } }),
+    pbtn('endsurgery', 'End surgery', () => { const r = act('end_surgery'); if (r.ok) run.surgery.ended = true; }),
+    pbtn('emergence', 'Begin emergence', () => { sim.setPhase('emergence'); feedback('Emergence started — plan emergence steps run from now.'); }),
+    pbtn('extubate', 'Extubate…', () => ctx.openExtubation(sim, () => render(true))),
+  ] : [
+    pbtn('sedation', 'Start sedation', () => { sim.setPhase('sedation'); feedback('Sedation started.'); }),
+    pbtn('surgery', 'Start procedure', () => { const r = act('start_surgery', 'Procedure started'); if (r.ok) { run.surgery.started = true; run.surgery.ended = false; } }),
+    pbtn('endsurgery', 'End procedure', () => { const r = act('end_surgery', 'Procedure ended'); if (r.ok) run.surgery.ended = true; }),
+    pbtn('emergence', 'End sedation / recovery', () => { sim.setPhase('emergence'); feedback('Recovery phase started — plan stop steps run from now.'); }),
+  ];
+  const phasePanel = h('section', { class: 'hmi-panel', 'aria-labelledby': 'mon-ph-h' }, h('h3', { id: 'mon-ph-h' }, 'Phase'), h('div', { class: 'btn-row' }, phaseCtl), nextHint);
+
+  // ---------------- airway
+  const awState = h('p', { class: 'aw-state', id: 'mon-aw-state' });
+  const maskBtn = h('button', { type: 'button', class: 'btn btn--hmi', id: 'aw-mask', 'aria-pressed': 'false' }, 'Mask ventilate');
+  maskBtn.addEventListener('click', () => { act('mask_ventilate'); render(true); });
+  const jawBtn = h('button', { type: 'button', class: 'btn btn--hmi', id: 'aw-jaw', 'aria-pressed': 'false' }, 'Jaw thrust');
+  jawBtn.addEventListener('click', () => { act('jaw_thrust'); render(true); });
+  const secBtn = h('button', { type: 'button', class: 'btn btn--hmi', id: 'aw-secure' }, 'Secure airway (tube)');
+  secBtn.addEventListener('click', () => { act('secure_airway'); render(true); });
+  const ventOn = h('button', { type: 'button', class: 'btn btn--hmi', id: 'aw-vent-on' }, 'Start ventilation');
+  ventOn.addEventListener('click', () => { act('start_ventilation'); render(true); });
+  const ventOff = h('button', { type: 'button', class: 'btn btn--hmi', id: 'aw-vent-off' }, 'Stop ventilation');
+  ventOff.addEventListener('click', () => { act('stop_ventilation'); render(true); });
+  const fio2Sel = h('select', { id: 'aw-fio2', class: 'input input--hmi' }, [0.21, 0.3, 0.4, 0.5, 0.6, 0.8, 1].map((v) => h('option', { value: v, selected: Math.abs(sim.state.airway.fio2 - v) < 1e-9 }, v.toFixed(2))));
+  const fio2Btn = h('button', { type: 'button', class: 'btn btn--hmi', id: 'aw-fio2-set' }, 'Set FiO2');
+  fio2Btn.addEventListener('click', () => { act(`set_fio2:${fio2Sel.value}`); render(true); });
+  const airwayPanel = h('section', { class: 'hmi-panel', 'aria-labelledby': 'mon-aw-h' }, h('h3', { id: 'mon-aw-h' }, 'Airway & ventilation'), awState,
+    h('div', { class: 'btn-row' }, maskBtn, jawBtn, secBtn, ventOn, ventOff),
+    h('div', { class: 'inline-form' }, h('label', { for: 'aw-fio2', class: 'label' }, 'FiO2'), fio2Sel, fio2Btn));
+
+  // ---------------- interventions: fluids, complications, sensor faults
+  const fluids = ctx.fluidsSupported();
+  const fluidOut = h('span', { id: 'mon-fluids' });
+  const fluidBtns = [250, 500].map((ml) => { const b = h('button', { type: 'button', class: 'btn btn--hmi', id: `fl-${ml}`, disabled: !fluids }, `Fluid bolus ${ml} mL`); b.addEventListener('click', () => { act(`fluid_bolus:${ml}`, `Crystalloid ${ml} mL given`); render(true); }); return b; });
+  const nonSensor = SCENARIOS.filter((s) => !s.perturbation.sensor);
+  const sensor = SCENARIOS.filter((s) => s.perturbation.sensor);
+  const cxSel = h('select', { id: 'cx-select', class: 'input input--hmi' }, h('option', { value: '' }, 'Choose a complication…'), nonSensor.map((s) => h('option', { value: s.id }, s.label)));
+  const cxBtn = h('button', { type: 'button', class: 'btn btn--hmi btn--warn', id: 'cx-inject' }, 'Inject');
+  const teach = h('div', { class: 'teach', id: 'cx-teach', 'aria-live': 'polite' });
+  const inject = (id) => { const s = SCENARIOS.find((x) => x.id === id); const r = sim.inject(id); feedback(r.ok ? `${r.message} injected.` : r.message, !r.ok); if (r.ok) clear(teach).append(h('p', {}, h('strong', {}, `${s.label}: `), s.description), h('p', { class: 'hint hint--hmi' }, h('strong', {}, 'Teaching point: '), s.teachingPoint)); render(true); };
+  cxBtn.addEventListener('click', () => { if (!cxSel.value) { cxSel.focus(); return; } inject(cxSel.value); });
+  const sensorBtns = sensor.map((s) => { const b = h('button', { type: 'button', class: 'btn btn--hmi', id: `sf-${s.id}` }, s.label); b.addEventListener('click', () => inject(s.id)); return b; });
+  const intPanel = h('section', { class: 'hmi-panel', 'aria-labelledby': 'mon-int-h' }, h('h3', { id: 'mon-int-h' }, 'Interventions & complications'),
+    h('div', { class: 'btn-row' }, fluidBtns), h('p', { class: 'hint hint--hmi' }, fluids ? ['Cumulative crystalloid: ', fluidOut] : 'Fluid boluses are not available in this engine version.'),
+    h('div', { class: 'inline-form' }, h('label', { for: 'cx-select', class: 'label' }, 'Complication'), cxSel, cxBtn),
+    h('div', { class: 'btn-row' }, h('span', { class: 'label' }, 'Sensor faults:'), sensorBtns), teach);
+
+  // ---------------- drugs
+  const drugBody = h('tbody', { id: 'mon-drugs' });
+  let drugSig = ''; const drugCells = {};
+  const drugTable = h('div', { class: 'table-wrap' }, h('table', { class: 'table table--hmi' },
+    h('caption', { class: 'sr-only' }, 'Active drugs'),
+    h('thead', {}, h('tr', {}, h('th', { scope: 'col' }, 'Drug'), h('th', { scope: 'col' }, 'Rate / dial'), h('th', { scope: 'col' }, 'Ce (illustrative)'), h('th', { scope: 'col' }, 'Cumulative'), h('th', { scope: 'col' }, 'Controls'))),
+    drugBody));
+  const drugEmpty = h('p', { class: 'hint hint--hmi' }, 'No drugs given yet. Plan steps run when their phase starts; or give a drug below.');
+
+  // administer form
+  const adDrug = h('select', { id: 'ad-drug', class: 'input input--hmi' }, h('option', { value: '' }, 'Choose drug…'),
+    groupDrugs(lib).map(([cl, ds]) => h('optgroup', { label: CLASS_LABELS[cl] || cl }, ds.map((d) => h('option', { value: d.id, disabled: !!sim.state.interlocks.lockouts[d.id] }, `${d.name}${sim.state.interlocks.lockouts[d.id] ? ' — LOCKED' : ''}`)))));
+  const adKind = h('select', { id: 'ad-kind', class: 'input input--hmi' });
+  const adVal = h('input', { type: 'number', step: 'any', min: 0, id: 'ad-value', class: 'input input--hmi input--num' });
+  const adUnit = h('span', { class: 'unit', id: 'ad-unit' });
+  const adOver = h('input', { type: 'number', step: 'any', min: 0, id: 'ad-over', class: 'input input--hmi input--num', placeholder: 'push' });
+  const adOverWrap = h('div', { class: 'field field--sm' }, h('label', { for: 'ad-over', class: 'label' }, 'Over (min)'), adOver);
+  const adInfo = h('div', { class: 'ad-info', id: 'ad-info' });
+  const adGive = h('button', { type: 'button', class: 'btn btn--hmi btn--primary', id: 'ad-give' }, 'Give');
+  let adCtx = null;
+  adDrug.addEventListener('change', () => fillKinds());
+  adKind.addEventListener('change', () => prefill());
+  function fillKinds(kindWanted = null) {
+    clear(adKind); const d = getDrugById(lib, adDrug.value); if (!d) { clear(adInfo); return; }
+    const kinds = [...new Set(Object.values(d.regimens || {}).flatMap((r) => (r.kind === 'infusion' && r.loading ? ['bolus', 'infusion'] : [r.kind])))];
+    for (const k of kinds) adKind.append(h('option', { value: k, selected: k === kindWanted }, KIND_LABELS[k]));
+    prefill();
+  }
+  function prefill() {
+    const d = getDrugById(lib, adDrug.value); const kind = adKind.value; if (!d || !kind) return;
+    const pk = regimenKeyForPhase(sim.state.phase, sim.plan.sedationTarget);
+    const keys = [pk, 'rescue', ...Object.keys(d.regimens || {})];
+    let key = keys.find((k) => d.regimens[k] && (d.regimens[k].kind === kind || (kind === 'bolus' && d.regimens[k].loading)));
+    const rec = key ? recommend(patient, key, d.id, lib) : null;
+    adCtx = { drug: d, kind, key, rec };
+    clear(adInfo);
+    adOverWrap.hidden = kind !== 'bolus'; adOver.value = '';
+    const ds = sim.state.drugs[d.id];
+    if (kind === 'bolus') {
+      const dz = rec && (rec.kind === 'bolus' ? rec.dose : rec.loading);
+      adVal.value = dz ? dz.value : ''; adUnit.textContent = d.amountUnit;
+      if (dz && dz.overSec) adOver.value = dz.overSec / 60;
+      if (dz) adInfo.append(h('p', {}, `Sourced ${key} range ${dz.range.min ?? 0}–${dz.range.max} ${dz.unit}${dz.perKg ? ` (${dz.perKg.min ?? dz.perKg.value}–${dz.perKg.max ?? dz.perKg.value} ${dz.perKg.unit} × ${rec.weightUsedKg} kg ${rec.scalar})` : ''} `, srcTags(rec.sources)));
+    } else {
+      const r = rec && rec.rate;
+      let v = ds.infusionRate > 0 ? ds.infusionRate : r ? r.value : '';
+      const unit = r ? r.unit : ds.rateUnit;
+      const ic = kind === 'infusion' ? interlockCeiling(d, unit, patient) : null;
+      if (store.interlocks && ic && isNum(v) && v > ic.value + 1e-9) { v = ic.value; adInfo.append(h('p', { class: 'note note--interlock' }, interlockNote(rec, ic), ' ', srcTags([E.pythonConfig]))); }
+      adVal.value = v; adUnit.textContent = unit || '';
+      if (r) adInfo.append(h('p', {}, `Sourced ${key} range ${r.range.min ?? 0}–${r.range.max} ${r.unit}${r.unit.includes('/kg') ? ` · ${rec.weightUsedKg} kg ${rec.scalar}` : ''} `, srcTags(rec.sources)));
+      if (r && r.ageAdjustedMac) adInfo.append(h('p', { class: 'hint hint--hmi' }, `1.0 × age-adjusted MAC = ${r.ageAdjustedMac.value} % `, srcTags(r.ageAdjustedMac.sources)));
+    }
+    if (rec) for (const w of rec.warnings) adInfo.append(h('p', { class: 'warn-text' }, 'Warning: ', w));
+  }
+  adGive.addEventListener('click', () => {
+    if (!adCtx || !adCtx.drug) { adDrug.focus(); feedback('Choose a drug first.', true); return; }
+    const v = Number(adVal.value); const { drug, kind } = adCtx;
+    const cmd = { drugId: drug.id, kind };
+    if (kind === 'bolus') { cmd.amount = v; cmd.amountUnit = drug.amountUnit; const o = Number(adOver.value); if (adOver.value !== '' && o > 0) cmd.overSec = o * 60; }
+    else { cmd.rate = v; cmd.rateUnit = adUnit.textContent || sim.state.drugs[drug.id].rateUnit; }
+    const r = sim.administer(cmd);
+    const what = kind === 'bolus' ? `${v} ${drug.amountUnit}` : `${v} ${cmd.rateUnit}`;
+    feedback(r.ok ? `${drug.name} ${what} ${kind === 'bolus' ? 'given' : 'set'}.${r.warnings.length ? ` Warnings: ${r.warnings.join('; ')}` : ''}` : `BLOCKED: ${drug.name} ${what} — ${r.reasons.join('; ')}`, !r.ok, r.warnings.length > 0);
+    render(true);
+  });
+  const adminForm = h('div', { class: 'admin-form' },
+    h('h4', {}, 'Give / adjust a drug'),
+    h('div', { class: 'admin-form__row' },
+      h('div', { class: 'field field--sm' }, h('label', { for: 'ad-drug', class: 'label' }, 'Drug'), adDrug),
+      h('div', { class: 'field field--sm' }, h('label', { for: 'ad-kind', class: 'label' }, 'How'), adKind),
+      h('div', { class: 'field field--sm' }, h('label', { for: 'ad-value', class: 'label' }, 'Amount / rate'), h('span', { class: 'with-unit' }, adVal, adUnit)),
+      adOverWrap, adGive), adInfo);
+  const fb = h('p', { class: 'feedback', id: 'mon-feedback', role: 'status' });
+  function feedback(msg, bad = false, warn = false) { fb.textContent = msg; fb.className = `feedback ${bad ? 'feedback--bad' : warn ? 'feedback--warn' : 'feedback--ok'}`; }
+  const drugPanel = h('section', { class: 'hmi-panel hmi-panel--wide', 'aria-labelledby': 'mon-drugs-h' }, h('h3', { id: 'mon-drugs-h' }, 'Drugs & infusions'), drugEmpty, drugTable, adminForm);
+
+  // ---------------- readiness (GA)
+  const readyList = h('ul', { class: 'ready-list', id: 'mon-ready' });
+  const readyHead = h('p', { class: 'ready-head' });
+  const readyPanel = isGA ? h('section', { class: 'hmi-panel', 'aria-labelledby': 'mon-ready-h' }, h('h3', { id: 'mon-ready-h' }, 'Extubation readiness (live)'), readyHead, readyList,
+    h('p', { class: 'hint hint--hmi' }, 'TOFR ≥ 0.9 before extubation ', srcTags([E.tofExtubation]), '. Without reversal, rocuronium recovery is slow; sugammadex dose depends on block depth.')) : null;
+
+  // ---------------- log
+  const logFilter = h('select', { id: 'log-filter', class: 'input input--hmi' }, ['all', 'dose', 'alarm', 'interlock', 'action', 'phase', 'event'].map((k) => h('option', { value: k }, k === 'all' ? 'All entries' : k)));
+  const logList = h('ol', { class: 'log', id: 'mon-log', reversed: true });
+  let logLen = -1;
+  logFilter.addEventListener('change', () => { logLen = -1; renderLog(); });
+  const logPanel = h('section', { class: 'hmi-panel hmi-panel--wide', 'aria-labelledby': 'mon-log-h' }, h('h3', { id: 'mon-log-h' }, 'Event log'),
+    h('div', { class: 'inline-form' }, h('label', { for: 'log-filter', class: 'label' }, 'Show'), logFilter), logList);
+
+  const toDebrief = h('button', { type: 'button', class: 'btn btn--primary', id: 'mon-debrief' }, 'Finish → Debrief');
+  toDebrief.addEventListener('click', () => ctx.go(5));
+
+  clear(main).append(
+    h('div', { class: 'step-head' }, h('h2', { id: 'step-title', tabindex: '-1' }, '4 · Run'),
+      h('p', { class: 'muted' }, `${isGA ? 'General anaesthesia' : `MAC / sedation (target: ${sim.plan.sedationTarget})`} · fictional patient ${patient.sex}, ${patient.ageYears} y, ${patient.weightKg} kg · seed ${sim.seed} · all values are illustrative model output.`)),
+    h('div', { class: 'hmi', id: 'hmi' },
+      h('div', { class: 'hmi-toolbar' },
+        h('div', { class: 'hmi-toolbar__group' }, h('span', { class: 'label' }, 'Sim time'), clock, phaseEl),
+        h('div', { class: 'hmi-toolbar__group', role: 'group', 'aria-label': 'Playback' }, playBtn, stepBtns),
+        h('div', { class: 'hmi-toolbar__group', role: 'group', 'aria-label': 'Speed' }, h('span', { class: 'label' }, 'Speed'), speedBtns),
+        h('div', { class: 'hmi-toolbar__group' }, ilBadge, restartBtn)),
+      fb,
+      h('div', { class: 'hmi-grid' },
+        h('div', { class: 'hmi-main' }, tileGrid, chartGrid, drugPanel),
+        h('div', { class: 'hmi-side' }, alarmPanel, ilPanel, phasePanel, readyPanel, airwayPanel, intPanel)),
+      logPanel),
+    h('div', { class: 'actions' }, h('button', { type: 'button', class: 'btn', onclick: () => ctx.go(3) }, '← Back to plan'), toDebrief));
+
+  // ---------------- behaviour
+  function setPlaying(p) {
+    run.playing = p; if (p) sim.play(); else sim.pause();
+    playBtn.textContent = p ? '❚❚ Pause' : '▶ Play'; playBtn.setAttribute('aria-pressed', String(p));
+    if (p) { lastTs = null; if (!raf) raf = requestAnimationFrame(frame); }
+    announce(p ? `Playing at ${run.speed} times.` : 'Paused.');
+  }
+  function sample() {
+    const S = sim.state; const H = run.hist;
+    if (S.tSec - run.lastSample < SAMPLE_SEC - 1e-9) return;
+    run.lastSample = S.tSec;
+    H.t.push(S.tSec); H.hr.push(S.vitals.hr); H.map.push(S.vitals.map); H.spo2.push(S.vitals.spo2); H.depth.push(S.vitals.depthIndex);
+    let mac = 0; let anyInh = false;
+    for (const d of lib.DRUGS) {
+      const ds = S.drugs[d.id]; if (!ds) continue;
+      if (isInhaledDrug(d)) { mac += ds.unitConc || 0; if (ds.unitConc > 0.005) anyInh = true; continue; }
+      if ((ds.unitConc || 0) > 0.01 || H.ce[d.id]) { if (!H.ce[d.id]) H.ce[d.id] = new Array(H.t.length - 1).fill(NaN); H.ce[d.id].push(ds.unitConc || 0); }
+    }
+    H.mac.push(anyInh || H.mac.some(Number.isFinite) ? mac : NaN);
+    const cut = H.t.findIndex((t) => t >= S.tSec - WINDOW_SEC - 30);
+    if (cut > 200) { for (const k of ['t', 'hr', 'map', 'spo2', 'depth', 'mac']) H[k].splice(0, cut); for (const k of Object.keys(H.ce)) H.ce[k].splice(0, cut); }
+  }
+  function advance(sec) { for (let i = 0; i < sec; i++) { sim.step(1); sample(); } }
+  function frame(ts) {
+    raf = null;
+    if (!alive || !run.playing) return;
+    if (lastTs !== null) {
+      acc += Math.min(0.25, (ts - lastTs) / 1000) * run.speed;
+      const n = Math.min(240, Math.floor(acc)); acc -= n;
+      if (n > 0) advance(n);
+    }
+    lastTs = ts;
+    if (ts - lastRender > 150) { lastRender = ts; render(); }
+    raf = requestAnimationFrame(frame);
+  }
+
+  function alarmFor(key) {
+    const ids = TILE_ALARMS[key] || [];
+    let best = null;
+    for (const a of sim.state.alarms) if (ids.includes(a.id) && (a.active || !a.acknowledged) && (!best || RANK[a.priority] > RANK[best.priority])) best = a;
+    return best;
+  }
+  function setTile(key, value, sub, fault = false) {
+    const t = tiles[key]; setText(t.val, value); setText(t.sub, sub);
+    const a = alarmFor(key);
+    t.el.classList.toggle('tile--fault', fault);
+    for (const p of ['high', 'medium', 'low']) t.el.classList.toggle(`tile--${p}`, !!a && a.priority === p);
+    t.el.classList.toggle('tile--latched', !!a && !a.active);
+    setText(t.alarm, a ? `${PRIORITY_SHAPES[a.priority]} ${PRIORITY_LABELS[a.priority]}${a.active ? '' : ' (latched)'}: ${a.message}` : '');
+  }
+
+  function render(force = false) {
+    if (!alive) return;
+    const S = sim.state; const V = S.vitals; const A = S.airway;
+    setText(clock, fmtClock(S.tSec)); setText(phaseEl, phaseLabel(S.phase));
+    // tiles
+    const F = (v) => (isNum(v) ? String(v) : 'FAULT');
+    setTile('hr', F(V.hr), S.sensors.hr === 'fault' ? 'sensor fault — no usable reading' : '', S.sensors.hr === 'fault');
+    setTile('bp', S.sensors.map === 'fault' ? 'FAULT' : `${V.sbp}/${V.dbp}`, S.sensors.map === 'fault' ? 'sensor fault — no usable reading' : `MAP ${V.map}`, S.sensors.map === 'fault');
+    setTile('spo2', F(V.spo2), S.sensors.spo2 === 'fault' ? 'probe off / sensor fault' : '', S.sensors.spo2 === 'fault');
+    const supported = (A.secured && A.ventilated) || A.maskVentilation;
+    const noBreaths = !(V.rr > 0) && !supported;
+    setTile('rr', String(V.rr), noBreaths ? 'APNOEA — no breaths' : A.secured && A.ventilated ? 'ventilator' : A.maskVentilation ? 'bag-mask' : 'spontaneous');
+    setTile('etco2', noBreaths ? '—' : String(V.etco2), noBreaths ? '(no breaths)' : 'illustrative');
+    setTile('depth', String(V.depthIndex), `${V.sedationLevel} · illustrative; not BIS`);
+    setTile('tof', `${V.tofCount}/4`, V.tofCount === 4 ? `TOFR ${V.tofRatio.toFixed(2)} · ${tofDepthText(V.tofCount, V.tofRatio)}` : `TOFR n/a · ${tofDepthText(V.tofCount, V.tofRatio)}`);
+    let mac = 0; const agents = [];
+    for (const d of lib.DRUGS) if (isInhaledDrug(d)) { const ds = S.drugs[d.id]; if (ds && (ds.unitConc > 0.005 || ds.infusionRate > 0)) { mac += ds.unitConc; agents.push(`${d.name} Et ${fmtNum(ds.cp, 1)} % (${fmtNum(ds.unitConc, 2)})`); } }
+    setTile('mac', agents.length ? mac.toFixed(2) : '—', agents.length ? `${agents.join(' + ')} · age-adjusted, summed (illustrative)` : 'no inhaled agent');
+    const n2o = S.drugs.nitrous_oxide ? S.drugs.nitrous_oxide.infusionRate : 0;
+    setTile('fio2', A.fio2.toFixed(2), n2o > 0 ? `N2O ${n2o} % · FiO2 max ${(1 - n2o / 100).toFixed(2)}` : '');
+    // interlocks
+    const st = S.interlocks.status;
+    ilBadge.className = `il-badge il-badge--${st.toLowerCase()}`; setText(ilBadge, `Interlocks: ${st}`);
+    setText(ilStatus, INTERLOCK_TEXT[st] || st); ilStatus.className = `il-status il-status--${st.toLowerCase()}`;
+    setText(ilHeld, S.interlocks.holdLatched ? `Held: ${S.interlocks.heldDrugs.map((id) => getDrugById(lib, id)?.name || id).join(', ') || 'none'}` : 'No hold latched.');
+    resumeBtn.disabled = !(S.interlocks.enabled && S.interlocks.holdLatched);
+    // alarms
+    renderAlarms();
+    // phase buttons
+    const ph = S.phase;
+    const en = (id, on) => { if (phaseBtns[id]) phaseBtns[id].disabled = !on; };
+    if (isGA) {
+      en('induction', ph === 'premed'); en('secure', !A.secured && (ph === 'induction' || ph === 'maintenance' || ph === 'emergence') && !run.extubated);
+      en('maintenance', ph === 'induction'); en('surgery', !run.surgery.started || run.surgery.ended); en('endsurgery', run.surgery.started && !run.surgery.ended);
+      en('emergence', ph === 'maintenance'); en('extubate', A.secured);
+      setText(nextHint, ph === 'premed' ? 'Next: Start induction.' : ph === 'induction' && !A.secured ? 'Next: when the patient is asleep and paralysed (TOF count 0–1), Secure airway (starts the ventilator).' : ph === 'induction' ? 'Next: Start maintenance.' : ph === 'maintenance' && !run.surgery.started ? 'Next: Start surgery.' : ph === 'maintenance' && !run.surgery.ended ? 'Surgery in progress. End surgery when done.' : ph === 'maintenance' ? 'Next: Begin emergence.' : A.secured ? 'Emergence: reverse block if needed, wait for the readiness checklist, then Extubate.' : 'Extubated. Observe, then Finish → Debrief.');
+    } else {
+      en('sedation', ph === 'premed'); en('surgery', ph === 'sedation' && (!run.surgery.started || run.surgery.ended)); en('endsurgery', run.surgery.started && !run.surgery.ended); en('emergence', ph === 'sedation');
+      setText(nextHint, ph === 'premed' ? 'Next: Start sedation.' : ph === 'sedation' && !run.surgery.started ? 'Next: Start procedure when the target depth is reached.' : ph === 'sedation' ? 'Procedure in progress; watch depth vs target, SpO2 and EtCO2.' : 'Recovery. Finish → Debrief when done.');
+    }
+    // airway
+    setText(awState, `${A.secured ? 'Tracheal tube in place' : 'Natural airway'} · ${A.secured && A.ventilated ? 'mechanical ventilation' : A.maskVentilation ? 'bag-mask ventilation' : 'no ventilatory support'}${A.jawThrust ? ' · jaw thrust' : ''} · FiO2 ${A.fio2.toFixed(2)}`);
+    maskBtn.setAttribute('aria-pressed', String(!!A.maskVentilation)); maskBtn.textContent = A.maskVentilation ? 'Stop mask ventilation' : 'Mask ventilate'; maskBtn.disabled = A.secured;
+    jawBtn.setAttribute('aria-pressed', String(!!A.jawThrust)); jawBtn.textContent = A.jawThrust ? 'Release jaw thrust' : 'Jaw thrust';
+    secBtn.disabled = A.secured; ventOn.disabled = !A.secured || A.ventilated; ventOff.disabled = !A.ventilated;
+    if (document.activeElement !== fio2Sel) fio2Sel.value = String([0.21, 0.3, 0.4, 0.5, 0.6, 0.8, 1].find((v) => Math.abs(v - A.fio2) < 1e-6) ?? fio2Sel.value);
+    if (fluids) setText(fluidOut, S.fluids && isNum(S.fluids.crystalloidMl) ? `${S.fluids.crystalloidMl} mL` : '0 mL');
+    // drugs
+    renderDrugs();
+    // readiness
+    if (readyPanel) {
+      const r = sim.extubationReadiness();
+      setText(readyHead, r.ready ? '✓ All criteria met' : `✗ Not ready — ${r.criteria.filter((c) => !c.met).length} criterion/criteria not met`);
+      readyHead.className = `ready-head ${r.ready ? 'ready-head--ok' : 'ready-head--no'}`;
+      const sig = r.criteria.map((c) => `${c.id}${c.met}${JSON.stringify(c.value)}`).join('|');
+      if (sig !== readyList.dataset.sig) { readyList.dataset.sig = sig; clear(readyList).append(...r.criteria.map((c) => readinessItem(c))); }
+    }
+    renderLog();
+    drawCharts();
+  }
+
+  function renderAlarms() {
+    const list = sim.state.alarms;
+    const sig = list.map((a) => `${a.id}:${a.active}:${a.acknowledged}:${a.message}`).join('|');
+    const activeNow = new Set(list.filter((a) => a.active).map((a) => a.id));
+    for (const a of list) if (a.active && !run.seenAlarms.has(a.id)) announce(`${PRIORITY_LABELS[a.priority]} priority alarm: ${a.message}`, a.priority === 'high');
+    run.seenAlarms = activeNow;
+    if (sig === alarmSig) return;
+    alarmSig = sig;
+    const focusedId = document.activeElement && document.activeElement.dataset ? document.activeElement.dataset.ack : null;
+    clear(alarmList);
+    if (!list.length) { alarmList.append(h('li', { class: 'alarm alarm--none' }, 'No alarms.')); }
+    for (const a of list) {
+      const b = h('button', { type: 'button', class: 'btn btn--hmi btn--small', dataset: { ack: a.id }, disabled: a.acknowledged, 'aria-label': `Acknowledge ${PRIORITY_LABELS[a.priority]} alarm: ${a.message}` }, a.acknowledged ? 'Acknowledged' : 'Acknowledge');
+      b.addEventListener('click', () => { sim.action(`acknowledge:${a.id}`); render(true); const nb = alarmList.querySelector('button:not([disabled])'); (nb || alarmPanel.querySelector('h3')).focus?.(); });
+      alarmList.append(h('li', { class: `alarm alarm--${a.priority}${a.active ? '' : ' alarm--latched'}` },
+        h('span', { class: `prio prio--${a.priority}` }, `${PRIORITY_SHAPES[a.priority]} ${PRIORITY_LABELS[a.priority]}`),
+        h('span', { class: 'alarm__msg' }, a.message, h('span', { class: 'alarm__meta' }, ` since ${fmtClock(a.sinceSec)} · ${a.active ? 'active' : 'condition cleared (latched)'}${a.acknowledged ? ' · acknowledged' : ''}`)), b));
+    }
+    if (focusedId) { const fbtn = alarmList.querySelector(`[data-ack="${focusedId}"]`); if (fbtn && !fbtn.disabled) fbtn.focus(); }
+  }
+
+  function renderDrugs() {
+    const S = sim.state;
+    const active = lib.DRUGS.filter((d) => { const ds = S.drugs[d.id]; return ds && (ds.cumulative > 0 || ds.infusionRate > 0 || ds.ce > 1e-6); });
+    drugEmpty.hidden = active.length > 0; drugTable.hidden = !active.length;
+    const sig = active.map((d) => d.id).join(',');
+    if (sig !== drugSig) {
+      drugSig = sig; clear(drugBody);
+      for (const d of active) {
+        const rate = h('td', { class: 'mono' }); const ce = h('td', { class: 'mono' }); const cum = h('td', { class: 'mono' });
+        const bol = h('button', { type: 'button', class: 'btn btn--hmi btn--small', 'aria-label': `Bolus ${d.name}` }, 'Bolus');
+        const adj = h('button', { type: 'button', class: 'btn btn--hmi btn--small', 'aria-label': `Adjust ${d.name} rate` }, 'Adjust');
+        const stop = h('button', { type: 'button', class: 'btn btn--hmi btn--small btn--danger', 'aria-label': `Stop ${d.name}` }, 'Stop');
+        const kinds = new Set(Object.values(d.regimens || {}).map((r) => r.kind));
+        bol.hidden = !(kinds.has('bolus') || Object.values(d.regimens || {}).some((r) => r.loading));
+        adj.hidden = !(kinds.has('infusion') || kinds.has('inhaled'));
+        bol.addEventListener('click', () => { adDrug.value = d.id; fillKinds('bolus'); adVal.focus(); });
+        adj.addEventListener('click', () => { adDrug.value = d.id; fillKinds(kinds.has('inhaled') ? 'inhaled' : 'infusion'); adVal.focus(); });
+        stop.addEventListener('click', () => { const r = sim.administer({ drugId: d.id, kind: 'stop' }); feedback(r.ok ? `${d.name} stopped.` : r.reasons.join('; '), !r.ok); render(true); });
+        drugCells[d.id] = { rate, ce, cum, stop };
+        drugBody.append(h('tr', {}, h('th', { scope: 'row' }, d.name), rate, ce, cum, h('td', { class: 'controls' }, bol, adj, stop)));
+      }
+    }
+    for (const d of active) {
+      const ds = S.drugs[d.id]; const c = drugCells[d.id]; const inh = isInhaledDrug(d);
+      const held = S.interlocks.heldDrugs.includes(d.id);
+      setText(c.rate, ds.infusionRate > 0 ? `${fmtNum(ds.infusionRate, 2)} ${ds.rateUnit}` : held ? '0 (HELD)' : '—');
+      setText(c.ce, inh ? `Et ${fmtNum(ds.cp, 2)} % · ${fmtNum(ds.unitConc, 2)} MAC` : `${fmtNum(ds.ce, 3)} ${d.amountUnit}/L · ${fmtNum(ds.unitConc, 2)}× ref`);
+      setText(c.cum, `${fmtNum(ds.cumulative, 2)} ${ds.amountUnit}`);
+      c.stop.disabled = !(ds.infusionRate > 0);
+    }
+  }
+
+  function renderLog() {
+    const log = sim.state.log;
+    if (log.length === logLen) return; logLen = log.length;
+    const f = logFilter.value;
+    const items = log.filter((e) => f === 'all' || e.kind === f).slice(-200).reverse();
+    clear(logList).append(...items.map((e) => h('li', { class: `log__item log__item--${e.kind}` }, h('span', { class: 'mono' }, fmtClock(e.tSec)), ' ', h('span', { class: 'log__kind' }, e.kind), ' ', e.message)));
+  }
+
+  function drawCharts() {
+    const H = run.hist; const now = sim.state.tSec;
+    for (const c of charts) {
+      let series;
+      if (c.key === 'ce') {
+        series = [];
+        if (H.mac.some(Number.isFinite)) series.push({ label: 'Total MAC', color: SERIES_COLORS[0], data: H.mac });
+        Object.keys(H.ce).slice(0, 5).forEach((id, i) => series.push({ label: `${getDrugById(lib, id).name} Ce`, color: SERIES_COLORS[(i + 1) % SERIES_COLORS.length], data: H.ce[id], dash: i % 2 ? [6, 3] : null }));
+      } else series = [{ label: c.title, color: { hr: '#7ee787', map: '#ff9aa2', spo2: '#67d4ff', depth: '#c8b6ff' }[c.key], data: H[c.key] }];
+      drawChart(c.canvas, { t: H.t, series, min: c.min, max: c.max, autoMax: c.autoMax, thresholds: c.th, nowSec: now });
+      const sig = series.map((s) => s.label).join('|');
+      if (c.legend.dataset.sig !== sig) {
+        c.legend.dataset.sig = sig;
+        clear(c.legend).append(...series.map((s) => h('li', {}, h('span', { class: `swatch${s.dash ? ' swatch--dash' : ''}` }), s.label)));
+        for (const [i, li] of [...c.legend.children].entries()) li.firstChild.style.borderColor = series[i].color;
+      }
+      const last = series.map((s) => { const v = s.data[s.data.length - 1]; return `${s.label} ${isNum(v) ? fmtNum(v, 2) : 'no value'}`; }).join('; ');
+      c.canvas.setAttribute('aria-label', `${c.title}, last 15 simulated minutes. Current: ${last || 'no data'}.`);
+    }
+  }
+
+  const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(() => drawCharts()) : null;
+  if (ro) for (const c of charts) ro.observe(c.canvas);
+
+  if (!run.hist.t.length) sample();
+  render(true);
+  if (run.playing) setPlaying(true);
+
+  return {
+    leave() { alive = false; if (raf) cancelAnimationFrame(raf); raf = null; if (ro) ro.disconnect(); if (run.playing) { run.playing = false; sim.pause(); } },
+  };
+}
+
+function readinessItem(c) {
+  const v = c.value && typeof c.value === 'object' ? Object.entries(c.value).map(([k, x]) => `${k.toUpperCase()} ${isNum(x) ? x : 'FAULT'}`).join(', ') : isNum(c.value) ? String(c.value) : 'FAULT';
+  return h('li', { class: c.met ? 'ready--met' : 'ready--no' }, h('span', { class: 'ready__mark', 'aria-hidden': 'true' }, c.met ? '✓' : '✗'),
+    h('span', {}, h('span', { class: 'sr-only' }, c.met ? 'Met: ' : 'Not met: '), c.label, ` — ${v} `, c.source && c.source !== 'illustrative' ? srcTags([c.source]) : h('span', { class: 'badge badge--illustrative' }, 'illustrative')));
+}
+export { readinessItem };
+
+function groupDrugs(lib) {
+  const m = new Map();
+  for (const d of lib.DRUGS) { if (!m.has(d.cls)) m.set(d.cls, []); m.get(d.cls).push(d); }
+  return [...m.entries()].sort((a, b) => (CLASS_ORDER.indexOf(a[0]) + 100 * (CLASS_ORDER.indexOf(a[0]) < 0)) - (CLASS_ORDER.indexOf(b[0]) + 100 * (CLASS_ORDER.indexOf(b[0]) < 0)));
+}

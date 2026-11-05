@@ -58,4 +58,10 @@ export const INTERLOCK_TEXT = {
   INITIALIZING: 'INITIALIZING — waiting for first monitor reading',
 };
 
-export const NOT_MODELED = ['Pregnancy', 'Paediatric patients (under 18 y)', 'Cardiopulmonary bypass / cardiac surgery', 'Neuraxial and regional anaesthesia techniques', 'Fluids, blood products, temperature and electrolytes', 'Epinephrine and bronchodilators'];
+/** Out-of-scope items; library/engine features present at runtime are left out automatically. */
+export function notModeled(lib, { fluids = false } = {}) {
+  const hasEpi = (lib.DRUGS || []).some((d) => d.id === 'epinephrine');
+  return ['Pregnancy', 'Paediatric patients (under 18 y)', 'Cardiopulmonary bypass / cardiac surgery', 'Neuraxial and regional anaesthesia techniques',
+    fluids ? 'Blood products, temperature and electrolytes' : 'Fluids, blood products, temperature and electrolytes',
+    hasEpi ? 'Bronchodilators' : 'Epinephrine and bronchodilators'];
+}
