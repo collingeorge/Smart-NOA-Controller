@@ -736,6 +736,32 @@ test('simulator UI smoke', { skip, timeout: 900000 }, async (t) => {
       }
     });
 
+    await t.test('interlock hold pause offers "Continue with hold latched (this hold only)"; explicit, logged, alarms not acknowledged', async () => {
+      await loadCase(page, 'healthy_adult'); await toRun(page);
+      await page.click('#auto-full');
+      await adv(page, 5);
+      await page.evaluate(() => window.__smartNoa.inject('map_sensor_fault'));
+      // first pause: the HIGH sensor-fault alarm (the interlock reads the unusable value on the next second)
+      await advanceUntil(page, (x) => x.auto && x.auto.state === 'paused', { maxSec: 30, chunk: 1, label: 'alarm pause' });
+      assert.ok(await page.isHidden('#auto-hold-continue'), 'not offered for an alarm-only pause');
+      for (const b of await page.locator('#mon-alarms button[data-ack]:not([disabled])').all()) await b.click();
+      await page.click('#auto-resume');
+      await advanceUntil(page, (x) => x.auto && x.auto.state === 'paused', { maxSec: 30, chunk: 1, label: 'hold pause' });
+      await page.waitForSelector('#auto-hold-continue:not([hidden])');
+      assert.match(await page.textContent('#auto-paused-head'), /Interlock hold latched/);
+      await page.click('#auto-hold-continue');
+      const log = await simLog(page);
+      assert.ok(log.some((l) => /Clinician chose to continue with hold latched/.test(l.message)));
+      const st = await snap(page);
+      assert.ok(st.sim.interlocks.holdLatched, 'hold not released');
+      const iChoice = log.findIndex((l) => /Clinician chose to continue with hold latched/.test(l.message));
+      assert.ok(!log.slice(iChoice).some((l) => /Alarm acknowledged/.test(l.message)), 'the choice acknowledges no alarm');
+      if (st.auto.state === 'paused') { for (const b of await page.locator('#mon-alarms button[data-ack]:not([disabled])').all()) await b.click(); await page.click('#auto-resume'); }
+      const after = await adv(page, 20);
+      assert.equal(after.auto.state, 'running', 'the same hold does not pause again');
+      await page.click('#auto-takeover');
+    });
+
     await t.test('user pause banner reads cleanly (no double period)', async () => {
       await loadCase(page, 'healthy_adult'); await toRun(page);
       await page.click('#auto-guided'); await page.click('#auto-pause');
