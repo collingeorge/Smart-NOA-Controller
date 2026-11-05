@@ -109,18 +109,21 @@ for (const { name, lib } of LIBS) {
     assert.ok(sim.state.drugs.propofol.cp > 0 && sim.state.drugs.propofol.unitConc > 0.3);
   });
 
-  test(`${name}: apnoea without ventilation lowers SpO2 and raises EtCO2; ventilation restores`, () => {
+  test(`${name}: apnoea without ventilation lowers SpO2, gives no EtCO2 reading (PaCO2 rises internally); ventilation restores`, () => {
     const sim = sim0(); runFor(sim, 10);
+    assert.ok(Number.isFinite(sim.state.vitals.etco2), 'breathing: EtCO2 reading present');
     give(sim, 'fentanyl', 'induction'); give(sim, 'propofol', 'induction'); give(sim, 'rocuronium', 'induction');
-    const et0 = sim.state.vitals.etco2;
+    const pa0 = sim.phys.out._true.paco2;
     const t = timeToSpo2(sim, 90, 900);
     assert.ok(t < 900, 'desaturated on room air');
     assert.equal(sim.state.vitals.rr, 0);
-    assert.ok(sim.state.vitals.etco2 > et0);
+    assert.equal(sim.state.vitals.etco2, null, 'no breaths and no ventilation: no capnography signal');
+    assert.ok(sim.phys.out._true.paco2 > pa0 + 1, 'internal PaCO2 keeps rising');
     assert.ok(sim.state.alarms.some((a) => a.id === 'apnea' && a.priority === 'high'));
     assert.ok(sim.state.alarms.some((a) => a.id === 'spo2_low' && a.active));
     sim.action('set_fio2:1'); assert.ok(sim.action('mask_ventilate').ok);
     runFor(sim, 120);
+    assert.ok(Number.isFinite(sim.state.vitals.etco2), 'mask ventilation: EtCO2 reading returns');
     assert.ok(sim.state.vitals.spo2 >= 95, `spo2 ${sim.state.vitals.spo2}`);
     assert.ok(sim.state.alarms.find((a) => a.id === 'spo2_low').active === false); // latched until acknowledged
     assert.ok(sim.action('acknowledge:spo2_low').ok);

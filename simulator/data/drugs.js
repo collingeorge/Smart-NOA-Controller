@@ -444,6 +444,25 @@ export const SOURCES = {
     supports: 'For adults with sepsis-induced hypoperfusion or septic shock, the guideline suggests that at least 30 mL/kg of IV crystalloid fluid be given within the first 3 hours of resuscitation (weak recommendation, low quality of evidence; downgraded from strong in 2016).',
     verifiedVia: 'WebSearch records (2026-11-05) of sccm.org/sepsisguidelines, an AMiner executive-summary record, emDocs and Red Cross guideline summaries and a CME PDF reproducing the recommendation wording and its weak/low-quality grading. Used only as context text for sepsis fluid boluses; no simulator dose, threshold or effect size is derived from it.',
   },
+  // S44–S45 added in the 2026-11 audit (perioperative anaphylaxis; IV epinephrine titration dose).
+  S44: {
+    id: 'S44',
+    citation: 'Association of Anaesthetists of Great Britain and Ireland. Suspected anaphylactic reactions associated with anaesthesia. Anaesthesia. 2009;64(2):199-211.',
+    url: 'https://www.ncbi.nlm.nih.gov/pmc/articles/PMC3082210/',
+    identifiers: 'doi:10.1111/j.1365-2044.2008.05733.x; PMC3082210 (PMID not re-verified)',
+    type: 'society guideline',
+    supports: 'Adrenaline (epinephrine) is the most effective drug in anaphylaxis and should be given as early as possible. Adult IV dose 50 µg (0.5 mL of 1:10 000 solution); several doses may be required if there is severe hypotension or bronchospasm; if several doses are required, consider starting an IV adrenaline infusion. The anaesthetist is responsible for referral for investigation.',
+    verifiedVia: 'WebSearch records (2026-11-05) of the PMC3082210 full-text record (quoted: "Adult dose: 50 µg (0.5 ml of 1:10 000 solution). Several doses may be required if there is severe hypotension or bronchospasm. If several doses of adrenaline are required, consider starting an intravenous infusion of adrenaline."), the University of Southampton eprint 72661 (citation, DOI) and NHS Scotland Right Decisions copies. The NAP6 report chapter (rcoa.ac.uk) states that AAGBI guidelines recommend an initial IV dose of 50 mcg, repeated as necessary. Full PDF not opened (WebFetch unavailable in this session).',
+  },
+  S45: {
+    id: 'S45',
+    citation: 'Resuscitation Council UK. Peri-operative anaphylaxis: initial management (algorithm for anaesthetists and intensivists), with the Association of Anaesthetists. Resuscitation Council UK; 2024 (file 2526 AAP RCUK periop anaphylaxis).',
+    url: 'https://www.resus.org.uk/sites/default/files/2024-01/2526%20AAP%20RCUK%20periop%20anaphylaxis-8C.pdf',
+    identifiers: 'none',
+    type: 'society guideline (algorithm)',
+    supports: 'Peri-operative anaphylaxis (anaesthetists/intensivists): give an initial IV bolus of adrenaline — adults and children over 12 years 50 micrograms (0.5 mL of 1 mg/10 mL), titrated to effect; if repeated boluses are needed, start an adrenaline infusion; give IV crystalloid. RCUK 2021 emergency treatment of anaphylaxis: IV adrenaline only by experienced specialists in an appropriate setting.',
+    verifiedVia: 'WebSearch records (2026-11-05) of the resus.org.uk algorithm PDF (2024-01 file) and of the RCUK 2021 guideline/draft ("IV adrenaline should be given only by experienced specialists in an appropriate setting"; titration step "Adults 50 micrograms"), and SALG/Perioperative Allergy Network summaries (infusion if signs persist despite boluses). Full PDF not opened.',
+  },
 };
 
 // ---------------------------------------------------------------------------------------------
@@ -457,6 +476,7 @@ export const CONDITIONS = [
   { id: 'aortic_stenosis_severe', label: 'Severe aortic stenosis', group: 'cardiovascular' },
   { id: 'uncontrolled_htn', label: 'Uncontrolled hypertension', group: 'cardiovascular' },
   { id: 'hypovolemia', label: 'Hypovolaemia / volume depletion', group: 'cardiovascular' },
+  { id: 'bleeding_risk', label: 'High bleeding risk (cerebrovascular bleeding, haemorrhagic diathesis, incomplete haemostasis)', group: 'cardiovascular' },
   // respiratory
   { id: 'osa', label: 'Obstructive sleep apnoea (diagnosed)', group: 'respiratory' },
   { id: 'asthma', label: 'Asthma', group: 'respiratory' },
@@ -464,6 +484,7 @@ export const CONDITIONS = [
   // renal / hepatic
   { id: 'liver_disease', label: 'Liver disease / hepatic impairment', group: 'renal_hepatic' },
   { id: 'severe_hepatic_impairment', label: 'Severe hepatic impairment', group: 'renal_hepatic' },
+  { id: 'peptic_ulcer_gi_bleed', label: 'Active peptic ulcer disease or recent GI bleeding/perforation', group: 'renal_hepatic' },
   { id: 'bowel_obstruction', label: 'Bowel obstruction (gas-distended bowel)', group: 'renal_hepatic' },
   { id: 'bowel_or_urinary_obstruction', label: 'Peritonitis or mechanical bowel/urinary obstruction', group: 'renal_hepatic' },
   // neuro / psych
@@ -494,7 +515,7 @@ export const ALLERGIES = [
   { id: 'neostigmine', label: 'Neostigmine' },
   { id: 'etomidate', label: 'Etomidate' },
   { id: 'ketamine', label: 'Ketamine' },
-  { id: 'halogenated_volatile', label: 'Sevoflurane / isoflurane / other halogenated volatile agents' },
+  { id: 'halogenated_volatile', label: 'Sevoflurane / desflurane / isoflurane / other halogenated volatile agents' },
   { id: 'ondansetron', label: 'Ondansetron' },
   { id: 'dexamethasone', label: 'Dexamethasone (product component)' },
 ];
@@ -586,7 +607,7 @@ export const DRUGS = [
     pkModelFallback: 'calibrated',
     pkModelInfo: {
       model: 'eleveld', form: 'arterial', sources: ['S42'],
-      note: 'Published Eleveld 2018 population PK with ke0 (arterial). Covariates from the simulated patient (age, total body weight, height, sex) plus the concomitant-drug switch (opioid or IV local anaesthetic in the plan or already given). The simulated depth index still uses the illustrative PD in engine/pd.js, not the Eleveld BIS model. Set pkModel to the fallback \'calibrated\' to use the illustrative 2-compartment model fitted to label timing.',
+      note: 'Published Eleveld 2018 population PK with ke0 (arterial). Covariates from the simulated patient (age, total body weight, height, sex) plus the published concomitant-drug switch, implemented as opioids only (an opioid in the plan or already given), as in the open-source implementations. The simulated depth index still uses the illustrative PD in engine/pd.js, not the Eleveld BIS model. Set pkModel to the fallback \'calibrated\' to use the illustrative 2-compartment model fitted to label timing.',
     },
     pkNote: 'Eleveld 2018 PK (S42) verified against four agreeing open-source implementations/readings; Marsh 1991 parameters remain unverified against the paper (see SOURCES.md "Propofol PK model").',
   },
@@ -639,7 +660,7 @@ export const DRUGS = [
     ceiling: { value: 1, unit: 'mg/kg/h', basis: 'guideline maximum', appliesTo: 'maintenance', sources: ['S10'], note: 'Schwenk 2018: infusions up to about 1 mg/kg/h; bolus ≤0.35 mg/kg for analgesia.' },
     contraindications: [
       { when: 'allergy:ketamine', severity: 'lock', message: 'Contraindicated: known hypersensitivity to ketamine or to any excipient (label CONTRAINDICATIONS).', sources: ['S27'] },
-      { when: 'condition:uncontrolled_htn', severity: 'warn', message: 'Label CONTRAINDICATIONS: patients for whom a significant elevation of blood pressure would constitute a serious hazard. (The simulator shows this as a warning; the label lists it as a contraindication.)', sources: ['S27'] },
+      { when: 'condition:uncontrolled_htn', severity: 'lock', message: 'Contraindicated in patients for whom a significant elevation of blood pressure would constitute a serious hazard (label CONTRAINDICATIONS; the simulator applies it to uncontrolled hypertension).', sources: ['S27'] },
       { when: 'condition:psychosis_history', severity: 'warn', message: 'Label: postoperative confusional states may occur during the recovery period. (The label does not name psychosis history; the simulator applies this warning as policy. Schwenk 2018 contraindication list not retrieved.)', sources: ['S27'] },
     ],
     timing: { onsetMin: 0.5, peakMin: null, durationMin: 7.5, ranges: { durationMin: [5, 10] }, basis: 'label statement: 2 mg/kg produces 5 to 10 minutes of surgical anesthesia within 30 seconds (midpoint used)', defaultBolus: '2 mg/kg', sources: ['S27'] },
@@ -705,6 +726,7 @@ export const DRUGS = [
     ceiling: { value: 8.5, unit: '%', basis: 'label range upper bound', sources: ['S36'], note: 'Top of the label adult maintenance range; not called a maximum.' },
     contraindications: [
       { when: 'condition:mh_susceptible', severity: 'lock', message: 'Label: SUPRANE can induce malignant hyperthermia in patients with known or suspected susceptibility based on genetic factors or family history (listed among CONTRAINDICATIONS).', sources: ['S36'] },
+      { when: 'allergy:halogenated_volatile', severity: 'lock', message: 'Contraindicated in patients with known sensitivity to SUPRANE or to other halogenated agents (label CONTRAINDICATIONS).', sources: ['S36'] },
     ],
     timing: NOT_STATED('Volatile agent: engine uses first-order wash-in/out of end-tidal fraction (illustrative).'),
     pkModel: 'calibrated',
@@ -796,7 +818,7 @@ export const DRUGS = [
         scalar: 'TBW', scalarBasis: 'convention',
         adjust: [
           { when: 'age>=66', loading: { perKg: { default: 0.5, min: 0.5, max: 0.5 }, unit: 'mcg/kg' }, note: 'Label: patients >65 years, loading 0.5 mcg/kg over 10 min; consider reducing maintenance.', sources: ['S9'] },
-          { when: 'condition:liver_disease', note: 'Label: consider dose reduction in hepatic impairment.', sources: ['S9'] },
+          { when: 'condition:liver_disease|condition:severe_hepatic_impairment', note: 'Label: consider dose reduction in hepatic impairment.', sources: ['S9'] },
         ],
         timing: 'Loading infusion over 10 minutes; 0.5 mcg/kg may suit less invasive procedures.',
         sources: ['S9'],
@@ -809,6 +831,7 @@ export const DRUGS = [
         scalar: 'TBW', scalarBasis: 'convention',
         adjust: [
           { when: 'age>=66', loading: { perKg: { default: 0.5, min: 0.5, max: 0.5 }, unit: 'mcg/kg' }, note: 'Label: patients >65 years, loading 0.5 mcg/kg over 10 min; consider reducing maintenance.', sources: ['S9'] },
+          { when: 'condition:liver_disease|condition:severe_hepatic_impairment', note: 'Label: consider dose reduction in hepatic impairment.', sources: ['S9'] },
         ],
         timing: 'Loading infusion over 10 minutes.',
         sources: ['S9'],
@@ -818,7 +841,10 @@ export const DRUGS = [
         kind: 'infusion',
         rate: { default: 0.2, min: 0.2, max: 0.7, unit: 'mcg/kg/h' },
         scalar: 'TBW', scalarBasis: 'convention',
-        adjust: [{ when: 'age>=66', note: 'Label: consider reducing maintenance dose in patients >65 years.', sources: ['S9'] }],
+        adjust: [
+          { when: 'age>=66', note: 'Label: consider reducing maintenance dose in patients >65 years.', sources: ['S9'] },
+          { when: 'condition:liver_disease|condition:severe_hepatic_impairment', note: 'Label: consider dose reduction in hepatic impairment.', sources: ['S9'] },
+        ],
         timing: 'No loading dose in this regimen.',
         sources: ['S9', 'S35'],
         note: 'OFF-LABEL general-anaesthesia adjunct. Range shown is the label ICU maintenance range (0.2–0.7 mcg/kg/h) as the nearest labelled infusion range; Python simulation ceiling 0.5 mcg/kg/h applies with interlocks.',
@@ -841,8 +867,11 @@ export const DRUGS = [
       kind: 'bolus',
       fixed: { default: 1, min: 1, max: 2.5, unit: 'mg' },
       scalar: null, scalarBasis: null,
-      adjust: [{ when: 'flag:elderly|asa>=3|medication:cns_depressant|medication:opioid_chronic', note: 'Label: reduce dose in older, debilitated or chronically ill patients and with concomitant opioids or other CNS depressants (no figure used; age ≥60 figure not confirmed).', sources: ['S17'] }],
-      timing: 'Healthy adult: start with as little as 1 mg; initial dose not to exceed 2.5 mg; titrate slowly.',
+      adjust: [
+        { when: 'age>=60|asa>=3', fixed: { default: 1, min: 0, max: 1.5, unit: 'mg' }, note: 'Label: patients 60 years or older, debilitated or chronically ill — initial IV sedation dose no more than 1.5 mg, given over no less than 2 minutes; wait an additional 2 or more minutes to evaluate the effect; total doses greater than 3.5 mg are not usually necessary. (ASA ≥ 3 stands in for "debilitated or chronically ill" — a simulator mapping. Source gives only an upper limit, so min 0; default 1 mg is the label\'s healthy-adult "as little as 1 mg" starting figure, which lies within this cap.)', sources: ['S17'] },
+        { when: 'medication:cns_depressant|medication:opioid_chronic', note: 'Label: reduce dose with concomitant opioids or other CNS depressants (no figure used in the simulator).', sources: ['S17'] },
+      ],
+      timing: 'Give over at least 2 minutes; wait an additional 2 or more minutes to evaluate the effect. Healthy adult <60 y: start with as little as 1 mg; initial dose not to exceed 2.5 mg; titrate slowly.',
       sources: ['S17'],
       note: k === 'premed' ? 'IV anxiolysis using the label IV sedation titration (IM premedication dosing not used).' : 'Label IV sedation/anxiolysis titration.',
     }])),
@@ -864,7 +893,7 @@ export const DRUGS = [
         kind: 'bolus',
         perKg: { default: 2, min: 2, max: 20 }, unit: 'mcg/kg',
         scalar: 'TBW', scalarBasis: 'convention',
-        adjust: [{ when: 'flag:elderly|asa>=3', note: 'Label: reduce the initial dose in elderly and debilitated patients; guide further increments by response to the first dose.', sources: ['S13'] }],
+        adjust: [{ when: 'flag:elderly|asa>=3', warn: true, note: 'Label PRECAUTIONS: the initial dose of fentanyl citrate should be appropriately reduced in elderly and debilitated patients; the effect of the initial dose should be considered in determining incremental doses. The label gives no reduced figure, so the auto-filled value is the unreduced low-dose tier (2 mcg/kg) — reduce it for this patient. (ASA ≥ 3 stands in for "debilitated" — a simulator mapping.)', sources: ['S13'] }],
         timing: 'Low dose 2 mcg/kg (minor procedures); moderate dose 2–20 mcg/kg.',
         sources: ['S13'],
         note: 'Default = label low-dose tier.',
@@ -911,8 +940,8 @@ export const DRUGS = [
     contraindications: [
       { when: 'condition:regional_block_planned', severity: 'warn', message: 'Foo 2021: IV lidocaine should not be given concurrently with other local anaesthetic interventions (nerve blocks, wound infiltration) or while their effect is still active; separate by about 4 h.', sources: ['S1'] },
       { when: 'condition:liver_disease', severity: 'warn', message: 'Label: patients with severe hepatic disease, because of their inability to metabolize local anesthetics normally, are at greater risk of developing toxic plasma concentrations.', sources: ['S28'] },
-      { when: 'condition:heart_block', severity: 'warn', message: 'Label CONTRAINDICATIONS (IV lidocaine): should not be used in patients with Stokes-Adams syndrome, Wolff-Parkinson-White syndrome, or with severe degrees of sinoatrial, atrioventricular or intraventricular block. (The simulator shows this as a warning; the label lists it as a contraindication.)', sources: ['S28'] },
-      { when: 'condition:wpw', severity: 'warn', message: 'Label CONTRAINDICATIONS (IV lidocaine, some manufacturers): should not be used in patients with Wolff-Parkinson-White syndrome.', sources: ['S28'] },
+      { when: 'condition:heart_block', severity: 'lock', message: 'Contraindicated (label CONTRAINDICATIONS, IV lidocaine): should not be used in patients with Stokes-Adams syndrome, Wolff-Parkinson-White syndrome, or with severe degrees of sinoatrial, atrioventricular or intraventricular block (the simulator heart-block condition is 2nd/3rd-degree block without a pacemaker).', sources: ['S28'] },
+      { when: 'condition:wpw', severity: 'lock', message: 'Contraindicated (label CONTRAINDICATIONS, IV lidocaine, Fresenius Kabi label): should not be used in patients with Wolff-Parkinson-White syndrome.', sources: ['S28'] },
     ],
     timing: NOT_STATED(),
     pkModel: 'calibrated',
@@ -984,7 +1013,7 @@ export const DRUGS = [
         byDepth: [
           { depth: 'shallow', criterion: 'spontaneous recovery to reappearance of T2', perKg: 2 },
           { depth: 'deep', criterion: '1–2 post-tetanic counts, no TOF twitch', perKg: 4 },
-          { depth: 'immediate', criterion: 'about 3 min after a single rocuronium 1.2 mg/kg', perKg: 16 },
+          { depth: 'immediate', criterion: 'about 3 min after a single rocuronium 1.2 mg/kg', perKg: 16, afterRocuroniumPerKg: 1.2, withinMin: 3 },
         ],
         scalar: 'TBW', scalarBasis: 'label',
         timing: 'Single IV bolus; dose chosen by depth of block.',
@@ -992,6 +1021,9 @@ export const DRUGS = [
         note: 'Label: dose on actual body weight. Thilen 2023: sugammadex preferred over neostigmine for deep, moderate and shallow block.',
       },
     },
+    runtimeRules: [
+      { id: 'dose_vs_block_depth', severity: 'warn', message: 'Label: sugammadex dose depends on depth of block — 2 mg/kg if spontaneous recovery has reached the reappearance of T2; 4 mg/kg if recovery has reached 1–2 post-tetanic counts with no twitch response to TOF; 16 mg/kg for reversal soon (about 3 min) after a single rocuronium dose of 1.2 mg/kg', sources: ['S6'] },
+    ],
     ceiling: { value: 16, unit: 'mg/kg', basis: 'label range upper bound', sources: ['S6'], note: 'Highest labelled dose (immediate reversal); not called a maximum.' },
     contraindications: [
       { when: 'allergy:sugammadex', severity: 'lock', message: 'Contraindicated: known hypersensitivity to sugammadex or any of its components (label CONTRAINDICATIONS).', sources: ['S6'] },
@@ -1109,7 +1141,7 @@ export const DRUGS = [
         kind: 'bolus',
         fixed: { default: 40, min: 40, max: 100, unit: 'mcg' },
         scalar: null, scalarBasis: null,
-        timing: 'Additional boluses every 1–2 min as needed; not exceeding 200 mcg per bolus.',
+        timing: 'Additional boluses every 1–2 min as needed; not to exceed a total dosage of 200 mcg (2019 label wording; the simulator applies this conservative cumulative reading).',
         sources: ['S18'],
       },
       maintenance: {
@@ -1120,7 +1152,8 @@ export const DRUGS = [
         sources: ['S18'],
       },
     },
-    ceiling: { value: 200, unit: 'mcg', scope: 'per bolus', basis: 'label maximum', infusion: { value: 200, unit: 'mcg/min' }, sources: ['S18'] },
+    ceiling: { value: 200, unit: 'mcg', scope: 'cumulative boluses', basis: 'label maximum (total bolus dosage; conservative reading)', infusion: { value: 200, unit: 'mcg/min' }, sources: ['S18'],
+      note: 'The FDA-hosted 2019 Biorphen label reads "not to exceed a total dosage of 200 mcg" for IV boluses; some later label copies read "additional boluses up to 200 mcg". The simulator applies the conservative reading: all phenylephrine boluses in the session together may not exceed 200 mcg. The infusion limit (200 mcg/min) is separate.' },
     contraindications: [],
     timing: NOT_STATED('Label: onset of BP increase after IV bolus is rapid, typically within minutes (no number).'),
     pkModel: 'calibrated',
@@ -1144,12 +1177,15 @@ export const DRUGS = [
     pkModel: 'calibrated',
   },
   {
-    // Added 2026-11-05. No IV push-dose ("bolus") regimen: no label or
-    // guideline dose was verified, so a bolus of epinephrine in the simulator is intramuscular.
+    // Added 2026-11-05. IM anaphylaxis dose from the FDA label (rescue). 2026-11 audit: IV bolus
+    // for perioperative anaphylaxis in an anaesthetised, monitored patient from UK perioperative
+    // guidance (rescue_iv; AAGBI 2009 / RCUK perioperative algorithm) — a guideline dose, not a
+    // label dose. A bolus without a route is intramuscular (first entry of bolusRoutes).
     id: 'epinephrine', name: 'Epinephrine', cls: 'vasopressor',
     concentration: { value: 1, unit: 'mg/mL' },
     amountUnit: 'mg',
-    bolusRoutes: ['IM', 'SC'],
+    bolusRoutes: ['IM', 'SC', 'IV'],
+    routeBolusMax: { IV: { value: 0.05, unit: 'mg', basis: 'guideline IV titration dose used as a per-bolus stop (simulator policy)', sources: ['S44', 'S45'] } },
     pkReferenceRegimen: 'maintenance',
     regimens: {
       rescue: {
@@ -1158,7 +1194,15 @@ export const DRUGS = [
         scalar: null, scalarBasis: null,
         timing: 'Anaphylaxis: undiluted, intramuscularly (or subcutaneously) into the anterolateral aspect of the thigh; repeat every 5 to 10 minutes as necessary; up to 0.5 mg per injection. Do not inject into buttock, digits, hands or feet.',
         sources: ['S40'],
-        note: 'Label dose for anaphylaxis in adults and children over 30 kg (the simulator models adults only). Default = label lower bound. Monitor clinically for reaction severity and cardiac effects. Contains sodium bisulfite; presence of sulfite should not deter use for anaphylaxis. The simulator models the IM route with an illustrative absorption constant; IV push-dose epinephrine is not included (no label/guideline dose verified).',
+        note: 'Label dose for anaphylaxis in adults and children over 30 kg (the simulator models adults only). Default = label lower bound. Monitor clinically for reaction severity and cardiac effects. Contains sodium bisulfite; presence of sulfite should not deter use for anaphylaxis. The simulator models the IM route with an illustrative absorption constant (slower when MAP is very low). For an anaesthetised, monitored patient with IV access, see the rescue_iv regimen (guideline IV titration dose).',
+      },
+      rescue_iv: {
+        kind: 'bolus', route: 'IV',
+        fixed: { default: 0.05, min: 0.05, max: 0.05, unit: 'mg' },
+        scalar: null, scalarBasis: null,
+        timing: 'Perioperative anaphylaxis in an anaesthetised, monitored adult with IV access: 50 micrograms IV (0.5 mL of 1:10 000), titrated to effect; several doses may be required for severe hypotension or bronchospasm; if several doses are needed, consider an IV adrenaline infusion. Specialist use (anaesthetists/intensivists).',
+        sources: ['S44', 'S45'],
+        note: 'UK perioperative-anaphylaxis guideline dose (AAGBI 2009; RCUK perioperative algorithm), not an FDA label dose: the US label gives no IV bolus dose for anaphylaxis. IV epinephrine is for experienced specialists in a monitored setting only. Each IV bolus is capped at this 0.05 mg titration step in the simulator (policy); repeat as needed.',
       },
       maintenance: {
         kind: 'infusion',
@@ -1221,6 +1265,12 @@ export const DRUGS = [
       { when: 'condition:hypovolemia', severity: 'lock', message: 'Contraindicated in patients at risk for renal failure due to volume depletion (label CONTRAINDICATIONS).', sources: ['S15'] },
       { when: 'allergy:nsaid', severity: 'lock', message: 'Contraindicated in patients with hypersensitivity to ketorolac and in patients with allergic reactions (asthma, urticaria or allergic-type reactions) to aspirin or other NSAIDs (label CONTRAINDICATIONS).', sources: ['S15'] },
       { when: 'medication:nsaid_aspirin', severity: 'lock', message: 'Contraindicated in patients currently receiving aspirin or NSAIDs because of the cumulative risk of serious NSAID-related side effects (label CONTRAINDICATIONS).', sources: ['S15'] },
+      { when: 'condition:bleeding_risk', severity: 'lock', message: 'Ketorolac tromethamine inhibits platelet function and is, therefore, contraindicated in patients with suspected or confirmed cerebrovascular bleeding, hemorrhagic diathesis, incomplete hemostasis and those at high risk of bleeding (label CONTRAINDICATIONS).', sources: ['S15'] },
+      { when: 'condition:peptic_ulcer_gi_bleed', severity: 'lock', message: 'Contraindicated in patients with active peptic ulcer disease and in patients with recent gastrointestinal bleeding or perforation (label CONTRAINDICATIONS).', sources: ['S15'] },
+    ],
+    runtimeRules: [
+      { id: 'prophylactic_before_major_surgery', severity: 'warn', surgery: 'before', planPhases: ['premed', 'induction', 'sedation'], message: 'Label CONTRAINDICATIONS: ketorolac is contraindicated as a prophylactic analgesic before any major surgery.', sources: ['S15'] },
+      { id: 'perioperative_hemostasis', severity: 'warn', surgery: 'during', planPhases: ['maintenance'], message: 'Label WARNINGS (hemorrhage): peri-operative use of ketorolac should be avoided, and postoperative use undertaken with caution, when hemostasis is critical, because of the increased risk of bleeding.', sources: ['S15'] },
     ],
     timing: NOT_STATED(),
     pkModel: 'calibrated',
@@ -1234,12 +1284,14 @@ export const DRUGS = [
         kind: 'bolus',
         fixed: { default: 1000, min: 650, max: 1000, unit: 'mg' },
         scalar: null, scalarBasis: null,
-        adjust: [{ when: 'weight<50', perKg: { default: 15, min: 12.5, max: 15 }, unit: 'mg/kg', note: 'Label: adults <50 kg 15 mg/kg every 6 h or 12.5 mg/kg every 4 h; maximum 75 mg/kg/day.', sources: ['S16'] }],
+        adjust: [{ when: 'weight<50', perKg: { default: 15, min: 12.5, max: 15 }, unit: 'mg/kg', note: 'Label: adults <50 kg 15 mg/kg every 6 h or 12.5 mg/kg every 4 h; maximum single dose 15 mg/kg up to 750 mg; maximum 75 mg/kg per 24 h up to 3750 mg.', sources: ['S16'] }],
         timing: '1000 mg every 6 h or 650 mg every 4 h; minimum interval 4 h.',
         sources: ['S16'],
       },
     },
-    ceiling: { value: 4000, unit: 'mg/day', basis: 'label maximum', adjusted: { when: 'weight<50', perKg: 75, unit: 'mg/kg/day' }, sources: ['S16'], note: 'Counts all routes and all acetaminophen-containing products.' },
+    ceiling: { value: 4000, unit: 'mg/day', basis: 'label maximum', perDose: { value: 1000, unit: 'mg' },
+      adjusted: { when: 'weight<50', perKg: 75, unit: 'mg/kg/day', value: 3750, valueUnit: 'mg/day', perDose: { value: 750, unit: 'mg' } }, sources: ['S16'],
+      note: 'Counts all routes and all acetaminophen-containing products. Adults ≥50 kg: maximum single dose 1000 mg, 4000 mg/day. Adults <50 kg: maximum single dose 15 mg/kg up to 750 mg; maximum 75 mg/kg per 24 h up to 3750 mg (lesser applies).' },
     contraindications: [
       { when: 'condition:severe_hepatic_impairment', severity: 'lock', message: 'Contraindicated in patients with severe hepatic impairment (label CONTRAINDICATIONS).', sources: ['S16'] },
       { when: 'condition:liver_disease', severity: 'warn', message: 'Label: use caution in hepatic impairment, chronic alcohol use, malnutrition or hypovolemia.', sources: ['S16'] },
@@ -1255,7 +1307,7 @@ export const DRUGS = [
 export const SOURCE_IDS_USED = Object.freeze([
   'S1', 'S2', 'S3', 'S5', 'S6', 'S7', 'S8', 'S9', 'S10', 'S11', 'S12', 'S13', 'S14', 'S15', 'S16',
   'S17', 'S18', 'S19', 'S23', 'S24', 'S25', 'S26', 'S27', 'S28', 'S29', 'S30', 'S35', 'S36', 'S37', 'S38', 'S39',
-  'S40', 'S41', 'S42',
+  'S40', 'S41', 'S42', 'S44', 'S45',
 ]);
 
 // S-ids present for the engine/UI (scores, weight scalars, monitoring, sedation definitions) but

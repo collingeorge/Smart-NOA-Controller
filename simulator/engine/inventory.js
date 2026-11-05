@@ -20,7 +20,7 @@
 import { getDrug, listDrugs, findSourceId } from './library.js';
 import {
   ELEVELD_2018, MARSH_1991, GENERIC_ILLUSTRATIVE, CALIBRATED_V1_PER_KG, PERIPHERAL_RATIO, VOLATILE_DEFAULTS, VOLATILE_TAU_MIN,
-  ILLUSTRATIVE_PK, ROUTE_KA_ILLUSTRATIVE, ILLUSTRATIVE_TIMING_FILL, MIN_ELIM_FRACTION, FALLBACK_SEVO_MAC40, fitCalibrated, isInhaled,
+  ILLUSTRATIVE_PK, ROUTE_KA_ILLUSTRATIVE, ROUTE_PERFUSION_ILLUSTRATIVE, ILLUSTRATIVE_TIMING_FILL, MIN_ELIM_FRACTION, FALLBACK_SEVO_MAC40, fitCalibrated, isInhaled,
 } from './pk.js';
 import { PROFILES, PATIENT_MODS } from './pd.js';
 import { PHYS, GAINS } from './physiology.js';
@@ -85,10 +85,12 @@ export function buildParameterInventory({ lib, patient, models = {}, fluidModel,
   add('pk', 'calibrated minimum elimination fraction', MIN_ELIM_FRACTION, '', AUTHOR, [], 'Fit regularisation.');
   for (const [k, v] of Object.entries(GENERIC_ILLUSTRATIVE)) if (k !== 'illustrative') add('pk', `generic ${k}`, v, '1/min', AUTHOR, [], 'Used when drug.timing is entirely missing and no drug-specific estimate exists.');
   for (const [r, ka] of Object.entries(ROUTE_KA_ILLUSTRATIVE)) add('pk', `absorption ka ${r}`, ka, '1/min', AUTHOR, [], `First-order ${r} absorption (epinephrine anaphylaxis dose).`);
+  for (const [k, v] of Object.entries(ROUTE_PERFUSION_ILLUSTRATIVE)) add('pk', `IM/SC absorption perfusion ${k}`, v, k === 'KA_FACTOR_MIN' ? 'multiplier' : 'fraction of baseline MAP', AUTHOR, [], 'Absorption slows when MAP is far below baseline (linear between MAP_FRAC_MIN and MAP_FRAC_FULL).');
   if (mw) {
     const roc = getDrug(lib, 'rocuronium'), sgx = getDrug(lib, 'sugammadex');
-    add('pk', 'molecular weight rocuronium bromide', mw.rocuronium, 'g/mol', AUTHOR, [], 'Engine author recollection of label value; not re-verified.', { drugId: roc ? 'rocuronium' : undefined });
-    add('pk', 'molecular weight sugammadex sodium', mw.sugammadex, 'g/mol', AUTHOR, [], 'Engine author recollection of label value; not re-verified; 1:1 binding, instantaneous.', { drugId: sgx ? 'sugammadex' : undefined });
+    add('pk', 'molecular weight rocuronium bromide', mw.rocuronium, 'g/mol', 'fda_label', ['S12'], 'Label DESCRIPTION (C32H53BrN2O4, 609.70); verified 2026-11 (WebSearch record of the Pfizer rocuronium label).', { drugId: roc ? 'rocuronium' : undefined });
+    add('pk', 'molecular weight sugammadex sodium', mw.sugammadex, 'g/mol', 'fda_label', ['S6'], 'Label DESCRIPTION (2178.01); 1:1 molar binding, instantaneous (illustrative kinetics).', { drugId: sgx ? 'sugammadex' : undefined });
+    add('pk', 'sugammadex dose-salt factor', mw.SUGAMMADEX_SALT_PER_MG, 'mg sugammadex sodium per mg sugammadex', 'fda_label', ['S6'], 'Label: each mL contains 100 mg sugammadex, equivalent to 108.8 mg sugammadex sodium.', { drugId: sgx ? 'sugammadex' : undefined });
   }
 
   // ---------------------------------------------------------------- PD

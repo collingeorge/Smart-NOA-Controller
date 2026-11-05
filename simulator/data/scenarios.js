@@ -77,7 +77,7 @@ export const SCENARIOS = [
     id: 'anaphylaxis_hypotension', label: 'Anaphylaxis with hypotension',
     description: 'Severe vasodilatory hypotension, tachycardia and bronchospasm developing over 2 minutes.',
     perturbation: { rampSec: 120, holdSec: 900, resolveSec: 300, mapFrac: -0.5, hrFrac: 0.4, ventFactor: 0.6, aaAdd: 40, etco2GapAdd: 6, counteredBy: { _bronchodilation: 0.7 } },
-    teachingPoint: 'Stop the suspected trigger and call for help. Epinephrine is the expected response (labelled for anaphylaxis by intramuscular injection; see the Sources panel for the dose); in this model it raises MAP and HR and reverses the bronchospasm. Phenylephrine or ephedrine only partially temporise.',
+    teachingPoint: 'Stop the suspected trigger and call for help. In an anaesthetised, monitored patient with IV access, UK perioperative guidance gives epinephrine (adrenaline) as titrated IV boluses — adult 50 micrograms, repeated as needed, then an infusion if several doses are required — with IV crystalloid [S44, S45]; choose Epinephrine, How: Bolus, Route: IV (rescue_iv). The FDA-labelled IM dose (0.3–0.5 mg) is the route without IV access; in this model IM absorption is slower when MAP is very low. Phenylephrine or ephedrine only partially temporise. Illustrative model output.',
   },
 ];
 

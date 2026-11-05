@@ -5,8 +5,8 @@
 import { resolveLibrary, getDrug, listDrugs, findSourceId } from './library.js';
 import { derivePatient, scalarWeight } from './patient.js';
 import { evaluateContraindications, interpretCeilings, recommend, convertRateSafe } from './dosing.js';
-import { createPkModel, isInhaled, isNitrous, referenceRegimen, ROUTE_KA_ILLUSTRATIVE } from './pk.js';
-import { combineEffects, patientModifiers, tofFromTwitches, SEDATION_RANK, PROFILES } from './pd.js';
+import { createPkModel, isInhaled, isNitrous, referenceRegimen, ROUTE_KA_ILLUSTRATIVE, perfusionKaFactor } from './pk.js';
+import { combineEffects, patientModifiers, tofFromTwitches, SEDATION_RANK, PROFILES, PATIENT_MODS } from './pd.js';
 import { Physiology } from './physiology.js';
 import { buildParameterInventory } from './inventory.js';
 import { InterlockCore, pythonLockouts, CONTROLLED, PY_TO_SIM_ID, SIM_TO_PY_ID, PY_RATE_UNITS, NOA_CONFIG } from './interlocks.js';
@@ -17,10 +17,13 @@ import { createRng as createRngLocal } from './rng.js';
 
 export const PHASES = ['premed', 'sedation', 'induction', 'maintenance', 'emergence'];
 export const MIN_FIO2_WITH_N2O = 0.30;
-// Molecular weights for 1:1 sugammadex–rocuronium encapsulation (rocuronium bromide
-// 609.7 g/mol; sugammadex sodium 2178 g/mol, as stated in the respective labels to the
-// engine author's knowledge — verify). Binding kinetics are instantaneous (illustrative).
-export const MW = Object.freeze({ rocuronium: 609.7, sugammadex: 2178 });
+// Molecular weights for 1:1 sugammadex–rocuronium encapsulation, from the US labels (DESCRIPTION):
+// rocuronium bromide 609.70 g/mol (S12); sugammadex sodium 2178.01 g/mol, and each mL holds
+// 100 mg sugammadex = 108.8 mg sugammadex sodium (S6), so doses in mg sugammadex convert with
+// SUGAMMADEX_SALT_PER_MG. Binding is instantaneous and stoichiometric (illustrative).
+export const MW = Object.freeze({ rocuronium: 609.70, sugammadex: 2178.01, SUGAMMADEX_SALT_PER_MG: 1.088 });
+/** mmol of rocuronium bromide / sugammadex per mg of the labelled dose amount. */
+export const MMOL_PER_MG = Object.freeze({ rocuronium: 1 / MW.rocuronium, sugammadex: MW.SUGAMMADEX_SALT_PER_MG / MW.sugammadex });
 
 // IV crystalloid bolus (non-drug action `fluid_bolus[:<mL>]`). ILLUSTRATIVE volume-restoration
 // model — every constant is an author estimate (not sourced, not validated):
@@ -54,7 +57,7 @@ export const STIMULUS = Object.freeze({
   INCISION: 0.9, INCISION_SEC: 120, MAINTENANCE: 0.55, CLOSING: 0.3, CLOSING_SEC: 300,
   LARYNGOSCOPY_SEC: 150, LARYNGOSCOPY_DECAY_SEC: 70, TUBE_IN_SITU: 0.25,
   EXTUBATION: 0.6, EXTUBATION_SEC: 60, EXTUBATION_DECAY_SEC: 25,
-  SUGAMMADEX_ROC_KE0_MULT: 4, DES_RAPID_RISE_HR: 0.15, DES_RAPID_RISE_MAP: 0.1, DES_RAPID_RISE_START_MAC: 0.5,
+  SUGAMMADEX_KE0_MULT_MAX: 10, SUGAMMADEX_EXCESS_HALF: 1.5, SUGAMMADEX_EXCESS_HILL: 4, DES_RAPID_RISE_HR: 0.15, DES_RAPID_RISE_MAP: 0.1, DES_RAPID_RISE_START_MAC: 0.5,
 });
 export const EXTUBATION_CRITERIA = Object.freeze({ DEPTH_AWAKE: 80, RR_MIN: 8, CAPABILITY_MIN: 0.6, SPO2_MIN: 94, MAP_MIN: 65, MAP_MAX: 110, HR_MIN: 50, HR_MAX: 110 });
 
@@ -97,7 +100,7 @@ class Simulation {
     this.maskVentSec = 0;
     this.depots = [];
     this.fluid = { retainedMl: 0, pendingMl: 0, sepsisNoteLogged: false };
-    this.sgxShownWarn = false;
+    this.sgxShownWarn = false; this.sgxExcess = 0; this.lastRocBolus = null;
     this.lastEffects = null;
     this.recCache = new Map();
     this.ceilings = {};
@@ -213,8 +216,36 @@ class Simulation {
         if (m.type === 'volatile' && cmd.rate - cur > 0.5 * m.macAgeAdjusted) out.push(`${r.message}${r.sources && r.sources.length ? ` [${r.sources.join(', ')}]` : ''}`);
       }
     }
+    for (const r of rules) {
+      if (r.id !== 'dose_vs_block_depth' || !cmd || !isFiniteNumber(cmd.amount)) continue;
+      const w = this.sugammadexTier(drug, cmd.amount);
+      if (w) out.push(`${r.message}${r.sources && r.sources.length ? ` [${r.sources.join(', ')}]` : ''} — ${w}`);
+    }
     if (!rules.length && drug.id === 'neostigmine' && notMinimal) out.push(`Neostigmine is effective only at minimal depth of block (TOFR ≥ 0.4); current TOF count ${tof.count}, TOFR ${tof.ratio.toFixed(2)}.`);
     return out;
+  }
+
+  /**
+   * Sugammadex label dose tier for the current block depth (byDepth in the library) versus the
+   * dose about to be given. Returns a warning string when the dose is below the tier, else null.
+   * Depth: TOF count ≥ 2 → 'shallow' (T2 has reappeared); TOF count 0–1 → 'deep' (the label tier
+   * is defined by 1–2 post-tetanic counts, which the simulator does not model); TOF count 0
+   * within `withinMin` of a rocuronium bolus ≥ `afterRocuroniumPerKg` → 'immediate'.
+   */
+  sugammadexTier(drug, amount) {
+    const reg = Object.values(drug.regimens || {}).find((x) => x && Array.isArray(x.byDepth));
+    if (!reg) return null;
+    const tiers = Object.fromEntries(reg.byDepth.map((b) => [b.depth, b]));
+    const w = scalarWeight(this.patient, reg.scalar || 'TBW').weightKg;
+    const perKg = amount / w;
+    const tof = this._tof(); const t = this.state.tSec; const roc = this.lastRocBolus;
+    const imm = tiers.immediate;
+    let tier;
+    if (imm && tof.count === 0 && roc && roc.perKg >= imm.afterRocuroniumPerKg - 1e-9 && t - roc.tSec <= imm.withinMin * 60 + 1e-9) tier = imm;
+    else if (tof.count >= 2) tier = tiers.shallow;
+    else tier = tiers.deep;
+    if (!tier || perKg >= tier.perKg - 1e-6) return null;
+    return `dose ${roundSig(perKg, 3)} mg/kg (${reg.scalar || 'TBW'} ${roundSig(w, 4)} kg) is below the label ${tier.perKg} mg/kg tier for the current block (TOF count ${tof.count}${tier === imm ? `, rocuronium ${roundSig(roc.perKg, 3)} mg/kg ${Math.round(t - roc.tSec)} s ago` : ''}; label criterion: ${tier.criterion}${tier.depth === 'deep' ? '; post-tetanic count is not modelled' : ''}). In this illustrative model the binding is 1:1 molar, so reversal may be slow or incomplete.`;
   }
 
   // ------------------------------------------------------------------ administration
@@ -256,7 +287,9 @@ class Simulation {
         if (L.type === 'bolus' && amt > L.absolute + 1e-9) return res(false, true, [`Single dose above ${L.label}`], warnings);
         if (L.type === 'cumulative' && ds.cumulative + pendingTimed + amt > L.absolute + 1e-9) return res(false, true, [`Cumulative dose would exceed ${L.label}${L.daily ? ' (daily limit applied to this session)' : ''}`], warnings);
       }
-      warnings.push(...this._runtimeWarnings(drug));
+      const rtw = this._runtimeWarnings(drug, { amount: amt });
+      warnings.push(...rtw);
+      if (drug.id === 'sugammadex' && rtw.some((x) => /tier for the current block/.test(x))) this.alarmMgr.pulse(this.state.tSec, 'sugammadex_dose', 'medium', `Sugammadex dose below the label tier for the current block depth (see log)`);
       const rc = this._rangeCheck(drug, 'bolus', amt, drug.amountUnit);
       if (rc) { warnings.push(rc.message); this.alarmMgr.pulse(this.state.tSec, 'dose_range', rc.priority, rc.message); }
       const model = this._model(drug.id);
@@ -264,6 +297,7 @@ class Simulation {
       if (route !== 'IV') { this.depots.push({ drugId: drug.id, remaining: amt, ka: ROUTE_KA_ILLUSTRATIVE[route] ?? ROUTE_KA_ILLUSTRATIVE.IM, route }); ds.cumulative += amt; }
       else if (overSec) this.timed.push({ drugId: drug.id, perMin: amt / (overSec / 60), remaining: amt });
       else { model.model.bolus(amt); ds.cumulative += amt; }
+      if (drug.id === 'rocuronium') this.lastRocBolus = { tSec: this.state.tSec, perKg: amt / this.patient.weightKg };
       this._onDrugGiven(drug);
       this._log('dose', `${drug.name} ${roundSig(amt)} ${drug.amountUnit} ${route === 'IV' ? 'bolus' : `${route} injection (illustrative absorption)`}${overSec ? ` over ${Math.round(overSec / 60)} min` : ''}${meta.source === 'plan' ? ' (plan)' : ''}${warnings.length ? ` — warnings: ${warnings.join('; ')}` : ''}`);
       return res(true, false, [], warnings);
@@ -559,9 +593,11 @@ class Simulation {
       const m = this._model(tb.drugId); m.model.bolus(amt); tb.remaining -= amt; S.drugs[tb.drugId].cumulative += amt;
     }
     this.timed = this.timed.filter((x) => x.remaining > 1e-12);
-    // non-IV bolus depots (IM/SC): first-order absorption (illustrative ka, pk.js ROUTE_KA_ILLUSTRATIVE)
+    // non-IV bolus depots (IM/SC): first-order absorption (illustrative ka, pk.js ROUTE_KA_ILLUSTRATIVE),
+    // slowed when MAP is far below baseline (pk.js ROUTE_PERFUSION_ILLUSTRATIVE)
+    const perf = perfusionKaFactor(this.phys.out ? this.phys.out._true.map / this.phys.map0 : 1);
     for (const dp of this.depots) {
-      const amt = dp.remaining * (1 - Math.exp(-dp.ka * dtMin));
+      const amt = dp.remaining * (1 - Math.exp(-dp.ka * perf * dtMin));
       this._model(dp.drugId).model.bolus(amt); dp.remaining -= amt;
     }
     this.depots = this.depots.filter((x) => x.remaining > 1e-9);
@@ -577,16 +613,22 @@ class Simulation {
         }
       }
       ds.cumulative += m.model.infusionPerMin * dtMin;
-      let ke0Mult = 1;
-      if (id === 'rocuronium' && this.models.sugammadex && this.models.sugammadex.model.a1 > 1e-6) ke0Mult = STIMULUS.SUGAMMADEX_ROC_KE0_MULT;
+      // Effect-site rocuronium leaves faster while free sugammadex is in molar excess over the
+      // rocuronium still in the body; the speed-up saturates (ILLUSTRATIVE; STIMULUS constants).
+      const ke0Mult = id === 'rocuronium' ? sugammadexKe0Mult(this.sgxExcess) : 1;
       m.model.step(dtMin, { ke0Mult });
     }
-    // sugammadex encapsulation of rocuronium (1:1 molar, central compartment)
+    // sugammadex encapsulation of rocuronium: 1:1 molar, central compartment, label molecular
+    // weights. An insufficient dose is used up, then rocuronium returning from the peripheral
+    // compartment stays free, so reversal is slower or incomplete (illustrative).
+    this.sgxExcess = 0;
     if (this.models.sugammadex && this.models.rocuronium) {
       const sg = this.models.sugammadex.model, ro = this.models.rocuronium.model;
-      const ratio = MW.sugammadex / MW.rocuronium;
-      const bind = Math.min(ro.a1, sg.a1 / ratio);
-      if (bind > 0) { ro.removeCentral(bind); sg.removeCentral(bind * ratio); }
+      const bindMmol = Math.min(ro.a1 * MMOL_PER_MG.rocuronium, sg.a1 * MMOL_PER_MG.sugammadex);
+      if (bindMmol > 0) { ro.removeCentral(bindMmol / MMOL_PER_MG.rocuronium); sg.removeCentral(bindMmol / MMOL_PER_MG.sugammadex); }
+      const rocBodyMmol = (ro.a1 + ro.a2 + ro.a3 + ro.ce * ro.v1L) * MMOL_PER_MG.rocuronium;
+      const freeSgxMmol = (sg.a1 + sg.a2 + sg.a3) * MMOL_PER_MG.sugammadex;
+      this.sgxExcess = freeSgxMmol > 1e-12 ? freeSgxMmol / Math.max(rocBodyMmol, 1e-9) : 0;
     }
 
     // 7. PD
@@ -606,9 +648,11 @@ class Simulation {
     if (totalMac > 0) {
       // Total MAC (sum of agents' age-adjusted MAC fractions) drives hypnosis/immobility/respiratory effect;
       // hypotension is driven by the potent (non-N2O) agents' share.
-      const { map: _m, ...noMap } = PROFILES.sevoflurane;
-      entries.push({ drug: { id: '_volatile_total', cls: '_volatile', _profile: noMap }, u: totalMac });
-      entries.push({ drug: { id: '_volatile_potent', cls: '_volatile', _profile: { map: PROFILES.sevoflurane.map } }, u: potentMac });
+      // Hypnosis uses potent MAC + N2O MAC × N2O_HYPNOSIS_FRACTION (N2O is a weak hypnotic).
+      const { map: mapSpec, hyp: hypSpec, ...rest } = PROFILES.sevoflurane;
+      entries.push({ drug: { id: '_volatile_total', cls: '_volatile', _profile: rest }, u: totalMac });
+      entries.push({ drug: { id: '_volatile_hyp', cls: '_volatile', _profile: { hyp: hypSpec } }, u: potentMac + PATIENT_MODS.N2O_HYPNOSIS_FRACTION * (totalMac - potentMac) });
+      entries.push({ drug: { id: '_volatile_potent', cls: '_volatile', _profile: { map: mapSpec } }, u: potentMac });
     }
     const effects = combineEffects(entries, this.mods);
     this.lastEffects = effects;
@@ -765,6 +809,14 @@ function rateWeightFor(drug, p) {
   const regs = drug.regimens || {};
   for (const k of ['maintenance', 'sedation_moderate', 'sedation_deep', 'sedation_minimal', ...Object.keys(regs)]) if (regs[k] && regs[k].rate && regs[k].scalar) return scalarWeight(p, regs[k].scalar).weightKg;
   return p.weightKg;
+}
+
+/** ke0 multiplier for rocuronium given the free-sugammadex : rocuronium molar ratio (illustrative). */
+export function sugammadexKe0Mult(excess) {
+  if (!(excess > 0)) return 1;
+  const n = STIMULUS.SUGAMMADEX_EXCESS_HILL;
+  const x = Math.pow(excess, n); const hh = Math.pow(STIMULUS.SUGAMMADEX_EXCESS_HALF, n);
+  return 1 + (STIMULUS.SUGAMMADEX_KE0_MULT_MAX - 1) * x / (x + hh);
 }
 
 function libraryMentionsSympathetic(drug) {
