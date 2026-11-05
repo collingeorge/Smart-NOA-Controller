@@ -9,6 +9,7 @@ import { selectProphylaxis } from '../engine/prophylaxis.js';
 import { overSecFromTiming } from '../data/scenarios.js';
 import { roundSig } from '../engine/units.js';
 import { loadingPairs } from '../engine/timing.js';
+import { maintenanceHypnoticGap, tivaMaintenanceSteps, isMaintenanceHypnoticStep } from '../engine/plan-safety.js';
 
 export const isNum = (v) => typeof v === 'number' && Number.isFinite(v);
 
@@ -143,7 +144,7 @@ export function refillStep(c, step) {
 /** Convert an engine plan (from buildPlan) into editor steps. */
 export function stepsFromBuiltPlan(c, plan) {
   return plan.steps.map((s) => {
-    const st = { uid: newUid(), phase: s.phase, atSec: s.atSec || 0, drugId: s.drugId, regimenKey: s.regimenKey || null, kind: s.kind, filledFor: c.patientVersion, addWarnings: [],
+    const st = { uid: newUid(), phase: s.phase, atSec: s.atSec || 0, drugId: s.drugId, regimenKey: s.regimenKey || null, kind: s.kind, filledFor: c.patientVersion, addWarnings: [], ...(s.addedBy ? { addedBy: s.addedBy } : {}),
       ...(s.timingRationale ? { timingRationale: s.timingRationale } : {}), ...(isNum(s.beforeEndSec) ? { beforeEndSec: s.beforeEndSec } : {}), ...(s.afterLoadingOf ? { afterLoadingOf: s.afterLoadingOf } : {}) };
     if (s.kind === 'fluid') return { ...st, fluidId: s.fluidId, rate: s.rate, rateUnit: 'mL/h' };
     if (s.kind === 'fluid_bolus') return { ...st, fluidId: s.fluidId, amount: s.amount, amountUnit: 'mL' };
@@ -283,7 +284,7 @@ export function exportPlan(plan) {
   const steps = []; let order = 0;
   for (const ph of phases) {
     for (const s of plan.steps.filter((x) => x.phase === ph)) {
-      const o = { id: s.uid, phase: s.phase, atSec: s.atSec || 0, order: order++, drugId: s.drugId, kind: s.kind, regimenKey: s.regimenKey,
+      const o = { id: s.uid, phase: s.phase, atSec: s.atSec || 0, order: order++, drugId: s.drugId, kind: s.kind, regimenKey: s.regimenKey, ...(s.addedBy ? { addedBy: s.addedBy } : {}),
         ...(s.timingRationale ? { timingRationale: s.timingRationale } : {}), ...(s.kind === 'stop' && isNum(s.beforeEndSec) ? { beforeEndSec: s.beforeEndSec } : {}), ...(s.afterLoadingOf ? { afterLoadingOf: s.afterLoadingOf } : {}) };
       if (s.kind === 'bolus') Object.assign(o, { amount: s.amount, amountUnit: s.amountUnit, overSec: isNum(s.overSec) && s.overSec > 0 ? s.overSec : null, loading: !!s.loading, ...(s.route ? { route: s.route } : {}) });
       if (s.kind === 'infusion' || s.kind === 'inhaled') Object.assign(o, { rate: s.rate, rateUnit: s.rateUnit });
@@ -293,7 +294,36 @@ export function exportPlan(plan) {
       steps.push(o);
     }
   }
-  return { mode: plan.mode, sedationTarget: plan.mode === 'MAC' ? plan.sedationTarget : null, steps, prophylaxisIndicated: prophylaxisIndicated(plan), ...(plan.template ? { template: { ...plan.template } } : {}) };
+  const removed = lockoutRemoved(plan);
+  return { mode: plan.mode, sedationTarget: plan.mode === 'MAC' ? plan.sedationTarget : null, steps, prophylaxisIndicated: prophylaxisIndicated(plan), ...(plan.template ? { template: { ...plan.template } } : {}),
+    ...(removed.length ? { lockoutRemoved: removed.map((x) => ({ ...x })) } : {}) };
+}
+
+// ---------------------------------------------------------------- lockout removed the maintenance hypnotic (final-check fixes)
+/** Steps of the current mode that were dropped (example/template build) or deleted because the drug is locked. */
+export function lockoutRemoved(plan) { return (plan.lockoutRemovedByMode && plan.lockoutRemovedByMode[plan.mode]) || []; }
+export function setLockoutRemoved(plan, list) { plan.lockoutRemovedByMode = { ...(plan.lockoutRemovedByMode || {}), [plan.mode]: (list || []).map((x) => ({ ...x })) }; }
+/** Record a deleted step whose drug is locked for this patient (so deleting a locked volatile cannot hide the gap). */
+export function noteLockedDeletion(c, plan, step) {
+  const rec = step && step.kind !== 'stop' && step.regimenKey ? recommend(c.patient, step.regimenKey, step.drugId, c.lib) : null;
+  if (!rec || !rec.locked || !isMaintenanceHypnoticStep(c.lib, step)) return;
+  setLockoutRemoved(plan, [...lockoutRemoved(plan), { drugId: step.drugId, reason: rec.lockReasons.join('; '), phase: step.phase, kind: step.kind, regimenKey: step.regimenKey }]);
+}
+/** engine/plan-safety.js maintenanceHypnoticGap for the editor plan. */
+export function hypnoticGap(c, plan) { return maintenanceHypnoticGap(exportPlan(plan), c.patient, { library: c.lib }); }
+/**
+ * "Add propofol TIVA maintenance" (clinician-applied): appends the propofol maintenance regimen from recommend()
+ * (via engine/plan-safety.js tivaMaintenanceSteps) and its stop at emergence. Never called automatically.
+ * -> { ok, added:[editor steps], message }
+ */
+export function addTivaMaintenance(c, plan) {
+  if (plan.mode !== 'GA') return { ok: false, added: [], message: 'TIVA maintenance applies to a general-anaesthesia plan.' };
+  const { steps, skipped } = tivaMaintenanceSteps(c.patient, c.lib);
+  if (!steps.length) return { ok: false, added: [], message: `Propofol maintenance is not available for this patient: ${skipped.map((x) => x.reason).join('; ') || 'no regimen'}` };
+  const add = stepsFromBuiltPlan(c, { steps: steps.filter((s) => !(s.kind === 'stop' && plan.steps.some((x) => x.kind === 'stop' && x.drugId === s.drugId && x.phase === s.phase))) });
+  plan.steps.push(...add);
+  const inf = add.find((x) => x.kind === 'infusion');
+  return { ok: true, added: add, message: `Clinician added propofol TIVA maintenance: ${inf ? `${inf.rate} ${inf.rateUnit} at maintenance +0:00` : 'propofol infusion'} (propofol maintenance regimen, recommend()) and its stop at emergence. Review it before approving.` };
 }
 
 export function planIssues(c, plan) {
@@ -303,5 +333,8 @@ export function planIssues(c, plan) {
     if (r.errors.length && !firstError.uid) firstError.uid = s.uid;
     errors += r.errors.length; warnings += r.warnings.length;
   }
-  return { errors, warnings, firstError: firstError.uid };
+  // A lockout that leaves the GA plan without a maintenance hypnotic is a blocking plan issue.
+  const gap = hypnoticGap(c, plan);
+  if (gap.blocking) errors += 1;
+  return { errors, warnings, firstError: firstError.uid, hypnoticGap: gap.blocking ? gap : null };
 }

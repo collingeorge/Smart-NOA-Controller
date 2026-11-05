@@ -44,6 +44,13 @@ const WHY = Object.freeze({
   sugammadex: R('After the anaesthetic agents are off; the dose is compared with the TOF depth of block when given (label tiers) [S6]. The 30-s offset is a convention.', 'label', ['S6']),
 });
 
+// "Add propofol TIVA maintenance" (plan editor one-click, final-check fixes 2026-11): shown as the step's
+// "Why this time" and checked by the Timing check like any other plan step. Doses: recommend() at runtime.
+export const TIVA_RATIONALE = Object.freeze({
+  start: R('Propofol TIVA maintenance added by the clinician because the planned maintenance agent is locked for this patient: started when maintenance begins, after the airway is secured, so hypnosis continues after the induction bolus (convention).', CONV),
+  stop: R('Propofol infusion off at the start of emergence, after End surgery and closing (convention).', CONV),
+});
+
 export const TECHNIQUE_TEMPLATES = [
   {
     id: 'ga_opioid', label: 'GA — opioid-based (balanced)', mode: 'GA', sedationTarget: null, notes: ['propofolPain'],

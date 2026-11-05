@@ -208,7 +208,8 @@ export const EXAMPLE_PLANS = EXAMPLE_PLANS_RAW.map((p) => { const why = exampleT
  *   'fluid'      — maintenance infusion { fluidId, rate (mL/h) | 'default' (options.fluidDefaultMlH) }.
  *   'fluid_bolus'— { fluidId, amount (mL) }.
  * A plan built from a template with an antibiotic step is marked prophylaxisIndicated.
- * Fills each step from recommend(). Locked or unavailable drugs are skipped (with the reason).
+ * Fills each step from recommend(). Locked or unavailable drugs are skipped (with the reason); locked drug
+ * steps are also listed in plan.lockoutRemoved (phase/kind/regimen kept) for the plan-safety check.
  * A loading dose of an infusion regimen becomes a separate timed bolus step before the infusion.
  */
 export function buildPlan(template, patient, library = null, options = {}) {
@@ -238,7 +239,7 @@ export function buildPlan(template, patient, library = null, options = {}) {
     if (!getDrug(library, s.drugId)) { skipped.push({ drugId: s.drugId, reason: 'Drug not in library' }); continue; }
     if (s.kind === 'stop') { steps.push({ ...base, id: `s${++order}`, order, kind: 'stop', ...(typeof s.beforeEndSec === 'number' ? { beforeEndSec: s.beforeEndSec } : {}) }); continue; }
     const rec = recommend(patient, s.regimenKey, s.drugId, library);
-    if (rec.locked) { skipped.push({ drugId: s.drugId, reason: rec.lockReasons.join('; ') }); continue; }
+    if (rec.locked) { skipped.push({ drugId: s.drugId, reason: rec.lockReasons.join('; '), locked: true, phase: s.phase, kind: s.kind, regimenKey: s.regimenKey }); continue; }
     if (!rec.available) { skipped.push({ drugId: s.drugId, reason: rec.warnings.join('; ') }); continue; }
     const src = { regimenKey: s.regimenKey, sources: rec.sources };
     if (s.kind === 'bolus' && rec.dose) {
@@ -268,6 +269,10 @@ export function buildPlan(template, patient, library = null, options = {}) {
     }
   }
   const plan = { mode: template.mode, sedationTarget: template.sedationTarget, steps };
+  // Steps dropped because the drug is locked for this patient (engine/plan-safety.js maintenanceHypnoticGap
+  // uses them to warn when a lockout leaves a GA plan without a maintenance hypnotic).
+  const removed = skipped.filter((x) => x.locked).map(({ drugId, reason, phase, kind, regimenKey }) => ({ drugId, reason, phase, kind, regimenKey }));
+  if (removed.length) plan.lockoutRemoved = removed;
   if (typeof template.prophylaxisIndicated === 'boolean') plan.prophylaxisIndicated = template.prophylaxisIndicated;
   else if (steps.some((x) => x.kind === 'antibiotic')) plan.prophylaxisIndicated = true;
   return { plan, skipped };

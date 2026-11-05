@@ -22,7 +22,7 @@ const DEPTH_LABEL = 'Processed-EEG depth index (BIS-style, simulated)';
 const SPEEDS = [1, 5, 20, 60];
 const TILE_ALARMS = {
   hr: ['hr_critical', 'hr_high', 'sensor_fault_hr'], bp: ['map_critical', 'map_low', 'map_high', 'sensor_fault_map'],
-  spo2: ['spo2_low', 'sensor_fault_spo2'], rr: ['apnea'], etco2: ['apnea'], depth: ['depth_over_target'], tof: ['tofr_extubation'],
+  spo2: ['spo2_low', 'sensor_fault_spo2'], rr: ['apnea'], etco2: ['apnea'], depth: ['depth_high', 'depth_over_target'], tof: ['tofr_extubation'],
 };
 const RANK = { high: 3, medium: 2, low: 1 };
 const SAMPLE_SEC = 2;
@@ -100,7 +100,7 @@ export function renderMonitor(ctx, main) {
   });
   const chartGrid = h('div', { class: 'charts', id: 'mon-charts' }, charts.map((c) => c.el),
     h('p', { class: 'hint hint--hmi' }, 'Last 15 simulated minutes · illustrative model output · dashed lines are alarm/interlock thresholds.'),
-    h('p', { class: 'hint hint--hmi', id: 'mon-depth-band' }, `${DEPTH_LABEL}: an illustrative model output, not a BIS value (BIS is a trademark of its owner). GA target band ${GA_BAND[0]}–${GA_BAND[1]} = the protocol target of the B-Unaware and BAG-RECALL trials `, srcTags([...TIMING_CONFIG.GA_DEPTH_BAND.sourceIds]), ' (neither showed the BIS protocol superior for preventing awareness). No sedation bands are shown: none was verified. In this model, 1 MAC of a volatile agent often reads just below 40.'));
+    h('p', { class: 'hint hint--hmi', id: 'mon-depth-band' }, `${DEPTH_LABEL}: an illustrative model output, not a BIS value (BIS is a trademark of its owner). GA target band ${GA_BAND[0]}–${GA_BAND[1]} = the protocol target of the B-Unaware and BAG-RECALL trials `, srcTags([...TIMING_CONFIG.GA_DEPTH_BAND.sourceIds]), ` (neither showed the BIS protocol superior for preventing awareness). No sedation bands are shown: none was verified. In this model, 1 MAC of a volatile agent often reads just below 40. During general anaesthesia (airway secured, before emergence) an index above ${GA_BAND[1]} for ≥ ${TIMING_CONFIG.DEPTH_HIGH_ALARM_SUSTAIN_SEC.value} s raises a HIGH alarm (risk of awareness; simulator convention).`));
 
   // ---------------- alarms
   const alarmList = h('ul', { class: 'alarm-list', id: 'mon-alarms' });
@@ -364,7 +364,10 @@ export function renderMonitor(ctx, main) {
   // action needed; Resume is enabled while paused (it re-checks and lists anything still needed).
   const autoPausedHead = h('p', { class: 'auto-paused__head', id: 'auto-paused-head' });
   const autoPausedList = h('ul', { class: 'auto-paused__list', id: 'auto-paused-list' });
-  const autoPaused = h('div', { class: 'auto-paused', id: 'auto-paused', role: 'alert', hidden: true }, autoPausedHead, autoPausedList);
+  // "Continue with hold latched (this hold only)" (owner-approved): explicit clinician choice, logged; never a default.
+  const autoHoldContinue = h('button', { type: 'button', class: 'btn btn--hmi btn--warn', id: 'auto-hold-continue', hidden: true }, 'Continue with hold latched (this hold only)');
+  const autoHoldHint = h('p', { class: 'hint hint--hmi', id: 'auto-hold-hint', hidden: true }, 'Continues with the held infusions at zero. It does not release the hold or acknowledge any alarm; a new hold or a new HIGH alarm pauses again.');
+  const autoPaused = h('div', { class: 'auto-paused', id: 'auto-paused', role: 'alert', hidden: true }, autoPausedHead, autoPausedList, autoHoldHint, autoHoldContinue);
   const autoGate = h('button', { type: 'button', class: 'btn btn--hmi btn--primary auto-gate', id: 'auto-gate', hidden: true });
   const autoUnmet = h('ul', { class: 'auto-unmet', id: 'auto-unmet' });
   // Countdown for time-gated transitions (pre-op holding → OR → preoxygenation → induction).
@@ -374,7 +377,8 @@ export function renderMonitor(ctx, main) {
   // they do not end guided/automatic mode and the runner never presses them.
   const autoCkList = h('ul', { class: 'checklist__items', id: 'auto-checklist-items' });
   const autoCkMsg = h('p', { class: 'checklist__msg', id: 'auto-checklist-msg' });
-  const clin = (id) => { const r = run.auto ? run.auto.clinicianAction(id) : { ok: false, message: 'Not running' }; feedback(r.message, !r.ok); announce(r.message); render(true); };
+  const clin = (id) => { const r = run.auto ? run.auto.clinicianAction(id) : { ok: false, message: 'Not running' }; feedback(r.message, !r.ok); announce(r.message); render(true); return r; };
+  autoHoldContinue.addEventListener('click', () => { const r = clin('continue_with_hold'); if (r && r.ok && r.resumed && run.auto && run.auto.state === 'running' && !run.playing) setPlaying(true, true); render(true); });
   const autoTimeOut = h('button', { type: 'button', class: 'btn btn--hmi btn--primary', id: 'auto-timeout' }, 'Confirm WHO time out');
   autoTimeOut.addEventListener('click', () => clin('confirm_time_out'));
   const autoDepthAck = h('button', { type: 'button', class: 'btn btn--hmi btn--warn', id: 'auto-depth-ack', hidden: true }, `Acknowledge index below the GA band (${GA_BAND[0]})`);
@@ -481,6 +485,7 @@ export function renderMonitor(ctx, main) {
     autoDirty = false;
     const paused = st.state === 'paused';
     autoPaused.hidden = !paused;
+    autoHoldContinue.hidden = !(paused && st.canContinueWithHold); autoHoldHint.hidden = autoHoldContinue.hidden;
     if (paused) {
       const det = st.pauseDetails || [];
       const head = det.length ? `Paused — ${det.map((d) => String(d.headline).replace(/[.\s]+$/, '')).join('; ')}. ${det.length === 1 ? det[0].action : 'Do each action below, then press Resume.'}` : `Paused — ${st.message}`;
@@ -627,8 +632,12 @@ export function renderMonitor(ctx, main) {
     for (const a of sim.state.alarms) if (ids.includes(a.id) && (a.active || !a.acknowledged) && (!best || RANK[a.priority] > RANK[best.priority])) best = a;
     return best;
   }
+  // A faulted sensor shows "—" (never the last number), with an accessible label (final-check fixes).
+  const FAULT_LABEL = 'no valid reading (sensor fault)';
   function setTile(key, value, sub, fault = false) {
-    const t = tiles[key]; setText(t.val, value); setText(t.sub, sub);
+    const t = tiles[key]; setText(t.val, fault ? '—' : value); setText(t.sub, sub);
+    if (fault) { t.val.setAttribute('aria-label', FAULT_LABEL); t.val.setAttribute('title', FAULT_LABEL); t.val.dataset.fault = '1'; }
+    else if (t.val.dataset.fault) { t.val.removeAttribute('aria-label'); t.val.removeAttribute('title'); delete t.val.dataset.fault; }
     const a = alarmFor(key);
     t.el.classList.toggle('tile--fault', fault);
     for (const p of ['high', 'medium', 'low']) t.el.classList.toggle(`tile--${p}`, !!a && a.priority === p);
@@ -641,10 +650,11 @@ export function renderMonitor(ctx, main) {
     const S = sim.state; const V = S.vitals; const A = S.airway;
     setText(clock, fmtClock(S.tSec)); setText(phaseEl, phaseLabel(S.phase));
     // tiles
-    const F = (v) => (isNum(v) ? String(v) : 'FAULT');
-    setTile('hr', F(V.hr), S.sensors.hr === 'fault' ? 'sensor fault — no usable reading' : '', S.sensors.hr === 'fault');
-    setTile('bp', S.sensors.map === 'fault' ? 'FAULT' : `${V.sbp}/${V.dbp}`, S.sensors.map === 'fault' ? 'sensor fault — no usable reading' : `MAP ${V.map}`, S.sensors.map === 'fault');
-    setTile('spo2', F(V.spo2), S.sensors.spo2 === 'fault' ? 'probe off / sensor fault' : '', S.sensors.spo2 === 'fault');
+    const F = (v) => (isNum(v) ? String(v) : '—');
+    const hrBad = S.sensors.hr === 'fault' || !isNum(V.hr); const mapBad = S.sensors.map === 'fault' || !isNum(V.map); const spBad = S.sensors.spo2 === 'fault' || !isNum(V.spo2);
+    setTile('hr', F(V.hr), hrBad ? 'SENSOR FAULT — no valid reading' : '', hrBad);
+    setTile('bp', mapBad ? '—' : `${V.sbp}/${V.dbp}`, mapBad ? 'SENSOR FAULT — MAP —, no valid reading' : `MAP ${V.map}`, mapBad);
+    setTile('spo2', F(V.spo2), spBad ? 'PROBE OFF / SENSOR FAULT — no valid reading' : '', spBad);
     const supported = (A.secured && A.ventilated) || A.maskVentilation;
     const noBreaths = !(V.rr > 0) && !supported;
     setTile('rr', String(V.rr), noBreaths ? 'APNOEA — no breaths' : A.secured && A.ventilated ? 'ventilator' : A.maskVentilation ? 'bag-mask' : 'spontaneous');

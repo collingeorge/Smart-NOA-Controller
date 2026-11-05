@@ -126,6 +126,7 @@ select.input { padding-right: 1.8rem; }
 .note-co2 { color: var(--navy); font-size: .85rem; font-weight: 600; }
 .notice { background: #eef4f8; border: 1px solid #b9cbd8; border-radius: 6px; padding: .6rem .8rem; }
 .notice--warn { background: #fff6dd; border-color: #d9b44a; }
+.notice--block { background: #fdecec; border-color: var(--al-high); border-width: 2px; color: var(--ink); }
 .list { margin: .2rem 0 .6rem; padding-left: 1.2rem; }
 .list--tight li { margin-bottom: .25rem; }
 .chips { list-style: none; display: flex; flex-wrap: wrap; gap: .35rem; padding: 0; margin: .2rem 0 .6rem; }

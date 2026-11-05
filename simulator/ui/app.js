@@ -11,7 +11,7 @@ import { renderAssessment } from './assessment.js';
 import { renderPlan, setMode, interlockExplanation } from './plan-editor.js';
 import { renderMonitor, newRunState, readinessItem } from './monitor.js';
 import { renderDebrief } from './debrief.js';
-import { exportPlan, planIssues, stepsFromBuiltPlan } from './plan-model.js';
+import { exportPlan, planIssues, stepsFromBuiltPlan, setLockoutRemoved } from './plan-model.js';
 import { notModeled } from './labels.js';
 import { renderModelCard, loadModelAssumptions, assumptionsList, AI_DISCLOSURE, TOOL_DESCRIPTION } from './model-card.js';
 import { pal, renderPalliative, setPalModule, stop as stopPalliative, renderEthics, palSnapshot } from './palliative.js';
@@ -149,6 +149,7 @@ function loadExample(id) {
     setMode(store.plan, t.mode);
     store.plan.sedationTarget = t.sedationTarget || store.plan.sedationTarget;
     store.plan.steps.splice(0, store.plan.steps.length, ...stepsFromBuiltPlan(planCtx(), plan));
+    setLockoutRemoved(store.plan, plan.lockoutRemoved || []);
     store.planNotice = `Example plan “${t.label}” loaded.${skipped.length ? ` Skipped: ${skipped.map((s) => `${s.drugId} (${s.reason})`).join('; ')}` : ''}`;
   }
   store.planVersion += 1;
