@@ -1,5 +1,7 @@
 # Smart NOA simulation — reader’s guide
 
+> **Educational work by a pre-medical student — not medical advice.** Not a clinical protocol, prescription, or patient handout, and not for patient care. See [DISCLAIMER](DISCLAIMER.md).
+
 Updated 29 October 2026. A Python rule-checking simulation with fictional profiles, reproducible traces and documented limits.
 
 ## Read in this order

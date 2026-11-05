@@ -1,4 +1,6 @@
 # Clinical example format and verification standard
+
+> **Educational work by a pre-medical student — not medical advice.** Not a clinical protocol, prescription, or patient handout, and not for patient care. See [DISCLAIMER](DISCLAIMER.md).
 Version: 2026-10-28
 
 This is an author-created educational documentation standard, not a professional practice guideline, certification or validated assessment instrument.

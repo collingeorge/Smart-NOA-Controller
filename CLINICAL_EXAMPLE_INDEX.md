@@ -1,4 +1,6 @@
 # Clinical education example index
+
+> **Educational work by a pre-medical student — not medical advice.** Not a clinical protocol, prescription, or patient handout, and not for patient care. See [DISCLAIMER](DISCLAIMER.md).
 Updated 28 October 2026. Topic-specific cases are entirely synthetic. The common guide is copied into each clinical repository for local reading. A shared format standardizes reasoning and source documentation; it is not a clinical treatment standard or validation.
 
 | Clinical repository | Topic-specific application | Common example set | Access |

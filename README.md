@@ -1,9 +1,8 @@
 # Smart NOA: educational rule-checking simulation
 
-[Reader’s guide](START_HERE.md) · [Authorship & review status](AUTHORSHIP_AND_REVIEW.md) · [Portfolio home](https://collingeorge.github.io/CM-2026/)
+[Reader’s guide](START_HERE.md) · [Authorship & review status](AUTHORSHIP_AND_REVIEW.md) · [Disclaimer](DISCLAIMER.md) · [Portfolio home](https://collingeorge.github.io/CM-2026/)
 
-> Independent educational work. Not a clinical protocol, prescription, patient handout, or validated decision aid. This revision is a draft pending clinical and publication review.
-
+> **Educational work by a pre-medical student — not medical advice.** Not a clinical protocol, prescription, or patient handout, and not for patient care. See [DISCLAIMER](DISCLAIMER.md).
 This Python program updates in-memory values using fictional profiles and randomly generated vital signs. It has no device interface, patient monitoring input, clinical validation, or basis for recommending doses. It is not an operational safety supervisor.
 
 ## Run and inspect
@@ -50,7 +49,7 @@ No rate, threshold, or age adjustment is endorsed as a clinical recommendation. 
 
 The software is under the [MIT License](LICENSE). Safety warnings describe intended use; they do not add field-of-use restrictions to MIT or promise immunity from liability. Third-party material retains its own rights.
 
-Collin B. George, BS. Independent educational project; no institutional endorsement is claimed.
+Collin B. George, pre-medical student. Independent educational project; no institutional endorsement is claimed.
 
 ## Portfolio-wide applied learning
 

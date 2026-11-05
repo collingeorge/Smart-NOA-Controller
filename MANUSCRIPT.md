@@ -1,6 +1,8 @@
 # Smart NOA: A Rule-Checking Simulation and Its Limitations
 
-Collin B. George, BS | Independent educational portfolio
+> **Educational work by a pre-medical student — not medical advice.** Not a clinical protocol, prescription, or patient handout, and not for patient care. See [DISCLAIMER](DISCLAIMER.md).
+
+Collin B. George, pre-medical student | Independent educational portfolio
 
 Review draft - 27 October 2026
 
