@@ -1,5 +1,6 @@
 // Schema-integrity tests for simulator/data/drugs.js (node:test, no dependencies).
 // Run: node --test simulator/tests/drugs.test.mjs
+import { PALLIATIVE_SOURCE_IDS } from '../data/palliative.js';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
@@ -210,7 +211,7 @@ test('SOURCE_IDS_USED is frozen and matches the references exactly', () => {
   assert.deepEqual([...refs].sort(), [...SOURCE_IDS_USED].sort());
   for (const s of Object.values(SOURCE_IDS_ENGINE)) assert.ok(SOURCES[s], `engine source ${s} exists`);
   // Every registered source is used by a drug or by the engine.
-  const all = new Set([...SOURCE_IDS_USED, ...Object.values(SOURCE_IDS_ENGINE)]);
+  const all = new Set([...SOURCE_IDS_USED, ...Object.values(SOURCE_IDS_ENGINE), ...PALLIATIVE_SOURCE_IDS]);
   for (const s of Object.keys(SOURCES)) assert.ok(all.has(s), `${s} is used somewhere`);
 });
 

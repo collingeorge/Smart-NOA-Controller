@@ -2,6 +2,7 @@
 //   "## Parameter inventory (N parameters)"  — sim.parameterInventory() (healthy example patient)
 //   "## Automatic demonstration and guided mode" — engine/autorun-config.js + engine/autorun.js
 //   "## Timing rules and template timing" — engine/timing.js TIMING_CONFIG + data/templates.js timingRationale
+//   "## Palliative and end-of-life modules" — engine/palliative.js palliativeParameterInventory()
 // Usage (from the repository root):  node simulator/tools/model-card-tables.mjs [--check]
 // --check exits 1 if MODEL_CARD.md is out of date. Pure Node; no network.
 import { readFileSync, writeFileSync } from 'node:fs';
@@ -15,6 +16,7 @@ import { AUTORUN_CONFIG, CONVENTION } from '../engine/autorun-config.js';
 import { buildSequence } from '../engine/autorun.js';
 import { TIMING_CONFIG, PREMED_TO_INDUCTION_MIN_SEC, PROVENANCE_TEXT } from '../engine/timing.js';
 import { TECHNIQUE_TEMPLATES } from '../data/templates.js';
+import { palliativeParameterInventory } from '../engine/palliative.js';
 
 const file = join(dirname(fileURLToPath(import.meta.url)), '..', 'MODEL_CARD.md');
 const fmt = (v) => (typeof v === 'string' ? JSON.stringify(v) : typeof v === 'number' ? String(Number(v.toPrecision(6))) : Array.isArray(v) ? JSON.stringify(v.join(', ')) : String(v));
@@ -74,6 +76,21 @@ const timingSection = [
   '',
 ].join('\n');
 
+const palInv = palliativeParameterInventory();
+const palCounts = {};
+for (const x of palInv) palCounts[x.provenance] = (palCounts[x.provenance] || 0) + 1;
+const palSection = [
+  '## Palliative and end-of-life modules',
+  'Generated from `engine/palliative.js` `palliativeParameterInventory()` (data: `data/palliative.js`; sources S100–S120 in SOURCES.md). Educational simulation with fictional patients; not clinical decision support. Opioid starting doses come only from FDA labels; titration, breakthrough, conversion, CDC, naloxone and palliative-sedation values from the cited guidelines/frameworks; every other number is a labelled simulator convention or an illustrative author estimate. The symptom model (pain, dyspnoea, agitation, secretions, nausea, constipation, RASS, respiratory rate) is illustrative and not validated; no survival or mortality is modelled and no outcome claim is made. Palliative sedation is gated by six documentation items, every titration needs the clinician\'s approval, the engine never escalates or acknowledges anything on its own, and comfort opioids continue (they are not used to sedate). Excluded by design: any content about medical aid in dying, euthanasia or hastening death.',
+  '',
+  `${palInv.length} parameters. Provenance counts: ${Object.entries(palCounts).map(([k, v]) => `${k}: ${v}`).join(', ')}.`,
+  '',
+  '| Component | Drug | Parameter | Value | Unit | Provenance | Sources | Note |',
+  '|---|---|---|---|---|---|---|---|',
+  ...palInv.map((x) => `| ${x.component} | ${x.drugId || ''} | ${cell(x.name)} | ${cell(fmt(x.value))} | ${cell(x.unit || '')} | ${x.provenance} | ${(x.sourceIds || []).join(', ')} | ${cell(x.note || '')} |`),
+  '',
+].join('\n');
+
 const md = readFileSync(file, 'utf8');
 const replaceSection = (text, startRe, body) => {
   const parts = text.split(/\n(?=## )/);
@@ -87,5 +104,7 @@ const withAuto = replaceSection(out, /^## Automatic demonstration and guided mod
 out = withAuto !== null ? withAuto : out.replace(/\n## Sources\n/, `\n${autoSection}\n## Sources\n`);
 const withTiming = replaceSection(out, /^## Timing rules and template timing/, timingSection);
 out = withTiming !== null ? withTiming : out.replace(/\n## Sources\n/, `\n${timingSection}\n## Sources\n`);
+const withPal = replaceSection(out, /^## Palliative and end-of-life modules/, palSection);
+out = withPal !== null ? withPal : out.replace(/\n## Sources\n/, `\n${palSection}\n## Sources\n`);
 if (process.argv.includes('--check')) { if (out !== md) { console.error('MODEL_CARD.md is out of date: run node simulator/tools/model-card-tables.mjs'); process.exit(1); } console.log('MODEL_CARD.md up to date'); }
-else { writeFileSync(file, out); console.log(`MODEL_CARD.md: ${inv.length} inventory rows, ${Object.keys(AUTORUN_CONFIG).length} autorun entries, ${Object.keys(TIMING_CONFIG).length} timing rules`); }
+else { writeFileSync(file, out); console.log(`MODEL_CARD.md: ${inv.length} inventory rows, ${Object.keys(AUTORUN_CONFIG).length} autorun entries, ${Object.keys(TIMING_CONFIG).length} timing rules, ${palInv.length} palliative rows`); }

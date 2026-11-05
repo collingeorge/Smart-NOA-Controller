@@ -5,7 +5,7 @@
 Generated from `sim.parameterInventory()` and `engine/autorun-config.js` on 2026-11-05 by `node simulator/tools/model-card-tables.mjs` so these tables match the code. Structure follows the ISPOR–SMDM Modeling Good Research Practices Task Force-7 report on model transparency and validation (Eddy et al., *Value in Health* 2012;15:843-850).
 
 ## Intended use
-Education only: an educational, label-calibrated anesthesia pharmacology simulator with fictional adult patients. Not for clinical decisions or dosing. Not a medical device. No device, monitor, pump or patient-data interface.
+Education only: an educational, label-calibrated anesthesia pharmacology simulator with fictional adult patients. Not for clinical decisions or dosing. Not a medical device. No device, monitor, pump or patient-data interface. Since November 2026 it also has **palliative pain management** and **end-of-life care** teaching modules (fictional patients; hour/day time scale; goals-of-care, proportionality and double-effect teaching; no outcome claims; no content about medical aid in dying, euthanasia or hastening death) — see "Palliative and end-of-life modules" below.
 
 ## Verification and validation status
 - **Verification (does the code do what it is written to do):** automated tests — 179 engine/library tests (patient derivations, dosing and contraindications, PK/PD sanity, physiology sanity, Python-controller parity, determinism, full GA and MAC runs, model-implementation checks, guided/automatic sequence behaviour, and the November 2026 additions: lidocaine pretreatment, IV fluids by type, antibiotic prophylaxis timing/alarms/checklist, technique templates in guided and full modes) and a 19-case browser smoke test.
@@ -14,6 +14,7 @@ Education only: an educational, label-calibrated anesthesia pharmacology simulat
 - **Timing cross-check (November 2026):** every timed element was compared with FDA labels and guidelines — [TIMING_EVIDENCE.md](TIMING_EVIDENCE.md) (one conflict fixed: MAC propofol now starts 4 min after midazolam; clinician-review checklist included, no review recorded yet).
 - **External validation:** none performed. Simulator outputs have not been compared with observed patient data.
 - **November 2026 additions:** antibiotic doses, windows and redosing intervals (Bratzler 2013, S46) and the lidocaine pretreatment dose (propofol label, S11) appear below as components `prophylaxis` and `pretreatment`; fluid label composition (S47, S48) and the fluid UI conventions under `fluids`; template definitions under `template` (no doses — filled by `recommend()`). Antibiotic pharmacology, propofol injection pain and type-specific fluid physiology are not modelled.
+- **Palliative and end-of-life modules (November 2026):** `tests/palliative.test.mjs` checks every sourced rule (label starting doses and renal/hepatic/elderly adjustments, breakthrough 10–20%, the +50–100% titration suggestion, conversion ratios and the mandatory clinician-entered cross-tolerance reduction, renal warnings, the bowel-regimen reminder, CDC 2022 scope and the 50 MME/day pause), symptom-model sanity, naloxone increments, the six-item palliative-sedation gate, the proportionality alarm, no automatic escalation or acknowledgement, continued comfort opioids, determinism, all six example cases in guided mode, the banner/ethics text and a text scan for the hard exclusions; the browser smoke test runs both modules end to end. The symptom model is illustrative and not validated.
 - **Parts that cannot be validated with available sources:** all rows below marked *author estimate — unvalidated* (effect magnitudes, physiology constants, wash-in time constants, fluid-response constants).
 
 ## Parameter inventory (583 parameters)
@@ -732,8 +733,94 @@ Same-phase loading → maintenance: `buildPlan()` and the plan editor start the 
 
 Every timed element was cross-checked against FDA labels and guidelines in November 2026: see [TIMING_EVIDENCE.md](TIMING_EVIDENCE.md) (what each source says, agreement, classification, the one conflict fixed, and a clinician-review checklist — no clinician review recorded yet).
 
+## Palliative and end-of-life modules
+Generated from `engine/palliative.js` `palliativeParameterInventory()` (data: `data/palliative.js`; sources S100–S120 in SOURCES.md). Educational simulation with fictional patients; not clinical decision support. Opioid starting doses come only from FDA labels; titration, breakthrough, conversion, CDC, naloxone and palliative-sedation values from the cited guidelines/frameworks; every other number is a labelled simulator convention or an illustrative author estimate. The symptom model (pain, dyspnoea, agitation, secretions, nausea, constipation, RASS, respiratory rate) is illustrative and not validated; no survival or mortality is modelled and no outcome claim is made. Palliative sedation is gated by six documentation items, every titration needs the clinician's approval, the engine never escalates or acknowledges anything on its own, and comfort opioids continue (they are not used to sedate). Excluded by design: any content about medical aid in dying, euthanasia or hastening death.
+
+78 parameters. Provenance counts: fda_label: 11, guideline: 21, simulator_convention: 12, author_estimate_unvalidated: 34.
+
+| Component | Drug | Parameter | Value | Unit | Provenance | Sources | Note |
+|---|---|---|---|---|---|---|---|
+| palliative_dose | morphine | oral starting dose (opioid-naïve) | "10–20" | mg | fda_label | S110 | oral solution (10 mg/5 mL) |
+| palliative_dose | morphine | oral interval | "4–4" | h | fda_label | S110 | Default = lower bound (simulator convention). |
+| palliative_dose | morphine | iv starting dose (opioid-naïve) | "0.1–0.2" | mg/kg | fda_label | S112 | injection (direct IV) |
+| palliative_dose | morphine | iv interval | "4–4" | h | fda_label | S112 | Default = lower bound (simulator convention). |
+| palliative_dose | oxycodone | oral starting dose (opioid-naïve) | "5–15" | mg | fda_label | S113 | immediate-release tablet |
+| palliative_dose | oxycodone | oral interval | "4–6" | h | fda_label | S113 | Default = lower bound (simulator convention). |
+| palliative_dose | hydromorphone | oral starting dose (opioid-naïve) | "2–4" | mg | fda_label | S114 | tablet |
+| palliative_dose | hydromorphone | oral interval | "4–6" | h | fda_label | S114 | Default = lower bound (simulator convention). |
+| palliative_dose | hydromorphone | iv starting dose (opioid-naïve) | "0.2–1" | mg | fda_label | S115 | injection (standard strength; not HP) |
+| palliative_dose | hydromorphone | iv interval | "2–3" | h | fda_label | S115 | Default = lower bound (simulator convention). |
+| palliative_dose | hydromorphone | hydromorphone renal/hepatic fraction | "0.25–0.5" | × usual starting dose | fda_label | S114, S115 | Label range; moderate → 0.5, severe → 0.25 is a simulator mapping. |
+| palliative_dose | morphine | morphine severe-CKD warning threshold | 30 | mL/min/1.73m² (eGFR) | guideline | S107, S111 | ESMO 2018 eGFR <30 statement; label: start lower in renal failure. |
+| palliative_dose |  | rounding increment morphine:oral | 0.5 | mg | simulator_convention |  | Measurable increment for computed doses. |
+| palliative_dose |  | rounding increment oxycodone:oral | 0.5 | mg | simulator_convention |  | Measurable increment for computed doses. |
+| palliative_dose |  | rounding increment hydromorphone:oral | 0.25 | mg | simulator_convention |  | Measurable increment for computed doses. |
+| palliative_dose |  | rounding increment morphine:iv | 0.5 | mg | simulator_convention |  | Measurable increment for computed doses. |
+| palliative_dose |  | rounding increment hydromorphone:iv | 0.05 | mg | simulator_convention |  | Measurable increment for computed doses. |
+| palliative_rule |  | BREAKTHROUGH_PCT | "10–20" | % of 24-h scheduled dose | guideline | S108, S107 | NCCN: rescue dose 10–20% of the total daily dose, every hour as needed (oral). ESMO 2018: about 10–15%. Default = lower bound (simulator convention). |
+| palliative_rule |  | PRN_MIN_INTERVAL_ORAL_MIN | 60 | min | guideline | S108 | NCCN: rescue dose every hour as needed; reassess ~60 min after an oral dose. |
+| palliative_rule |  | PRN_MIN_INTERVAL_IV_MIN | 15 | min | guideline | S108 | NCCN (secondary summaries): reassess ~15 min after an IV dose. The simulator does not give an IV rescue dose sooner. |
+| palliative_rule |  | TITRATION_INCREASE_PCT | "50–100" | % increase of the 24-h dose | guideline | S108 | NCCN (secondary summaries): if moderate-to-severe pain is unchanged or increased, increase the dose by 50–100%. Suggestion default = lower bound (simulator convention); the clinician approves or declines. |
+| palliative_rule |  | TITRATION_PAIN_THRESHOLD | 4 | NRS 0–10 (24-h mean) | simulator_convention |  | "Moderate" pain taken as NRS ≥4 for the review suggestion (common NRS banding; not a cited cut-off). |
+| palliative_rule |  | PRN_GIVE_PAIN_THRESHOLD | 4 | NRS 0–10 | simulator_convention |  | The simulated patient requests/receives the approved PRN dose when pain ≥4 and the minimum interval has passed (teaching convention). |
+| palliative_rule |  | REVIEW_INTERVAL_H | 24 | h | simulator_convention |  | Daily review gate in guided mode (teaching cadence; not a cited interval). |
+| palliative_rule |  | CONVERSION_ORAL_MORPHINE_TO_ORAL_OXYCODONE | 1.5 | mg oral morphine : 1 mg oral oxycodone | guideline | S109 | MASCC-ASCO 2025 consensus ratio 1.5:1. |
+| palliative_rule |  | CONVERSION_ORAL_MORPHINE_TO_ORAL_HYDROMORPHONE | 5 | mg oral morphine : 1 mg oral hydromorphone | guideline | S109 | MASCC-ASCO 2025 consensus ratio 5:1. |
+| palliative_rule |  | CONVERSION_ORAL_TO_IV_MORPHINE | "2–3" | mg oral morphine : 1 mg IV morphine | guideline | S107 | ESMO 2018: average relative potency oral:IV morphine between 1:2 and 1:3 [II, A]. Default 2:1 (gives the smaller IV dose; simulator convention). |
+| palliative_rule |  | CROSS_TOLERANCE_REDUCTION_PCT | "0–50" | % reduction after conversion | guideline | S109 | MASCC-ASCO 2025: no panel consensus on a routine reduction for incomplete cross-tolerance; 25–50% is common practice (secondary commentary). The simulator has NO default: the clinician enters a value 0–50%. |
+| palliative_rule |  | CDC_MME_FACTORS | "{\"morphine\":1,\"oxycodone\":1.5,\"hydromorphone\":5}" | MME per mg (oral) | guideline | S105 | CDC 2022 MME conversion factors (oral) — for estimating daily exposure (risk), NOT for converting between opioids; not defined for IV doses here. |
+| palliative_rule |  | CDC_PAUSE_MME | 50 | MME/day | guideline | S105 | CDC 2022 Rec. 4: before increasing to ≥50 MME/day, pause and carefully reassess individual benefits and risks. Non-cancer modules only (out of CDC scope for cancer, palliative and end-of-life care). |
+| palliative_rule |  | CDC_90_NOTE_MME | 90 | MME/day | guideline | S105 | Teaching note only: the 2016 guideline advised avoiding ≥90 MME/day or carefully justifying it; the 2022 guideline removed that threshold from its recommendations (still refers to the level). |
+| palliative_rule |  | RR_ALARM | 8 | breaths/min (alarm if below) | guideline | S116 | Scottish Palliative Care Guidelines: naloxone titrated until respiratory status satisfactory (≥8 respirations/min). |
+| palliative_rule |  | RASS_EXCESS | -3 | RASS (alarm at or below, when not the documented sedation target) | simulator_convention | S120 | Unintended sedation alarm: RASS ≤ −3 without a documented palliative-sedation target at that depth. Scale from Sessler 2002; the cut-off is a teaching convention. |
+| palliative_rule |  | NALOXONE_DOSE_MG | 0.1 | mg per increment | guideline | S116, S14 | Scottish palliative guideline: 100 microgram IV boluses every 2 min, titrated to respiratory rate; FDA naloxone label 0.1–0.2 mg IV at 2–3 min intervals (S14). Never a full-reversal dose by default. |
+| palliative_rule |  | NALOXONE_MIN_INTERVAL_MIN | 2 | min | guideline | S116, S14 | Repeat no sooner than every 2 min (IV). |
+| palliative_rule |  | PROPORTIONALITY_ALARM_MIN | 30 | min deeper than the documented target | simulator_convention | S101 | Proportionality (S101) means the lowest sedation level that relieves the symptom; the 30-min persistence before the alarm is a teaching convention. |
+| palliative_rule |  | COMFORT_NOT_ACHIEVED_SCORE | 4 | symptom score 0–10, sustained 60 min | simulator_convention |  | Alarm when the documented target symptom stays ≥4 for 60 min during sedation (teaching convention). The engine never escalates on its own. |
+| palliative_rule |  | MIDAZOLAM_MAX_SIM_MG_H | 10 | mg/h | guideline | S101 | Framework: at doses above 10 mg/h consider adding or changing medication; second-line agents are not simulated, so the simulator stops at 10 mg/h (simulator hard stop anchored to the framework statement). |
+| palliative_sedation | midazolam | midazolam light bolus SC / IV | "2.5 / 1.25" | mg | guideline | S101 | Revised EAPC framework step 1. |
+| palliative_sedation | midazolam | midazolam deep bolus SC / IV | "5–10 / 2.5–5" | mg | guideline | S101 | Revised EAPC framework step 1; default = lower bound. |
+| palliative_sedation | midazolam | midazolam repeat fraction / interval SC, IV | "0.5 / 20, 5" | × starting bolus / min | guideline | S101 | Half the starting bolus after 20 min SC or 5 min IV. |
+| palliative_sedation | midazolam | midazolam infusion start | 1 | mg/h | guideline | S101 | Then adjust as needed (clinician-approved). |
+| palliative_sedation | midazolam | light/deep ↔ RASS mapping | "light = target RASS −1 to −3; deep = −4 to −5 (simulator mapping)" |  | simulator_convention | S120 | The framework does not use RASS; mapping chosen for the simulator. |
+| palliative_sedation |  | continuous deep sedation prognosis requirement | "hours_days" | prognosis category | guideline | S100, S117, S102 | 2009 EAPC: closeness to death relevant for continuous deep sedation; ASCO 2021: life expectancy of days; AMA 5.6: final stages. The 2024 revision specifies no period — the simulator keeps the conservative requirement. |
+| palliative_model |  | delirium-risk factors (age ≥70, eGFR <30, ≥5 medicines, last hours–days, high opioid effect) | "≥3 high, ≥1 moderate" | count | author_estimate_unvalidated | S119 | Illustrative count; not a validated tool. |
+| palliative_model |  | KA_ORAL_PER_MIN | 0.02 |  | author_estimate_unvalidated |  | Illustrative symptom / PK-PD model constant (not validated). |
+| palliative_model |  | KE_PER_MIN | 0.0058 |  | author_estimate_unvalidated |  | Illustrative symptom / PK-PD model constant (not validated). |
+| palliative_model |  | KE0_PER_MIN | 0.033 |  | author_estimate_unvalidated |  | Illustrative symptom / PK-PD model constant (not validated). |
+| palliative_model |  | RENAL_KE_FACTOR | "{\"morphine\":{\"lt30\":0.5,\"lt60\":0.75},\"hydromorphone\":{\"lt30\":0.5,\"lt60\":0.75},\"oxycodone\":{\"lt30\":0.7,\"lt60\":0.8}}" |  | author_estimate_unvalidated |  | Illustrative symptom / PK-PD model constant (not validated). |
+| palliative_model |  | HEPATIC_KE_FACTOR | 0.75 |  | author_estimate_unvalidated |  | Illustrative symptom / PK-PD model constant (not validated). |
+| palliative_model |  | IV_EFFECT_FACTOR | "{\"morphine\":2.5,\"hydromorphone\":12.5}" |  | author_estimate_unvalidated |  | Illustrative symptom / PK-PD model constant (not validated). |
+| palliative_model |  | EC50_BASE_OME | 6 |  | author_estimate_unvalidated |  | Illustrative symptom / PK-PD model constant (not validated). |
+| palliative_model |  | EC50_PER_OME_DAY | 0.05 |  | author_estimate_unvalidated |  | Illustrative symptom / PK-PD model constant (not validated). |
+| palliative_model |  | ANALGESIA_EMAX | 0.85 |  | author_estimate_unvalidated |  | Illustrative symptom / PK-PD model constant (not validated). |
+| palliative_model |  | ANALGESIA_GAMMA | 1.5 |  | author_estimate_unvalidated |  | Illustrative symptom / PK-PD model constant (not validated). |
+| palliative_model |  | SED_OPIOID_X50 | 5 |  | author_estimate_unvalidated |  | Illustrative symptom / PK-PD model constant (not validated). |
+| palliative_model |  | SED_OPIOID_GAMMA | 2.5 |  | author_estimate_unvalidated |  | Illustrative symptom / PK-PD model constant (not validated). |
+| palliative_model |  | RR_OPIOID_X50 | 6 |  | author_estimate_unvalidated |  | Illustrative symptom / PK-PD model constant (not validated). |
+| palliative_model |  | RR_OPIOID_MAX | 0.7 |  | author_estimate_unvalidated |  | Illustrative symptom / PK-PD model constant (not validated). |
+| palliative_model |  | MIDAZ_KA_SC_PER_MIN | 0.06 |  | author_estimate_unvalidated |  | Illustrative symptom / PK-PD model constant (not validated). |
+| palliative_model |  | MIDAZ_KE_PER_MIN | 0.0067 |  | author_estimate_unvalidated |  | Illustrative symptom / PK-PD model constant (not validated). |
+| palliative_model |  | MIDAZ_EC50_MG | 4.4 |  | author_estimate_unvalidated |  | Illustrative symptom / PK-PD model constant (not validated). |
+| palliative_model |  | MIDAZ_GAMMA | 1.5 |  | author_estimate_unvalidated |  | Illustrative symptom / PK-PD model constant (not validated). |
+| palliative_model |  | MIDAZ_AGITATION_MAX | 0.9 |  | author_estimate_unvalidated |  | Illustrative symptom / PK-PD model constant (not validated). |
+| palliative_model |  | MIDAZ_RR_MAX | 2 |  | author_estimate_unvalidated |  | Illustrative symptom / PK-PD model constant (not validated). |
+| palliative_model |  | NALOX_KE_PER_MIN | 0.017 |  | author_estimate_unvalidated |  | Illustrative symptom / PK-PD model constant (not validated). |
+| palliative_model |  | NALOX_HALF_MG | 0.15 |  | author_estimate_unvalidated |  | Illustrative symptom / PK-PD model constant (not validated). |
+| palliative_model |  | DYSPNOEA_OPIOID_MAX | 0.5 |  | author_estimate_unvalidated |  | Illustrative symptom / PK-PD model constant (not validated). |
+| palliative_model |  | NONPHARM_RELIEF | 1 |  | author_estimate_unvalidated |  | Illustrative symptom / PK-PD model constant (not validated). |
+| palliative_model |  | OXYGEN_RELIEF_HYPOXAEMIC | 1.5 |  | author_estimate_unvalidated |  | Illustrative symptom / PK-PD model constant (not validated). |
+| palliative_model |  | POSITIONING_SECRETION_RELIEF | 1 |  | author_estimate_unvalidated |  | Illustrative symptom / PK-PD model constant (not validated). |
+| palliative_model |  | CONSTIPATION_PER_H | 0.15 |  | author_estimate_unvalidated |  | Illustrative symptom / PK-PD model constant (not validated). |
+| palliative_model |  | CONSTIPATION_WITH_BOWEL_PER_H | 0.03 |  | author_estimate_unvalidated |  | Illustrative symptom / PK-PD model constant (not validated). |
+| palliative_model |  | NAUSEA_START | 3 |  | author_estimate_unvalidated |  | Illustrative symptom / PK-PD model constant (not validated). |
+| palliative_model |  | NAUSEA_DECAY_DAYS | 2 |  | author_estimate_unvalidated |  | Illustrative symptom / PK-PD model constant (not validated). |
+| palliative_model |  | AGITATION_TO_RASS | 0.45 |  | author_estimate_unvalidated |  | Illustrative symptom / PK-PD model constant (not validated). |
+| palliative_model |  | NOISE_SD | 0.15 |  | author_estimate_unvalidated |  | Illustrative symptom / PK-PD model constant (not validated). |
+| palliative_model |  | TREND_EVERY_MIN | 5 |  | author_estimate_unvalidated |  | Illustrative symptom / PK-PD model constant (not validated). |
+
 ## Sources
-Full citations, what each supports, and how each was checked are in [SOURCES.md](SOURCES.md) (43 entries).
+Full citations, what each supports, and how each was checked are in [SOURCES.md](SOURCES.md) (43 entries; plus S100–S120 for the palliative and end-of-life modules).
 
 ## AI assistance
 Code, parameter selection and source gathering for this simulator were produced with AI assistance (Anthropic Claude, via Claude Code, November 2026) under the owner's direction. Sources were checked through web-search records of labels and publications as recorded in SOURCES.md; independent human verification of every source by the owner is pending. AI was not used to generate data presented as observed. The owner is responsible for the content.

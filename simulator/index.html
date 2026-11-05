@@ -21,6 +21,9 @@
   <div class="sim-banner" role="note" aria-label="Simulation notice">
     <strong>SIMULATION — fictional patient — educational use only. Not a medical device. Not medical advice.</strong>
   </div>
+  <div class="pal-banner" id="pal-banner" role="note" aria-label="Palliative module notice" hidden>
+    <strong>Palliative / end-of-life simulation — fictional patient — educational only. Not medical advice. Palliative sedation is not euthanasia or medical aid in dying; laws differ by jurisdiction.</strong>
+  </div>
 
   <div class="app-head">
     <div class="app-head__inner">
@@ -32,7 +35,13 @@
         <button type="button" class="btn btn--ghost" id="open-sources" aria-haspopup="dialog">Sources</button>
         <button type="button" class="btn btn--ghost" id="open-model" aria-haspopup="dialog">Model card</button>
         <button type="button" class="btn btn--ghost" id="open-about" aria-haspopup="dialog">About &amp; limitations</button>
+        <button type="button" class="btn btn--ghost" id="open-ethics" aria-haspopup="dialog" hidden>Ethics, law &amp; communication</button>
       </div>
+    </div>
+    <div class="module-switch" role="group" aria-label="Simulator module">
+      <button type="button" class="btn btn--small" id="mod-periop" data-module="periop" aria-pressed="true">Perioperative</button>
+      <button type="button" class="btn btn--small" id="mod-pain" data-module="pain" aria-pressed="false">Palliative pain management</button>
+      <button type="button" class="btn btn--small" id="mod-eol" data-module="eol" aria-pressed="false">End-of-life care</button>
     </div>
     <nav class="stepper" aria-label="Simulator steps">
       <ol id="stepper-list"></ol>
@@ -69,6 +78,14 @@
       <button type="button" class="btn btn--ghost" data-close-dialog>Close</button>
     </div>
     <div class="panel-dialog__body" id="model-body"></div>
+  </dialog>
+
+  <dialog id="ethics-dialog" class="panel-dialog" aria-labelledby="ethics-title">
+    <div class="panel-dialog__head">
+      <h2 id="ethics-title">Ethics, law and communication</h2>
+      <button type="button" class="btn btn--ghost" data-close-dialog>Close</button>
+    </div>
+    <div class="panel-dialog__body" id="ethics-body"></div>
   </dialog>
 
   <dialog id="extubate-dialog" class="panel-dialog panel-dialog--narrow" aria-labelledby="extubate-title">

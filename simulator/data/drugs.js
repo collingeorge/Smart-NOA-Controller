@@ -7,6 +7,10 @@
 //
 // Schema: simulator/SPEC.md §4. Human-readable registry: simulator/SOURCES.md.
 //
+// S100+ (palliative and end-of-life modules) live in data/palliative.js and are merged into
+// SOURCES at the end of this file, so the Sources panel lists them.
+import { PALLIATIVE_SOURCES } from './palliative.js';
+//
 // ---------------------------------------------------------------------------------------------
 // S-id mapping to /home/user/breast-reconstruction-anesthesia-protocol/DOSING_SOURCES.md
 // (citation and verification text copied from that registry; new entries verified 2026-11-05):
@@ -1551,3 +1555,7 @@ export const SOURCE_IDS_ENGINE = Object.freeze({
   depthBandBUnaware: 'S52', depthBandBagRecall: 'S53', whoChecklist: 'S54',
   preoxygenationDas2015: 'S55', difficultAirwayAsa2022: 'S56',
 });
+
+// Palliative / end-of-life module sources (S100+; data/palliative.js). Merged here so the Sources
+// panel and source tags resolve them; they are used by the palliative modules, not by DRUGS.
+Object.assign(SOURCES, PALLIATIVE_SOURCES);
