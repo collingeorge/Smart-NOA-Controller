@@ -39,3 +39,9 @@ An adversarial simulation of 34 scenarios found software defects that contradict
   - stale-data detection
   - PK parameters: the implied dexmedetomidine half-life is about 17 min vs about 2 h in labeling
 - **The PDF has not been rebuilt** to reflect these changes.
+
+## November 2026 — accuracy and governance review
+- Added DISCLAIMER.md and the standard banner. The author is described as a pre-medical student, and the "unauthorized shadowing" wording is replaced. AI assistance is disclosed in AUTHORSHIP_AND_REVIEW.md.
+- Corrected the ASA capnography wording ("shall") in the shared anesthesia guide.
+- Rebuilt the manuscript PDF from MANUSCRIPT.md; DOCUMENT_BUILD.json records the method. The PDF filename is historical.
+- Regenerated the manifest hashes.

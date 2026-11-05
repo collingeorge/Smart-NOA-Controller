@@ -12,29 +12,69 @@
       "sha256": "7414eeeb12f5c9bd68bb42b01a10be90fad2ba0ed038825dcdc9239e13c15b51"
     },
     {
+      "path": "ANESTHESIA_OPTIONS_AND_CASES.md",
+      "bytes": 25257,
+      "sha256": "232c8885a6cd560fb9b5c71a59438dbe2642d0b242ab728cad1259976c822418"
+    },
+    {
+      "path": "ANESTHESIA_SOURCE_AUDIT.json",
+      "bytes": 4088,
+      "sha256": "7e6b4417f53571ef052e3fbe5b993fcab3af84a04d544b91b30191f743ee28d4"
+    },
+    {
+      "path": "AUTHORSHIP_AND_REVIEW.md",
+      "bytes": 2907,
+      "sha256": "26ff1233dbca631e8d625814dac50e44edb9112e948ca3a7e3a1c240e284b2e6"
+    },
+    {
+      "path": "CASE_EXAMPLE_STANDARD.md",
+      "bytes": 2710,
+      "sha256": "48557d603c85bffca81f8abab2a365b92328f79676ebab16bbb1b1a7840c4226"
+    },
+    {
       "path": "CITATION.cff",
       "bytes": 491,
       "sha256": "09bb725b0519eee9e611cd6978baf1c41f0fc7e134d2e98f297d5e79023d02a5"
     },
     {
-      "path": "config.yaml",
-      "bytes": 1154,
-      "sha256": "a650075e93c29300cda011e15d9c8d0084433c61df7b2880b9c5c381459e0886"
+      "path": "CLINICAL_EXAMPLE_INDEX.md",
+      "bytes": 4728,
+      "sha256": "06c0d37b293f54e7b88dd878cf5c91a7caf995697736e401452cb389adb2b2dd"
     },
     {
       "path": "DEVELOPMENT.md",
-      "bytes": 1176,
-      "sha256": "70fc7c2da80df5dc383d35e99fe46ffc4c653cb114a2ae0c46c24e0fccd71c75"
+      "bytes": 1354,
+      "sha256": "ed5564d525b13c3f8eac17a22849ac42fb41afef2d5829ed6c1ff269fdf3f93e"
+    },
+    {
+      "path": "DISCLAIMER.md",
+      "bytes": 3180,
+      "sha256": "2deccac1716552800ae5e215f4176ebeaad7e9b7d36b34fdf8e7d6b0f023770d"
     },
     {
       "path": "DOCUMENT_BUILD.json",
-      "bytes": 716,
-      "sha256": "ee77c42b1cdb93a411884257fd6e3bfa457487267936098bcc795d4ca35a55c6"
+      "bytes": 933,
+      "sha256": "bdef9c6d88cece1bd3f03bfd3224946fd04650955b011722ec8775ecb52599d3"
+    },
+    {
+      "path": "EXAMPLES_MANIFEST.json",
+      "bytes": 1296,
+      "sha256": "1782626c9492b7f59b0820e79c8d8f10dc4cea8de77ad62f724903b8e0cf8830"
+    },
+    {
+      "path": "EXAMPLE_RESULTS.json",
+      "bytes": 11839,
+      "sha256": "251099249bebaf5242a876bd68713db57c053d502d8ea3066149ca38cdb6ae65"
+    },
+    {
+      "path": "GUIDELINE_INFORMED_EXAMPLES.md",
+      "bytes": 15322,
+      "sha256": "28f77897a2565b6c41daf8655701a7b21f9e818128c76d122ec9b9a6786eb18e"
     },
     {
       "path": "HISTORICAL_VERSION_NOTICE.md",
-      "bytes": 467,
-      "sha256": "c35978856d877183e1500d5eb494f1dd0130ac581dc7f0a907cdfab65094128a"
+      "bytes": 658,
+      "sha256": "b04e71ae469d376c29544d27a155846db71d54f91fab12c9f95209d477ce489c"
     },
     {
       "path": "LICENSE",
@@ -42,34 +82,54 @@
       "sha256": "74631de0ea0bc3c1c5e07712086468e3e1c95201a71135ea456c082162695640"
     },
     {
-      "path": "main.tex",
-      "bytes": 4563,
-      "sha256": "61ebfaec2af5e3388ada8fc685107274f416dd35497cf6cefe2432390b3a92f9"
-    },
-    {
       "path": "MANUSCRIPT.md",
-      "bytes": 4269,
-      "sha256": "08a455bd4fdbc5eeabb2eba4c883afb75b1cd568f46941470355a18f39758572"
+      "bytes": 4636,
+      "sha256": "de450260a77e42845345688a2c8123c0fd92240c8794183d1d1536a62911033c"
     },
     {
       "path": "PROVENANCE.md",
-      "bytes": 1418,
-      "sha256": "e8d321b9ad4f01b4a53b25d5310b57b9c4d2aa14c28bc340a00fb8acfdb5a264"
+      "bytes": 1599,
+      "sha256": "847e8aa6077dda933bb3085417f863f675808b9ccf72592f6d912d14770e3f5e"
     },
     {
       "path": "PUBLICATION_REVIEW.md",
-      "bytes": 2570,
-      "sha256": "1675a87385af597a78d6d5914176c1d7041d4239ae1887b8fd47b5f5f854d0f7"
+      "bytes": 2760,
+      "sha256": "3f11528255e218994421cd3611ed897f5d34c34f76381b33e4d6f7c049223c08"
     },
     {
       "path": "README.md",
-      "bytes": 4599,
-      "sha256": "f31fe9360b360c7e1f4882fd024c40d7f21f4ea36b622ef7de8a51e2ef254228"
+      "bytes": 5711,
+      "sha256": "ca37f03340b0dbdf48eac5a6e5ed6723ad3e37dffd67cda32d1e2351bf732cf1"
     },
     {
       "path": "RELEASE_NOTES.md",
-      "bytes": 2173,
-      "sha256": "92852749d03dc821b0174a6e070a578f042eed7e49f0c5a59f1b8a3b78205ced"
+      "bytes": 4044,
+      "sha256": "adf64406767d9f7a9f4ed8b6b15918879a92fdeaa052a7735da56b2fd9e570c2"
+    },
+    {
+      "path": "START_HERE.md",
+      "bytes": 1201,
+      "sha256": "14a2757ef45bad197c2aea8d6fccb47faa877e4ec72d1558ed42ee82ce0d3045"
+    },
+    {
+      "path": "Smart_NOA__A_Deterministic_Closed_Loop_Safety_Controller.pdf",
+      "bytes": 55025,
+      "sha256": "17ef3c49b22c55490d8ad04cfdc983dec81425ec44d6a6cbcb9c13886ac4e94b"
+    },
+    {
+      "path": "config.yaml",
+      "bytes": 1788,
+      "sha256": "e2b908025336498b991b5f5c92bcf4637e5d10ea19809a846e966764c83beb11"
+    },
+    {
+      "path": "example_walkthrough.py",
+      "bytes": 3795,
+      "sha256": "1fbff6ecb3edfdc007276ae7244745b6d3f3befc1420ed7fc0756aecc281d9e8"
+    },
+    {
+      "path": "main.tex",
+      "bytes": 4699,
+      "sha256": "7a3b36d31750e4cb1ae2a1f819b3522b28c296720693fdce368515b20a0eeffd"
     },
     {
       "path": "requirements.txt",
@@ -77,14 +137,9 @@
       "sha256": "0d1fe1a88f28ae50c1b6ced1abde0967a46f00022a4358556ebcf10c64ea30ed"
     },
     {
-      "path": "Smart_NOA__A_Deterministic_Closed_Loop_Safety_Controller.pdf",
-      "bytes": 105389,
-      "sha256": "8c14a6daa44d86b75b10399b49ad0fe535a201e131219a7232278f9aa363e069"
-    },
-    {
       "path": "smart_noa_controller.py",
-      "bytes": 23517,
-      "sha256": "cd1a920bf2b47702cb231378c55876af3af41cbd8137c218f0d66080a2f9ab7b"
+      "bytes": 27138,
+      "sha256": "0a73046c069d2f8c8e193840442cab9e09923143ff3d6c3cf3f9bb2ef7e551c6"
     },
     {
       "path": "smartnoa_architecture.jpg",
@@ -102,59 +157,14 @@
       "sha256": "f5793669f7a77dd23216cf61f5bad116d41446680484399869762eb40abc70f3"
     },
     {
+      "path": "test_safety_hardening.py",
+      "bytes": 5616,
+      "sha256": "827b81f5be48a499b2fea4d34070c1b5681755cc4a4db87455ad2181a53d868d"
+    },
+    {
       "path": "test_smart_noa_controller.py",
       "bytes": 12968,
       "sha256": "5f3e5aff44fe29c03df99268bb6c1cc38d7ff5c0eb87e20396db28adf048449a"
-    },
-    {
-      "path": "GUIDELINE_INFORMED_EXAMPLES.md",
-      "bytes": 15131,
-      "sha256": "9a0a95f9bc204746887ac1c869e38a2a7f26e21521c2b00a964497e537363d23"
-    },
-    {
-      "path": "example_walkthrough.py",
-      "bytes": 3795,
-      "sha256": "1fbff6ecb3edfdc007276ae7244745b6d3f3befc1420ed7fc0756aecc281d9e8"
-    },
-    {
-      "path": "EXAMPLE_RESULTS.json",
-      "bytes": 12305,
-      "sha256": "2957a35077d9d10981f6e6f5f287411287ca813a753389e9765610a02f93c246"
-    },
-    {
-      "path": "ANESTHESIA_OPTIONS_AND_CASES.md",
-      "bytes": 24873,
-      "sha256": "82296c7b8cfe3a5204303f211fe1354373ac9a625fe3984148440165d0755426"
-    },
-    {
-      "path": "ANESTHESIA_SOURCE_AUDIT.json",
-      "bytes": 4088,
-      "sha256": "7e6b4417f53571ef052e3fbe5b993fcab3af84a04d544b91b30191f743ee28d4"
-    },
-    {
-      "path": "CASE_EXAMPLE_STANDARD.md",
-      "bytes": 2519,
-      "sha256": "82ee781bc5ed0dc9edee2fb607f2a877d3cdc151bf982d072eac9d999c6de93b"
-    },
-    {
-      "path": "CLINICAL_EXAMPLE_INDEX.md",
-      "bytes": 4537,
-      "sha256": "40f60e18d5ee02d18fd615d7f26edaa8dcf268f097b8f9bcd02ade5236935d04"
-    },
-    {
-      "path": "EXAMPLES_MANIFEST.json",
-      "bytes": 1296,
-      "sha256": "d28038e392b084b0b0d2e91bb9ff81914b5f02f55ec93ac523f2e5bc2c6c0caf"
-    },
-    {
-      "path": "START_HERE.md",
-      "bytes": 1010,
-      "sha256": "e146d4046371fed9408eace7c95dbb529be14904d0d86bb00fbbe54baf57a999"
-    },
-    {
-      "path": "AUTHORSHIP_AND_REVIEW.md",
-      "bytes": 2309,
-      "sha256": "e325b18d956fe702fdcbf5ecd57cc62acda548dfe3229ffebd454b5fb54e280f"
     }
   ],
   "supplement": "clinical-applied-cases-2026-10-28",

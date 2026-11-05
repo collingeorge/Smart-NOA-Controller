@@ -43,7 +43,7 @@ No rate, threshold, or age adjustment is endorsed as a clinical recommendation. 
 
 [Current FDA CDS guidance](https://www.fda.gov/regulatory-information/search-fda-guidance-documents/clinical-decision-support-software) distinguishes software functions by intended use and statutory criteria. An educational disclaimer does not determine device status, exempt future clinical functionality, or establish a regulatory pathway.
 
-[PUBLICATION_REVIEW.md](PUBLICATION_REVIEW.md) records unresolved review items. The PDF and architecture diagram are rebuilt from the current educational description; see [MANUSCRIPT.md](MANUSCRIPT.md).
+[PUBLICATION_REVIEW.md](PUBLICATION_REVIEW.md) records unresolved review items. The PDF is rebuilt from [MANUSCRIPT.md](MANUSCRIPT.md); its filename (`…Deterministic_Closed_Loop_Safety_Controller.pdf`) is historical and kept so existing links work. The software is a rule-checking simulation, not a closed-loop safety controller.
 
 ## License and author
 
