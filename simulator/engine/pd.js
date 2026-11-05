@@ -23,6 +23,11 @@ export const PROFILES = {
   glycopyrrolate: { hr: [0.22, 0.5, 2], antimuscarinic: [1, 0.5, 2] },
   phenylephrine: { map: [0.3, 0.5, 1.5], hr: [-0.1, 0.5, 1.5] },
   ephedrine: { map: [0.18, 0.5, 1.5], hr: [0.15, 0.5, 1.5] },
+  // Epinephrine (ILLUSTRATIVE author estimates; u = 1 at steady state of the lowest label septic-shock
+  // rate, 0.05 mcg/kg/min, in the 70 kg reference): ↑MAP, ↑HR, bronchodilation ('broncho' =
+  // fraction by which bronchospasm/anaphylaxis event intensity is countered, see sim.js).
+  // u≈1 → MAP +8 %, HR +6 %, broncho 0.5; IM 0.3 mg peak (u≈6) → MAP ≈ +25 %, HR ≈ +24 %, broncho ≈ 0.97.
+  epinephrine: { map: [0.30, 2.0, 1.5], hr: [0.30, 2.5, 1.5], broncho: [1, 1.0, 2] },
   neostigmine: { anticholinesterase: [1, 0.5, 2], hr: [-0.15, 0.5, 2] },
   naloxone: { opioidAntagonist: [1, 0.3, 2], hr: [0.05, 0.5, 2], map: [0.05, 0.5, 2] },
   ketorolac: { ana: [0.3, 0.5, 2] },
@@ -69,9 +74,10 @@ const eff = (spec, u) => (spec ? spec[0] * sigmoid(u, spec[1], spec[2]) : 0);
  * respiratory depression D, fractional MAP/HR changes, NMB twitch heights.
  */
 export function combineEffects(entries, mods) {
-  let antag = 0, achE = 0, antimusc = 0;
+  let antag = 0, achE = 0, antimusc = 0, broncho = 0;
   for (const { drug, u } of entries) {
     const pr = profileFor(drug);
+    if (pr.broncho) broncho = Math.max(broncho, eff(pr.broncho, u));
     if (pr.opioidAntagonist) antag = Math.max(antag, eff(pr.opioidAntagonist, u));
     if (pr.anticholinesterase) achE = Math.max(achE, eff(pr.anticholinesterase, u));
     if (pr.antimuscarinic) antimusc = Math.max(antimusc, eff(pr.antimuscarinic, u));
@@ -114,6 +120,7 @@ export function combineEffects(entries, mods) {
     H, Hraw, A: 1 - notA, Aop, D: 1 - notD,
     mapFrac: Math.max(-0.6, Math.min(0.6, mapF)), hrFrac: Math.max(-0.6, Math.min(0.8, hrF)),
     twitches: T, block: 1 - T[0], antimuscarinic: antimusc, anticholinesterase: achE,
+    bronchodilation: broncho,
   };
 }
 

@@ -12,6 +12,26 @@
 //    illustrative and verify before citing. The model is used only if the drug
 //    library marks propofol pkModel:'marsh'.
 //
+// 1b) ELEVELD propofol (pkModel:'eleveld'). PUBLISHED population PK model:
+//    Eleveld DJ, Colin P, Absalom AR, Struys MMRF. Pharmacokinetic-pharmacodynamic model
+//    for propofol for broad application in anaesthesia and sedation. Br J Anaesth
+//    2018;120(5):942-959 (Corrigendum Br J Anaesth 2018;121:519). Library source id: see
+//    data/drugs.js propofol.pkModelInfo / SOURCES.md "Propofol PK model".
+//    Fixed effects (Table 2 Θ1–Θ18) and effect-site constant (Table 3 Θ2 arterial, Θ8 venous)
+//    in ELEVELD_2018 below; equations in eleveldPropofol(). Parameter values and equations
+//    were taken from, and agree to the printed precision across, four independent open-source
+//    implementations/readings: CRAN package `tci` 0.2.1 (R/poppk_mods.R, R. Jarrett),
+//    PyPI `python-anesthesia-simulator` 1.0.0 (pk_models.py, B. Aubouin-Pairault),
+//    vitaldb/tivatci (tivatci/__init__.py) and the stanpumpR paper digest of PMID 29661412
+//    (StevenLShafer/stanpumpR papers/digests/PMID_29661412.md, which quotes Table 2/3 values
+//    with CIs and page numbers). PD/ke0 values were also seen in a web-search record of the
+//    BJA table. The primary PDF could not be opened from this build environment.
+//    Simulator choices (NOT part of the published model): arterial-sampling form; the
+//    concomitant-drug switch is set once, when the propofol model is created (true if an
+//    opioid or IV local anaesthetic is in the plan or already given); the Eleveld BIS
+//    PD model is NOT used — the depth index stays the illustrative PD in pd.js, driven by
+//    Ce normalised to the peak Ce of a 2 mg/kg bolus in the Eleveld reference individual.
+//
 // 2) CALIBRATED (pkModel:'calibrated'): an ILLUSTRATIVE 2-compartment model with
 //    an effect site. Constants are FITTED, not published: for a unit IV bolus the
 //    closed-form effect-site curve Ce(t) is computed and (ke0, k10+k12, k10/(k10+k12))
@@ -35,6 +55,66 @@
 import { convertAmount, parseDoseUnit, rateToAmountPerMin, isFiniteNumber } from './units.js';
 
 export const MARSH_1991 = Object.freeze({ v1PerKg: 0.228, k10: 0.119, k12: 0.112, k13: 0.0419, k21: 0.055, k31: 0.0033, ke0: 0.26 });
+// (2026-11-05 cross-check: these Marsh constants agree with CRAN `tci` 0.2.1 pkmod_marsh and
+// python-anesthesia-simulator 'Marsh_initial' (k13 given there as 0.042); both implementations,
+// not the 1991 paper, so Marsh stays 'transcription unverified'. ke0 0.26 = 'Marsh_initial';
+// tci and 'Marsh_modified' use 1.2.)
+
+// Eleveld 2018 propofol fixed effects. THETA[i] = Table 2 Θi (PK); PD[i] = Table 3 Θi.
+// Units: Θ1–Θ3 L; Θ4, Θ5, Θ6, Θ15 L/min; Θ8 weeks PMA; Θ10, Θ11, Θ13 1/yr; Θ12 kg; Θ14 weeks.
+export const ELEVELD_2018 = Object.freeze({
+  THETA: Object.freeze([null, 6.28, 25.5, 273, 1.79, 1.75, 1.11, 0.191, 42.3, 9.06, -0.0156, -0.00286, 33.6, -0.0138, 68.3, 2.10, 1.30, 1.42, 0.68]),
+  PD: Object.freeze({ ce50: 3.08, ke0Arterial: 0.146, bis0: 93.0, gammaAbove: 1.47, ce50Age: -0.00635, ke0Venous: 1.24, gammaBelow: 1.89 }),
+  REF: Object.freeze({ ageYears: 35, weightKg: 70, heightCm: 170, sex: 'male' }),
+});
+
+/** Al-Sallami 2015 fat-free mass as used in Eleveld 2018 (BMI in kg/m², age in years). */
+export function alSallamiFfm(sex, weightKg, heightCm, ageYears) {
+  const bmi = weightKg / Math.pow(heightCm / 100, 2);
+  if (sex === 'female') return (1.11 + (1 - 1.11) / (1 + Math.pow(ageYears / 7.1, -1.1))) * (9270 * weightKg) / (8780 + 244 * bmi);
+  return (0.88 + (1 - 0.88) / (1 + Math.pow(ageYears / 13.4, -12.7))) * (9270 * weightKg) / (6680 + 216 * bmi);
+}
+
+/**
+ * Eleveld 2018 propofol PK (arterial by default) for one individual.
+ * cov: { ageYears, weightKg, heightCm, sex:'male'|'female', opioids:boolean, venous?:boolean }
+ * PMA (weeks) = age·52 + 40 (paper's assumption when PMA is not recorded).
+ * Returns volumes (L), clearances (L/min), ke0 (1/min) and micro-constants (1/min).
+ */
+export function eleveldPropofol(cov) {
+  const T = ELEVELD_2018.THETA, R = ELEVELD_2018.REF;
+  const { ageYears: age, weightKg: wgt, heightCm: hgt, sex } = cov;
+  for (const [k, v] of Object.entries({ age, wgt, hgt })) if (!isFiniteNumber(v) || v <= 0) throw new Error(`Eleveld covariate ${k} must be positive`);
+  const sig = (x, e50, g) => Math.pow(x, g) / (Math.pow(x, g) + Math.pow(e50, g));
+  const faging = (x) => Math.exp(x * (age - R.ageYears));
+  const fcentral = (x) => sig(x, T[12], 1);
+  const pma = age * 52 + 40, pmaRef = R.ageYears * 52 + 40;
+  const fCLmat = sig(pma, T[8], T[9]) / sig(pmaRef, T[8], T[9]);
+  const fQ3mat = sig(age * 52 + 40, T[14], 1), fQ3matRef = sig(R.ageYears * 52 + 40, T[14], 1);
+  const fop = (x) => (cov.opioids ? Math.exp(x * age) : 1);
+  const ffm = alSallamiFfm(sex, wgt, hgt, age), ffmRef = alSallamiFfm('male', R.weightKg, R.heightCm, R.ageYears);
+  let v1 = T[1] * fcentral(wgt) / fcentral(R.weightKg);
+  if (cov.venous) v1 *= 1 + T[17] * (1 - fcentral(wgt));
+  const v2 = T[2] * (wgt / R.weightKg) * faging(T[10]);
+  const v3 = T[3] * (ffm / ffmRef) * fop(T[13]);
+  const cl = (sex === 'female' ? T[15] : T[4]) * Math.pow(wgt / R.weightKg, 0.75) * fCLmat * fop(T[11]);
+  let q2 = T[5] * Math.pow(v2 / T[2], 0.75) * (1 + T[16] * (1 - fQ3mat));
+  if (cov.venous) q2 *= T[18];
+  const q3 = T[6] * Math.pow(v3 / T[3], 0.75) * (fQ3mat / fQ3matRef);
+  const ke0 = (cov.venous ? ELEVELD_2018.PD.ke0Venous : ELEVELD_2018.PD.ke0Arterial) * Math.pow(wgt / 70, -0.25);
+  return { v1, v2, v3, cl, q2, q3, ke0, ffm, k10: cl / v1, k12: q2 / v1, k21: q2 / v2, k13: q3 / v1, k31: q3 / v3, opioids: !!cov.opioids, venous: !!cov.venous };
+}
+
+// ILLUSTRATIVE (author-estimate) PK constants for drugs whose label timing is not stated but
+// whose qualitative kinetics matter for teaching (min^-1). NOT published, NOT fitted.
+//   epinephrine: short plasma half-life (k10 0.3 → t½ ≈ 2.3 min) so infusion effects fade within
+//   minutes of stopping; fast effect-site equilibration (ke0 1.0).
+export const ILLUSTRATIVE_PK = Object.freeze({
+  epinephrine: Object.freeze({ k10: 0.3, k12: 0.05, k21: 0.01, ke0: 1.0, illustrative: true }),
+});
+// ILLUSTRATIVE first-order absorption rate constants (min^-1) for non-IV bolus routes
+// (author estimates; not from labels): IM epinephrine ka 0.15 (absorption t½ ≈ 4.6 min).
+export const ROUTE_KA_ILLUSTRATIVE = Object.freeze({ IM: 0.15, SC: 0.07 });
 export const GENERIC_ILLUSTRATIVE = Object.freeze({ k10: 0.1, k12: 0.1, k21: 0.02, ke0: 0.3, illustrative: true });
 export const CALIBRATED_V1_PER_KG = 0.25;
 export const PERIPHERAL_RATIO = 5;
@@ -201,6 +281,10 @@ const FIT_CACHE = new Map();
 /** Fit (k10, k12, k21, ke0) to drug.timing. Returns params + achieved metrics + provenance. */
 export function fitCalibrated(timing, drugId = null) {
   const tg = timingTargets(timing, drugId);
+  if (!tg && drugId && ILLUSTRATIVE_PK[drugId]) {
+    const P = ILLUSTRATIVE_PK[drugId];
+    return { ...P, metrics: curveMetrics(P, 600), targets: null, provenance: `illustrative author-estimate constants for ${drugId} (label timing not stated; not fitted, not published)` };
+  }
   if (!tg) {
     const m = curveMetrics(GENERIC_ILLUSTRATIVE, 600);
     return { ...GENERIC_ILLUSTRATIVE, metrics: m, targets: null, provenance: 'generic illustrative constants (drug.timing missing)' };
@@ -255,6 +339,11 @@ function regimenDefaultAmount(drug, reg, weightKg) {
 /** Pick the regimen that defines the reference dose: first bolus in `prefs`/REF_ORDER, else infusion. */
 export function referenceRegimen(drug, prefs = []) {
   const regs = drug.regimens || {};
+  // A library may name the regimen that defines the normalisation reference (e.g. epinephrine:
+  // the IV infusion, because its only bolus is intramuscular).
+  const pr = drug.pkReferenceRegimen && regs[drug.pkReferenceRegimen];
+  if (pr && pr.kind === 'bolus' && (pr.fixed || pr.perKg)) return { key: drug.pkReferenceRegimen, reg: pr, mode: 'bolus' };
+  if (pr && pr.kind === 'infusion' && pr.rate && isFiniteNumber(pr.rate.default)) return { key: drug.pkReferenceRegimen, reg: pr, mode: 'infusion' };
   const order = [...prefs, ...REF_ORDER, ...Object.keys(regs)];
   for (const k of order) { const r = regs[k]; if (r && r.kind === 'bolus' && (r.fixed || r.perKg)) return { key: k, reg: r, mode: 'bolus' }; }
   for (const k of order) { const r = regs[k]; if (r && r.kind === 'infusion' && r.rate && isFiniteNumber(r.rate.default)) return { key: k, reg: r, mode: 'infusion' }; }
@@ -262,6 +351,11 @@ export function referenceRegimen(drug, prefs = []) {
 }
 
 function buildCompartment(drug, weightKg, opts = {}) {
+  if (drug.pkModel === 'eleveld') {
+    const cov = opts.covariates || { ...ELEVELD_2018.REF, weightKg: ELEVELD_2018.REF.weightKg, opioids: false };
+    const e = eleveldPropofol(cov);
+    return { type: 'eleveld', params: { ...e, covariates: { ...cov } }, model: new CompartmentModel({ v1L: e.v1, k10: e.k10, k12: e.k12, k21: e.k21, k13: e.k13, k31: e.k31, ke0: e.ke0 }), provenance: `Eleveld 2018 published population PK (arterial; concomitant opioid/local anaesthetic switch ${e.opioids ? 'ON' : 'OFF'}); ke0 Eleveld Table 3 arterial. Implementation verification only (reproduces published reference values); not validation of the simulator.` };
+  }
   if (drug.pkModel === 'marsh') {
     const m = MARSH_1991;
     return { type: 'marsh', params: m, model: new CompartmentModel({ v1L: m.v1PerKg * weightKg, k10: m.k10, k12: m.k12, k21: m.k21, k13: m.k13, k31: m.k31, ke0: m.ke0 }), provenance: 'Marsh 1991 (as reproduced for Diprifusor; ke0 0.26 is the Diprifusor value; transcription unverified)' };
@@ -283,6 +377,7 @@ export function referenceConcentration(drug, prefs = []) {
       const amt = regimenDefaultAmount(drug, rr.reg, REFERENCE_WEIGHT_KG);
       if (amt > 0) {
         if (b.type === 'calibrated') value = (amt / b.model.v1L) * b.params.metrics.peakValue;
+        // 'marsh' / 'eleveld': numerical peak (Eleveld: reference individual, no concomitant drugs)
         else { b.model.bolus(amt); let peak = 0; for (let i = 0; i < 40 * 60; i++) { b.model.step(1 / 60); peak = Math.max(peak, b.model.ce); } value = peak; }
         basis = `peak Ce after default ${rr.key} bolus (70 kg reference)`;
       }
@@ -316,8 +411,10 @@ export function createPkModel(drug, patient, opts = {}) {
     };
   }
   // Calibrated models scale V1 on the weight scalar the drug is dosed on (opts.volumeWeightKg),
-  // so a sourced per-kg dose gives comparable normalised exposure; Marsh uses TBW as published.
-  const b = buildCompartment(drug, drug.pkModel === 'marsh' ? patient.weightKg : (opts.volumeWeightKg || patient.weightKg));
+  // so a sourced per-kg dose gives comparable normalised exposure; Marsh uses TBW as published;
+  // Eleveld uses the patient's own covariates (age, TBW, height, sex, concomitant opioid).
+  const covariates = drug.pkModel === 'eleveld' ? { ageYears: patient.ageYears, weightKg: patient.weightKg, heightCm: patient.heightCm, sex: patient.sex === 'female' ? 'female' : 'male', opioids: !!opts.concomitantOpioid } : null;
+  const b = buildCompartment(drug, (drug.pkModel === 'marsh' || drug.pkModel === 'eleveld') ? patient.weightKg : (opts.volumeWeightKg || patient.weightKg), { covariates });
   if (opts.k10Mult && opts.k10Mult !== 1) b.model.k10 *= opts.k10Mult;
   return { ...b, ref: referenceConcentration(drug, opts.refPrefs || []) };
 }
