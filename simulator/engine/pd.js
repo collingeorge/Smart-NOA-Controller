@@ -37,7 +37,7 @@ const CLASS_FALLBACK = {
 };
 
 export function profileFor(drug) {
-  return PROFILES[drug.id] || CLASS_FALLBACK[drug.cls] || {};
+  return drug._profile || PROFILES[drug.id] || CLASS_FALLBACK[drug.cls] || {};
 }
 
 /** Patient sensitivity modifiers (illustrative). */

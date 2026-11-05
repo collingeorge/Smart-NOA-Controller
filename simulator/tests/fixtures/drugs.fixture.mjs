@@ -21,6 +21,7 @@ export const CONDITIONS = [
   { id: 'hyperkalemia', label: 'Hyperkalemia' },
   { id: 'cad', label: 'Coronary artery disease' },
   { id: 'hypertension', label: 'Hypertension' },
+  { id: 'uncontrolled_htn', label: 'Uncontrolled hypertension' },
   { id: 'osa', label: 'Obstructive sleep apnea' },
   { id: 'gerd', label: 'GERD / reflux' },
   { id: 'liver_disease', label: 'Liver disease' },
