@@ -185,7 +185,7 @@ if (REAL) {
       assert.ok(PROVENANCE.includes(x.provenance), `${L}: provenance ${x.provenance}`);
       assert.ok(Array.isArray(x.sourceIds), `${L}: sourceIds array`);
       for (const id of x.sourceIds) assert.ok(REAL.SOURCES[id], `${L}: source ${id} exists`);
-      if (x.provenance !== 'author_estimate_unvalidated') assert.ok(x.sourceIds.length > 0 || x.citationRegistered === false, `${L}: sourced or flagged unregistered`);
+      if (!['author_estimate_unvalidated', 'simulator_convention'].includes(x.provenance)) assert.ok(x.sourceIds.length > 0 || x.citationRegistered === false, `${L}: sourced or flagged unregistered`);
       assert.ok(x.value !== undefined && x.value !== null && x.name, `${L}: value`);
       assert.ok(!/(?<!not |un|never )\bvalidated\b|\bpredictive\b|\baccurate\b/i.test(`${x.note}`), `${L}: wording`);
     }

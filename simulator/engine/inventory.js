@@ -10,6 +10,8 @@
 //   'trial_or_physiology_study'     trial protocol value or classic physiology relation
 //   'project_config'                Smart NOA config.yaml (software setting, not clinical evidence)
 //   'author_estimate_unvalidated'   engine author's illustrative choice; not sourced, not validated
+//   'simulator_convention'          teaching-sequence choice of the guided/automatic modes
+//                                   (engine/autorun-config.js); not sourced, not a model parameter
 // sourceIds are ids in the drug library SOURCES. A non-author entry whose citation is not in
 // SOURCES carries citationRegistered:false and names the work in `note`.
 // Implementation checks against published reference values are VERIFICATION of the code, not
@@ -24,8 +26,9 @@ import { PROFILES, PATIENT_MODS } from './pd.js';
 import { PHYS, GAINS } from './physiology.js';
 import { NOA_CONFIG } from './interlocks.js';
 import { SCENARIOS } from '../data/scenarios.js';
+import { AUTORUN_CONFIG, CONVENTION } from './autorun-config.js';
 
-export const PROVENANCE = Object.freeze(['fda_label', 'published_model', 'guideline', 'trial_or_physiology_study', 'project_config', 'author_estimate_unvalidated']);
+export const PROVENANCE = Object.freeze(['fda_label', 'published_model', 'guideline', 'trial_or_physiology_study', 'project_config', 'author_estimate_unvalidated', 'simulator_convention']);
 const AUTHOR = 'author_estimate_unvalidated';
 
 export function buildParameterInventory({ lib, patient, models = {}, fluidModel, mw, minFio2WithN2O, alarmThresholds, extubationCriteria, stimulus }) {
@@ -146,5 +149,11 @@ export function buildParameterInventory({ lib, patient, models = {}, fluidModel,
     else add('alarm', k, v, /SPO2/.test(k) ? '%' : /HR/.test(k) ? '/min' : /SEC/.test(k) ? 's' : 'mmHg', AUTHOR, [], 'Simulator alarm threshold/hysteresis chosen in the build specification; not a clinical standard.');
   }
   if (extubationCriteria) for (const [k, v] of Object.entries(extubationCriteria)) add('extubation', k, v, '', AUTHOR, [], 'Illustrative extubation-readiness criterion (TOFR criterion is the guideline value above).');
+
+  // ---------------------------------------------------------------- guided / automatic sequence (engine/autorun-config.js)
+  for (const [k, x] of Object.entries(AUTORUN_CONFIG)) {
+    const prov = x.provenance === CONVENTION ? 'simulator_convention' : x.provenance;
+    add('autorun', k, Array.isArray(x.value) ? x.value.join(', ') : x.value, x.unit, prov, [...x.sourceIds], `[${x.appliesTo === 'full' ? 'full demonstration only' : x.appliesTo === 'guided' ? 'guided mode only' : 'guided + full'}] ${x.rationale}`);
+  }
   return out;
 }

@@ -31,6 +31,7 @@ export function renderDebrief(ctx, main) {
       seed: sim.seed, interlocksEnabled: store.interlocks,
       patientInput: store.patientInput, patientDerived: p,
       plan: exportPlan(store.plan), planStatus,
+      automaticMode: s.automatic,
       summary: s, fluidsCrystalloidMl: fl, extubationOverrides: overrides,
       modelInfo, log: sim.state.log,
     };
@@ -45,6 +46,7 @@ export function renderDebrief(ctx, main) {
   clear(main).append(
     h('div', { class: 'step-head' }, h('h2', { id: 'step-title', tabindex: '-1' }, '5 · Debrief'),
       h('p', { class: 'muted' }, `Simulated duration ${fmtClock(s.durationSec)} · ${sim.plan.mode === 'GA' ? 'general anaesthesia' : `MAC (${sim.plan.sedationTarget})`} · interlocks ${store.interlocks ? 'on' : 'off'} · seed ${sim.seed}. ${s.modelNote}`)),
+    autoCard(s.automatic),
     h('div', { class: 'grid grid--4 stats' },
       stat('Time MAP < 65 mmHg', fmtClock(s.timeMapBelow65Sec)),
       stat('Minimum SpO2', isNum(s.minSpo2) ? `${s.minSpo2} %` : '—'),
@@ -85,6 +87,27 @@ export function renderDebrief(ctx, main) {
       h('button', { type: 'button', class: 'btn', onclick: () => ctx.go(4) }, '← Back to monitor'),
       h('button', { type: 'button', class: 'btn', onclick: () => { ctx.restartSim(); ctx.go(4); } }, 'Run again (same plan)'),
       dl));
+}
+
+function autoCard(A) {
+  if (!A || !A.used) return null;
+  const lead = A.mode === 'full'
+    ? 'This case ran automatically (automatic demonstration): a scripted sequence of the same phase and airway actions as the manual buttons. Plan doses were not changed.'
+    : 'This case ran in guided mode: each phase ran automatically from the approved plan and the clinician confirmed every transition. Plan doses were not changed.';
+  const outcome = {
+    completed: `Completed at ${fmtClock(A.endedAtSec)}.`,
+    stopped: `Stopped at ${fmtClock(A.endedAtSec)} during “${A.stoppedAt && A.stoppedAt.step}”: ${A.stopReason}.`,
+    manual: `Ended at ${fmtClock(A.endedAtSec)} during “${A.stoppedAt && A.stoppedAt.step}” because a manual control was used (${A.manualControl}); the case continued manually.`,
+    paused: `Still paused at ${fmtClock(A.stoppedAt && A.stoppedAt.tSec)} during “${A.stoppedAt && A.stoppedAt.step}”${A.pauseReasons.length ? `: ${A.pauseReasons.join(' ')}` : ''}.`,
+    running: 'Still running when the debrief opened.',
+  }[A.outcome] || A.outcome;
+  return h('section', { class: 'card card--auto', id: 'db-auto' }, h('h3', {}, A.modeLabel),
+    h('p', { class: 'auto-banner auto-banner--light' }, A.banner),
+    h('p', { id: 'db-auto-note' }, lead, ' ', h('strong', {}, outcome)),
+    A.unmet && A.unmet.length ? h('p', { class: 'error-text' }, `Unmet criteria: ${A.unmet.join('; ')}`) : null,
+    A.steps.length ? h('ol', { class: 'list list--tight' }, A.steps.map((x) => h('li', {}, h('span', { class: 'mono' }, fmtClock(x.tSec)), ` ${x.label} — ${x.by === 'clinician' ? 'confirmed by the clinician' : 'automatic'}`))) : null,
+    A.pauses.length ? h('p', {}, `Pauses: ${A.pauses.map((p) => `${fmtClock(p.tSec)} (${p.reasons.join(' ')})${p.resumedAtSec !== null ? ` → resumed ${fmtClock(p.resumedAtSec)}` : ''}`).join('; ')}`) : null,
+    h('p', { class: 'hint' }, 'Automatic steps are marked “AUTO:” (log kind “auto”) in the event log and in the downloaded session JSON (automaticMode).'));
 }
 
 function stat(label, value) { return h('div', { class: 'card stat' }, h('p', { class: 'stat__label' }, label), h('p', { class: 'stat__value mono' }, value)); }

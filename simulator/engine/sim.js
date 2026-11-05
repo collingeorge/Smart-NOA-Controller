@@ -92,6 +92,7 @@ class Simulation {
     this.stim = { laryngoscopyAt: null, surgeryStartAt: null, surgeryEndAt: null, extubatedAt: null };
     this.phaseStart = { premed: 0 };
     this.executed = new Map();
+    this.autoRun = null; // set by engine/autorun.js while/after an automatic or guided run
     this.stats = { timeMapBelow65Sec: 0, minSpo2: Infinity, maxHr: -Infinity, minHr: Infinity, interlockEvents: [], extubation: null };
     this.maskVentSec = 0;
     this.depots = [];
@@ -147,6 +148,8 @@ class Simulation {
   }
 
   _log(kind, message) { this.state.log.push({ tSec: Math.round(this.state.tSec * 10) / 10, kind, message }); }
+  /** Public log entry for UI/automatic-runner notes (same format as engine entries). */
+  logNote(kind, message) { this._log(String(kind), String(message)); }
 
   // ------------------------------------------------------------------ models
   _model(drugId) {
@@ -722,6 +725,7 @@ class Simulation {
       extubation: this.stats.extubation || { tSec: null, ...this.extubationReadiness(), note: 'not extubated; current readiness' },
       interlockEvents: this.stats.interlockEvents.slice(),
       fluids: { crystalloidMl: this.state.fluids.crystalloidMl, perKg: roundSig(this.state.fluids.crystalloidMl / this.patient.weightKg, 3), perKgBasis: 'TBW', boluses: this.state.fluids.boluses.map((b) => ({ ...b })), model: 'illustrative volume-restoration model (author estimates)' },
+      automatic: this.autoRun && typeof this.autoRun.record === 'function' ? this.autoRun.record() : { used: false },
       modelNote: 'Illustrative model output — educational simulation, fictional patient; not a medical device.',
     };
   }

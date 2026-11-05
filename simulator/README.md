@@ -25,10 +25,23 @@ No build step, framework, CDN or external font is used. The page sets a Content-
 | 1 Patient | Sex, age, height, weight, ASA, emergency, baseline vitals, eGFR, airway, conditions (grouped by system), allergies, medications, Apfel and STOP-Bang items. Inline validation. "Load example case" fills one of four fictional patients and the matching example plan. |
 | 2 Assessment | BMI, IBW (Devine), LBW (Janmahasatian), ABW, MAP, Apfel and STOP-Bang scores, simulator flags, airway concerns, and every drug lockout/warning with its source. |
 | 3 Anesthetic plan | GA (induction → maintenance → emergence/extubation) or MAC with a minimal/moderate/deep target (ASA continuum; moderate and deep require exhaled-CO2 monitoring). Per-phase drug pickers are built from the library. Each dose is auto-filled from `recommend()` and shows the sourced range, the weight scalar and kg used, and the source tags. Values can be edited (out of range: warning; above a ceiling: blocked), timed (mm:ss), reordered from the keyboard, and previewed on a timeline. There is an interlocks toggle and a random seed. |
-| 4 Run | A dark HMI-style monitor. It has vitals tiles with alarm styling and text, 15-minute canvas trends, a drug panel (live rate, Ce, cumulative, bolus/adjust/stop), alarms with priority labels and Acknowledge, interlock status with "Resume hold", and airway and phase controls. Extubation uses a readiness checklist and a logged override. You can also give fluid boluses (when the engine supports them), inject complications and sensor faults, and use play/pause/step at 1×/5×/20×/60×. An event log records everything. |
-| 5 Debrief | Drug totals (amount and per kg), time with MAP < 65, minimum SpO2, alarms, interlock events, extubation readiness at extubation, plan-step outcomes, model limits, and "Download session (JSON)". The JSON is built from a Blob, so nothing goes over the network. |
+| 4 Run | A dark HMI-style monitor. It has vitals tiles with alarm styling and text, 15-minute canvas trends, a drug panel (live rate, Ce, cumulative, bolus/adjust/stop), alarms with priority labels and Acknowledge, interlock status with "Resume hold", and airway and phase controls. Extubation uses a readiness checklist and a logged override. You can also give fluid boluses (when the engine supports them), inject complications and sensor faults, and use play/pause/step at 1×/5×/20×/60×. An event log records everything. A **Guided mode** and a **Run full case automatically** demonstration can drive the same phase controls (see below). |
+| 5 Debrief | Whether the case ran in guided or automatic mode (and where/why it stopped), drug totals (amount and per kg), time with MAP < 65, minimum SpO2, alarms, interlock events, extubation readiness at extubation, plan-step outcomes, model limits, and "Download session (JSON)". The JSON is built from a Blob, so nothing goes over the network. |
 
 The **Sources**, **Model card** and **About & limitations** panels can be opened from every step.
+
+## Guided mode and the automatic demonstration
+
+Both live on the Run screen ("Guided & automatic modes" panel), work for GA and MAC plans and all four example cases, and use the existing speed controls (1×/5×/20×/60×). They use the patient and plan already entered and start the case from 00:00. They **do not change any dose, rate, source or model value**: drugs are given only by your plan steps, at the offsets you set, through the engine's plan scheduler.
+
+- **Guided mode (phase-gated).** Each phase runs automatically from your approved plan; you confirm every transition with a gate button. GA: *Approve & start induction* (FiO2 1.0 and bag-mask ventilation, then premed/induction plan steps) → *Intubate (secure airway)*, enabled only when intubating conditions are met (all induction steps given, simulated depth index ≤ 60, TOF count ≤ 1); it never secures the airway by itself → *Enter maintenance mode* (maintenance plan steps; surgery starts automatically after 2 min once depth ≤ 60) → *End surgery* (your choice; the plan has no maintenance-duration field) → *Enter emergence / extubation mode* (emergence plan steps: agents off, antiemetic, reversal) → *Extubate*, enabled only while `sim.extubationReadiness()` is met. MAC: *Approve & start sedation* (FiO2 0.4, sedation plan steps; the procedure starts automatically once the plan's ASA-continuum target level is reached) → *End procedure* (ends the procedure and starts recovery) → complete when the sedation level is minimal or awake.
+- **Run full case automatically.** A demonstration that walks the same sequence without waiting at the gates; gates pass on fixed timings (e.g. 30 min of surgery, 20 min of procedure).
+- **Same actions as the manual buttons.** Every step calls the shared functions in `engine/case-actions.js` that the manual phase, airway and extubation controls also call, so interlocks, alarms and the event log behave exactly as in a manual run.
+- **Extubation is never forced.** Extubation happens only when `sim.extubationReadiness()` is met (TOFR ≥ 0.9, Thilen 2023, plus the illustrative criteria); the "Extubate anyway" override is never used. If readiness is not met within 30 min of emergence, the demonstration stops and lists the unmet criteria; guided mode lists them and keeps *Extubate* disabled (you can take over).
+- **Pauses.** Both modes pause, stop the clock and say why (on screen and through the `aria-live` region) when an interlock hold latches or an unacknowledged HIGH-priority alarm is active or newly raised. They never release a hold or acknowledge an alarm: you decide (e.g. *Acknowledge*, *Resume hold*), then press *Resume*. Medium and low alarms (MAP < 65, depth over the sedation target, dose-range notices) do not pause; they are shown and announced as usual.
+- **Manual control ends it.** *Pause*, *Resume* and *Take over manually* are always available. Using any other control on the monitor (phase, airway, drug, fluid, complication, sensor fault, step or play button, restart) ends guided/automatic mode and is logged; the case then continues manually. Speed, alarm *Acknowledge* and *Resume hold* do not end it.
+- **Labelled and recorded.** While a mode runs, a banner says it is a scripted educational sequence, not a controller or a clinical recommendation. Each step it takes is logged with the prefix `AUTO:` (log kind `auto`). The debrief and the downloaded session JSON (`automaticMode`, `summary.automatic`) record the mode, the steps (automatic or confirmed by you), pauses, and where and why it stopped.
+- **Limits.** The conditions are simulator conventions applied to illustrative model outputs (depth index, sedation level, TOF); only TOFR 0.9 (Thilen 2023), the ASA continuum levels and the config.yaml interlock thresholds are sourced. Every condition and timing is in one block, `engine/autorun-config.js`, with its unit, rationale and provenance; the Model card lists them. In the healthy-adult example (seed 1) the illustrative model's MAP falls below 60 during maintenance, so the demonstration pauses there until you respond. A sequence can only start from 00:00; after you take over it cannot be re-entered mid-case.
 
 ## Where doses come from
 
@@ -76,6 +89,9 @@ The smoke test skips itself when Playwright or the server is unavailable. When i
 - a GA case runs end to end at 60× (induction → airway → maintenance → emergence → sugammadex → extubation readiness);
 - extubating when not ready asks for confirmation and is logged;
 - the MAC moderate-sedation case runs;
+- guided mode for a GA example (elderly) and the MAC example at 60×: gates appear in order, nothing advances without the gate, *Intubate* and *Extubate* are enabled only when their conditions are met, and the debrief notes guided mode;
+- "Run full case automatically" for a GA example (MH-susceptible TIVA) and the MAC example at 60×: the banner text, completion, `AUTO:` log entries, no override, the debrief "ran automatically" note and the session JSON flag;
+- a manual control ends automatic mode;
 - a sensor fault shows `FAULT`, turns the status RED/HOLD, and "Resume hold" is logged;
 - the Sources, Model card and About panels open;
 - there is no page-level horizontal scroll at 390 px.
@@ -96,4 +112,8 @@ ui/monitor.js         step 4        ui/charts.js       canvas trends
 ui/debrief.js         step 5        ui/model-card.js   Model card panel
 ui/sources.js         Sources panel and source tags
 engine/, data/        pure simulation engine and drug library (no DOM)
+engine/case-actions.js   phase/airway/extubation actions shared by the manual buttons and the sequences
+engine/autorun.js        guided mode and the automatic demonstration (pure, testable)
+engine/autorun-config.js every guided/automatic condition and timing, with provenance
+tools/model-card-tables.mjs  regenerates the Model card tables (--check verifies they are current)
 ```

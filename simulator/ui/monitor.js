@@ -7,6 +7,8 @@ import { srcTags } from './sources.js';
 import { CLASS_LABELS, CLASS_ORDER, PHASE_LABELS, PHASE_LABELS_MAC, PRIORITY_LABELS, PRIORITY_SHAPES, INTERLOCK_TEXT, KIND_LABELS } from './labels.js';
 import { getDrugById, isInhaledDrug, interlockCeiling, interlockNote } from './plan-model.js';
 import { interlockExplanation } from './plan-editor.js';
+import { CASE_ACTIONS, surgeryState } from '../engine/case-actions.js';
+import { createAutoRunner, BANNERS, MODE_LABELS } from '../engine/autorun.js';
 
 const SPEEDS = [1, 5, 20, 60];
 const TILE_ALARMS = {
@@ -25,7 +27,7 @@ export function tofDepthText(count, ratio) {
 }
 
 export function newRunState() {
-  return { speed: 20, playing: false, hist: { t: [], hr: [], map: [], spo2: [], depth: [], mac: [], ce: {} }, lastSample: -Infinity, overrides: [], surgery: { started: false, ended: false }, seenAlarms: new Set(), uiLog: [] };
+  return { speed: 20, playing: false, hist: { t: [], hr: [], map: [], spo2: [], depth: [], mac: [], ce: {} }, lastSample: -Infinity, overrides: [], seenAlarms: new Set(), uiLog: [], auto: null, autoStart: null, autoListener: null };
 }
 
 export function renderMonitor(ctx, main) {
@@ -49,7 +51,7 @@ export function renderMonitor(ctx, main) {
     return b;
   });
   const speedBtns = SPEEDS.map((sp) => {
-    const b = h('button', { type: 'button', class: 'btn btn--hmi btn--speed', dataset: { speed: sp }, 'aria-pressed': String(run.speed === sp) }, `${sp}×`);
+    const b = h('button', { type: 'button', class: 'btn btn--hmi btn--speed', dataset: { speed: sp }, 'data-auto-safe': 'speed', 'aria-pressed': String(run.speed === sp) }, `${sp}×`);
     b.addEventListener('click', () => { run.speed = sp; for (const x of speedBtns) x.setAttribute('aria-pressed', String(Number(x.dataset.speed) === sp)); announce(`Speed ${sp} times.`); });
     return b;
   });
@@ -97,7 +99,7 @@ export function renderMonitor(ctx, main) {
   // ---------------- interlocks
   const ilStatus = h('p', { class: 'il-status', id: 'mon-il-status' });
   const ilHeld = h('p', { class: 'il-held', id: 'mon-il-held' });
-  const resumeBtn = h('button', { type: 'button', class: 'btn btn--hmi btn--warn', id: 'mon-resume' }, 'Resume hold');
+  const resumeBtn = h('button', { type: 'button', class: 'btn btn--hmi btn--warn', id: 'mon-resume', 'data-auto-safe': 'resume-hold' }, 'Resume hold');
   resumeBtn.addEventListener('click', () => { const r = sim.action('resume_hold'); feedback(r.ok ? 'Hold released (logged). Held infusions stay at zero — restart them yourself if appropriate.' : r.message, !r.ok); render(true); });
   const ilToggle = h('input', { type: 'checkbox', id: 'mon-il-toggle', checked: store.interlocks });
   const ilConfirm = h('div', { class: 'il-confirm', hidden: true });
@@ -123,19 +125,22 @@ export function renderMonitor(ctx, main) {
   const pbtn = (id, label, fn, hint = null) => { const b = h('button', { type: 'button', class: 'btn btn--hmi', id: `ph-${id}` }, label); b.addEventListener('click', () => { fn(); render(true); }); phaseBtns[id] = b; return hint ? h('span', { class: 'pbtn' }, b, h('span', { class: 'hint hint--hmi' }, hint)) : b; };
   const nextHint = h('p', { class: 'hint hint--hmi', id: 'mon-next' });
   const act = (id, okMsg = null) => { const r = sim.action(id); feedback(r.ok ? (okMsg || r.message) : r.message, !r.ok); return r; };
+  // Phase controls call the shared case actions (engine/case-actions.js) — the same calls the
+  // guided/automatic runner makes.
+  const caseAct = (id) => { const r = CASE_ACTIONS[id](sim); feedback(r.message, !r.ok); return r; };
   const phaseCtl = isGA ? [
-    pbtn('induction', 'Start induction', () => { sim.setPhase('induction'); feedback('Induction started — plan induction steps run from now.'); }),
-    pbtn('secure', 'Secure airway', () => { const r = act('secure_airway'); if (r.ok) { sim.action('start_ventilation'); feedback(`${r.message}. Mechanical ventilation started.`); } }),
-    pbtn('maintenance', 'Start maintenance', () => { sim.setPhase('maintenance'); feedback('Maintenance phase started.'); }),
-    pbtn('surgery', 'Start surgery', () => { const r = act('start_surgery'); if (r.ok) { run.surgery.started = true; run.surgery.ended = false; } }),
-    pbtn('endsurgery', 'End surgery', () => { const r = act('end_surgery'); if (r.ok) run.surgery.ended = true; }),
-    pbtn('emergence', 'Begin emergence', () => { sim.setPhase('emergence'); feedback('Emergence started — plan emergence steps run from now.'); }),
+    pbtn('induction', 'Start induction', () => caseAct('start_induction')),
+    pbtn('secure', 'Secure airway', () => caseAct('secure_airway')),
+    pbtn('maintenance', 'Start maintenance', () => caseAct('start_maintenance')),
+    pbtn('surgery', 'Start surgery', () => caseAct('start_surgery')),
+    pbtn('endsurgery', 'End surgery', () => caseAct('end_surgery')),
+    pbtn('emergence', 'Begin emergence', () => caseAct('begin_emergence')),
     pbtn('extubate', 'Extubate…', () => ctx.openExtubation(sim, () => render(true))),
   ] : [
-    pbtn('sedation', 'Start sedation', () => { sim.setPhase('sedation'); feedback('Sedation started.'); }),
-    pbtn('surgery', 'Start procedure', () => { const r = act('start_surgery', 'Procedure started'); if (r.ok) { run.surgery.started = true; run.surgery.ended = false; } }),
-    pbtn('endsurgery', 'End procedure', () => { const r = act('end_surgery', 'Procedure ended'); if (r.ok) run.surgery.ended = true; }),
-    pbtn('emergence', 'End sedation / recovery', () => { sim.setPhase('emergence'); feedback('Recovery phase started — plan stop steps run from now.'); }),
+    pbtn('sedation', 'Start sedation', () => caseAct('start_sedation')),
+    pbtn('surgery', 'Start procedure', () => caseAct('start_procedure')),
+    pbtn('endsurgery', 'End procedure', () => caseAct('end_procedure')),
+    pbtn('emergence', 'End sedation / recovery', () => caseAct('end_sedation')),
   ];
   const phasePanel = h('section', { class: 'hmi-panel', 'aria-labelledby': 'mon-ph-h' }, h('h3', { id: 'mon-ph-h' }, 'Phase'), h('div', { class: 'btn-row' }, phaseCtl), nextHint);
 
@@ -258,8 +263,91 @@ export function renderMonitor(ctx, main) {
   const readyPanel = isGA ? h('section', { class: 'hmi-panel', 'aria-labelledby': 'mon-ready-h' }, h('h3', { id: 'mon-ready-h' }, 'Extubation readiness (live)'), readyHead, readyList,
     h('p', { class: 'hint hint--hmi' }, 'TOFR ≥ 0.9 before extubation ', srcTags([E.tofExtubation]), '. Without reversal, rocuronium recovery is slow; sugammadex dose depends on block depth.')) : null;
 
+  // ---------------- guided / automatic modes (engine/autorun.js; conditions in engine/autorun-config.js)
+  const autoStatus = h('p', { class: 'auto-status', id: 'auto-status' });
+  const autoBanner = h('p', { class: 'auto-banner', id: 'auto-banner', hidden: true });
+  const autoGate = h('button', { type: 'button', class: 'btn btn--hmi btn--primary auto-gate', id: 'auto-gate', hidden: true });
+  const autoUnmet = h('ul', { class: 'auto-unmet', id: 'auto-unmet' });
+  const autoSeq = h('ol', { class: 'auto-seq', id: 'auto-seq' });
+  const autoPause = h('button', { type: 'button', class: 'btn btn--hmi', id: 'auto-pause' }, 'Pause');
+  const autoResume = h('button', { type: 'button', class: 'btn btn--hmi', id: 'auto-resume' }, 'Resume');
+  const autoTake = h('button', { type: 'button', class: 'btn btn--hmi btn--warn', id: 'auto-takeover' }, 'Take over manually');
+  const autoGuided = h('button', { type: 'button', class: 'btn btn--hmi btn--primary', id: 'auto-guided' }, 'Start guided mode');
+  const autoFull = h('button', { type: 'button', class: 'btn btn--hmi', id: 'auto-full' }, 'Run full case automatically');
+  const autoStartRow = h('div', { class: 'btn-row', id: 'auto-start-row' }, autoGuided, autoFull);
+  const autoCtlRow = h('div', { class: 'btn-row', id: 'auto-ctl-row' }, autoPause, autoResume, autoTake);
+  const autoPanel = h('section', { class: 'hmi-panel auto-panel', id: 'auto-panel', 'aria-labelledby': 'auto-h', 'data-auto-safe': 'auto-panel' },
+    h('h3', { id: 'auto-h' }, 'Guided & automatic modes'), autoBanner,
+    h('p', { class: 'hint hint--hmi', id: 'auto-intro' }, `Use the patient and plan already entered (doses are not changed) and start the case from 00:00. Guided mode runs each phase from your plan and waits for you at every transition; the full demonstration walks the same sequence on fixed timings. Both pause for an interlock hold or a HIGH-priority alarm (never clearing or acknowledging it), never extubate unless the readiness checklist is met, and end as soon as you use any manual control. Every step is logged (log kind "auto").`),
+    autoStartRow, autoStatus, autoGate, autoUnmet, autoCtlRow, autoSeq);
+  const startAuto = (mode) => {
+    if (sim.state.tSec > 0 || sim.state.phase !== 'premed') { ctx.restartSim(); store.run.autoStart = mode; ctx.rerender(); return; }
+    beginAuto(mode);
+  };
+  function beginAuto(mode) {
+    run.auto = createAutoRunner({ sim, mode, onEvent: (ev) => { if (run.autoListener) run.autoListener(ev); } });
+    run.autoListener = onAutoEvent;
+    const r = run.auto.start();
+    feedback(r.message, !r.ok); announce(`${MODE_LABELS[mode]} started. ${BANNERS[mode]}`);
+    if (r.ok) setPlaying(true, true);
+    render(true);
+  }
+  function onAutoEvent(ev) {
+    if (!alive) return;
+    const bad = ev.type === 'paused' || ev.type === 'stopped' || ev.type === 'still_paused' || ev.type === 'timeout_warning';
+    if (['paused', 'stopped', 'completed', 'still_paused'].includes(ev.type) && run.playing) setPlaying(false, true);
+    feedback(ev.message, bad && ev.type !== 'timeout_warning', ev.type === 'timeout_warning');
+    if (ev.type !== 'started') announce(ev.message, bad);
+  }
+  run.autoListener = run.auto ? onAutoEvent : null;
+  autoGuided.addEventListener('click', () => startAuto('guided'));
+  autoFull.addEventListener('click', () => startAuto('full'));
+  autoPause.addEventListener('click', () => { if (run.auto) { const r = run.auto.pause(); if (!r.ok) feedback(r.message, true); render(true); } });
+  autoResume.addEventListener('click', () => { if (!run.auto) return; const r = run.auto.resume(); if (r.ok) setPlaying(true, true); render(true); });
+  autoTake.addEventListener('click', () => { if (run.auto) { run.auto.takeOver('Take over manually button'); render(true); } });
+  autoGate.addEventListener('click', () => {
+    const st = run.auto && run.auto.status(); if (!st || !st.current) return;
+    const r = run.auto.approve(st.current.id); feedback(r.message, !r.ok);
+    if (r.ok && run.auto.state === 'running' && !run.playing) setPlaying(true, true);
+    render(true);
+  });
+  // Any manual control on the monitor (phase, airway, drug, fluid, complication, sensor, step,
+  // play, restart) ends guided/automatic mode first; speed, alarm acknowledge, "Resume hold" and
+  // the mode panel itself do not (data-auto-safe).
+  const describeControl = (b) => (b.getAttribute('aria-label') || b.textContent || b.id || 'control').trim().replace(/\s+/g, ' ');
+  function renderAuto() {
+    const A = run.auto; const st = A ? A.status() : null;
+    const active = !!(st && st.active);
+    autoStartRow.hidden = active; autoCtlRow.hidden = !active;
+    autoBanner.hidden = !st; if (st) setText(autoBanner, st.banner);
+    autoPanel.classList.toggle('auto-panel--active', active);
+    autoPanel.classList.toggle('auto-panel--paused', !!st && st.state === 'paused');
+    if (!st) { setText(autoStatus, ''); autoGate.hidden = true; clear(autoUnmet); clear(autoSeq); return; }
+    const stateText = { running: 'running', paused: 'PAUSED', completed: 'complete', stopped: 'STOPPED', manual: 'ended (manual control)' }[st.state] || st.state;
+    setText(autoStatus, `${st.modeLabel} — ${stateText}. ${st.message}`);
+    autoPause.disabled = st.state !== 'running'; autoResume.disabled = st.state !== 'paused';
+    const c = st.current;
+    const showGate = active && st.mode === 'guided' && c && c.gate;
+    autoGate.hidden = !showGate;
+    if (showGate) { setText(autoGate, c.gateLabel); autoGate.disabled = !c.enabled; autoGate.dataset.gate = c.id; }
+    const unmet = st.state === 'stopped' ? st.unmetAtStop : active && c && !c.conditionsMet ? c.unmet : [];
+    const usig = unmet.join('|') + st.state;
+    if (autoUnmet.dataset.sig !== usig) {
+      autoUnmet.dataset.sig = usig;
+      clear(autoUnmet).append(...(unmet.length ? [h('li', { class: 'auto-unmet__head' }, st.state === 'stopped' ? 'Unmet when stopped:' : `Waiting for${c && c.timedOut ? ' (time limit passed)' : ''}:`), ...unmet.map((u) => h('li', {}, '✗ ', u))] : []));
+    }
+    const ssig = st.sequence.map((x) => `${x.done}${x.current}`).join('') + st.state;
+    if (autoSeq.dataset.sig !== ssig) {
+      autoSeq.dataset.sig = ssig;
+      clear(autoSeq).append(...st.sequence.map((x) => h('li', { class: x.done ? 'is-done' : x.current ? 'is-current' : '' },
+        h('span', { class: 'auto-seq__mark', 'aria-hidden': 'true' }, x.done ? '✓' : x.current ? '▶' : '○'),
+        h('span', { class: 'sr-only' }, x.done ? 'Done: ' : x.current ? 'Current: ' : 'Pending: '),
+        `${x.label}${x.gate && st.mode === 'guided' ? ' (you confirm)' : x.gate ? '' : ' (automatic)'}`, h('span', { class: 'hint hint--hmi' }, ` — ${x.describe}`))));
+    }
+  }
+
   // ---------------- log
-  const logFilter = h('select', { id: 'log-filter', class: 'input input--hmi' }, ['all', 'dose', 'alarm', 'interlock', 'action', 'phase', 'event'].map((k) => h('option', { value: k }, k === 'all' ? 'All entries' : k)));
+  const logFilter = h('select', { id: 'log-filter', class: 'input input--hmi' }, ['all', 'dose', 'alarm', 'interlock', 'action', 'phase', 'event', 'auto'].map((k) => h('option', { value: k }, k === 'all' ? 'All entries' : k === 'auto' ? 'auto (guided / automatic steps)' : k)));
   const logList = h('ol', { class: 'log', id: 'mon-log', reversed: true });
   let logLen = -1;
   logFilter.addEventListener('change', () => { logLen = -1; renderLog(); });
@@ -278,19 +366,26 @@ export function renderMonitor(ctx, main) {
         h('div', { class: 'hmi-toolbar__group', role: 'group', 'aria-label': 'Playback' }, playBtn, stepBtns),
         h('div', { class: 'hmi-toolbar__group', role: 'group', 'aria-label': 'Speed' }, h('span', { class: 'label' }, 'Speed'), speedBtns),
         h('div', { class: 'hmi-toolbar__group' }, ilBadge, restartBtn)),
-      fb,
+      fb, autoPanel,
       h('div', { class: 'hmi-grid' },
         h('div', { class: 'hmi-main' }, tileGrid, chartGrid, drugPanel),
         h('div', { class: 'hmi-side' }, alarmPanel, ilPanel, phasePanel, readyPanel, airwayPanel, intPanel)),
       logPanel),
     h('div', { class: 'actions' }, h('button', { type: 'button', class: 'btn', onclick: () => ctx.go(3) }, '← Back to plan'), toDebrief));
 
+  document.getElementById('hmi').addEventListener('click', (e) => {
+    const b = e.target.closest('button');
+    if (!b || b.disabled || !run.auto || !run.auto.active || b.closest('[data-auto-safe]')) return;
+    run.auto.takeOver(describeControl(b));
+    feedback(run.auto.message, false, true); announce(run.auto.message);
+  }, true);
+
   // ---------------- behaviour
-  function setPlaying(p) {
+  function setPlaying(p, quiet = false) {
     run.playing = p; if (p) sim.play(); else sim.pause();
     playBtn.textContent = p ? '❚❚ Pause' : '▶ Play'; playBtn.setAttribute('aria-pressed', String(p));
     if (p) { lastTs = null; if (!raf) raf = requestAnimationFrame(frame); }
-    announce(p ? `Playing at ${run.speed} times.` : 'Paused.');
+    if (!quiet) announce(p ? `Playing at ${run.speed} times.` : 'Paused.');
   }
   function sample() {
     const S = sim.state; const H = run.hist;
@@ -307,7 +402,13 @@ export function renderMonitor(ctx, main) {
     const cut = H.t.findIndex((t) => t >= S.tSec - WINDOW_SEC - 30);
     if (cut > 200) { for (const k of ['t', 'hr', 'map', 'spo2', 'depth', 'mac']) H[k].splice(0, cut); for (const k of Object.keys(H.ce)) H.ce[k].splice(0, cut); }
   }
-  function advance(sec) { for (let i = 0; i < sec; i++) { sim.step(1); sample(); } }
+  function advance(sec) {
+    for (let i = 0; i < sec; i++) {
+      sim.step(1); sample();
+      const A = run.auto;
+      if (A && A.state === 'running') { A.tick(); if (A.state !== 'running') break; }
+    }
+  }
   function frame(ts) {
     raf = null;
     if (!alive || !run.playing) return;
@@ -365,16 +466,16 @@ export function renderMonitor(ctx, main) {
     // alarms
     renderAlarms();
     // phase buttons
-    const ph = S.phase;
+    const ph = S.phase; const surg = surgeryState(sim);
     const en = (id, on) => { if (phaseBtns[id]) phaseBtns[id].disabled = !on; };
     if (isGA) {
       en('induction', ph === 'premed'); en('secure', !A.secured && (ph === 'induction' || ph === 'maintenance' || ph === 'emergence') && !run.extubated);
-      en('maintenance', ph === 'induction'); en('surgery', !run.surgery.started || run.surgery.ended); en('endsurgery', run.surgery.started && !run.surgery.ended);
+      en('maintenance', ph === 'induction'); en('surgery', !surg.started || surg.ended); en('endsurgery', surg.started && !surg.ended);
       en('emergence', ph === 'maintenance'); en('extubate', A.secured);
-      setText(nextHint, ph === 'premed' ? 'Next: Start induction.' : ph === 'induction' && !A.secured ? 'Next: when the patient is asleep and paralysed (TOF count 0–1), Secure airway (starts the ventilator).' : ph === 'induction' ? 'Next: Start maintenance.' : ph === 'maintenance' && !run.surgery.started ? 'Next: Start surgery.' : ph === 'maintenance' && !run.surgery.ended ? 'Surgery in progress. End surgery when done.' : ph === 'maintenance' ? 'Next: Begin emergence.' : A.secured ? 'Emergence: reverse block if needed, wait for the readiness checklist, then Extubate.' : 'Extubated. Observe, then Finish → Debrief.');
+      setText(nextHint, ph === 'premed' ? 'Next: Start induction.' : ph === 'induction' && !A.secured ? 'Next: when the patient is asleep and paralysed (TOF count 0–1), Secure airway (starts the ventilator).' : ph === 'induction' ? 'Next: Start maintenance.' : ph === 'maintenance' && !surg.started ? 'Next: Start surgery.' : ph === 'maintenance' && !surg.ended ? 'Surgery in progress. End surgery when done.' : ph === 'maintenance' ? 'Next: Begin emergence.' : A.secured ? 'Emergence: reverse block if needed, wait for the readiness checklist, then Extubate.' : 'Extubated. Observe, then Finish → Debrief.');
     } else {
-      en('sedation', ph === 'premed'); en('surgery', ph === 'sedation' && (!run.surgery.started || run.surgery.ended)); en('endsurgery', run.surgery.started && !run.surgery.ended); en('emergence', ph === 'sedation');
-      setText(nextHint, ph === 'premed' ? 'Next: Start sedation.' : ph === 'sedation' && !run.surgery.started ? 'Next: Start procedure when the target depth is reached.' : ph === 'sedation' ? 'Procedure in progress; watch depth vs target, SpO2 and EtCO2.' : 'Recovery. Finish → Debrief when done.');
+      en('sedation', ph === 'premed'); en('surgery', ph === 'sedation' && (!surg.started || surg.ended)); en('endsurgery', surg.started && !surg.ended); en('emergence', ph === 'sedation');
+      setText(nextHint, ph === 'premed' ? 'Next: Start sedation.' : ph === 'sedation' && !surg.started ? 'Next: Start procedure when the target depth is reached.' : ph === 'sedation' ? 'Procedure in progress; watch depth vs target, SpO2 and EtCO2.' : 'Recovery. Finish → Debrief when done.');
     }
     // airway
     setText(awState, `${A.secured ? 'Tracheal tube in place' : 'Natural airway'} · ${A.secured && A.ventilated ? 'mechanical ventilation' : A.maskVentilation ? 'bag-mask ventilation' : 'no ventilatory support'}${A.jawThrust ? ' · jaw thrust' : ''} · FiO2 ${A.fio2.toFixed(2)}`);
@@ -393,6 +494,7 @@ export function renderMonitor(ctx, main) {
       const sig = r.criteria.map((c) => `${c.id}${c.met}${JSON.stringify(c.value)}`).join('|');
       if (sig !== readyList.dataset.sig) { readyList.dataset.sig = sig; clear(readyList).append(...r.criteria.map((c) => readinessItem(c))); }
     }
+    renderAuto();
     renderLog();
     drawCharts();
   }
@@ -409,7 +511,7 @@ export function renderMonitor(ctx, main) {
     clear(alarmList);
     if (!list.length) { alarmList.append(h('li', { class: 'alarm alarm--none' }, 'No alarms.')); }
     for (const a of list) {
-      const b = h('button', { type: 'button', class: 'btn btn--hmi btn--small', dataset: { ack: a.id }, disabled: a.acknowledged, 'aria-label': `Acknowledge ${PRIORITY_LABELS[a.priority]} alarm: ${a.message}` }, a.acknowledged ? 'Acknowledged' : 'Acknowledge');
+      const b = h('button', { type: 'button', class: 'btn btn--hmi btn--small', dataset: { ack: a.id }, 'data-auto-safe': 'acknowledge', disabled: a.acknowledged, 'aria-label': `Acknowledge ${PRIORITY_LABELS[a.priority]} alarm: ${a.message}` }, a.acknowledged ? 'Acknowledged' : 'Acknowledge');
       b.addEventListener('click', () => { sim.action(`acknowledge:${a.id}`); render(true); const nb = alarmList.querySelector('button:not([disabled])'); (nb || alarmPanel.querySelector('h3')).focus?.(); });
       alarmList.append(h('li', { class: `alarm alarm--${a.priority}${a.active ? '' : ' alarm--latched'}` },
         h('span', { class: `prio prio--${a.priority}` }, `${PRIORITY_SHAPES[a.priority]} ${PRIORITY_LABELS[a.priority]}`),
@@ -484,10 +586,11 @@ export function renderMonitor(ctx, main) {
 
   if (!run.hist.t.length) sample();
   render(true);
-  if (run.playing) setPlaying(true);
+  if (run.autoStart) { const m = run.autoStart; run.autoStart = null; beginAuto(m); }
+  else if (run.playing) setPlaying(true);
 
   return {
-    leave() { alive = false; if (raf) cancelAnimationFrame(raf); raf = null; if (ro) ro.disconnect(); if (run.playing) { run.playing = false; sim.pause(); } },
+    leave() { if (run.auto && run.auto.state === 'running') run.auto.pause('Paused: left the Run screen.'); run.autoListener = null; alive = false; if (raf) cancelAnimationFrame(raf); raf = null; if (ro) ro.disconnect(); if (run.playing) { run.playing = false; sim.pause(); } },
   };
 }
 

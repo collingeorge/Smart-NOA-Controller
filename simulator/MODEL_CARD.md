@@ -2,20 +2,20 @@
 
 > **Educational work by a pre-medical student — not medical advice.** Not a clinical protocol, prescription, or patient handout, and not for patient care. See [DISCLAIMER](../DISCLAIMER.md).
 
-Generated from `sim.parameterInventory()` on 2026-11-05 so this table matches the code. Structure follows the ISPOR–SMDM Modeling Good Research Practices Task Force-7 report on model transparency and validation (Eddy et al., *Value in Health* 2012;15:843-850).
+Generated from `sim.parameterInventory()` and `engine/autorun-config.js` on 2026-11-05 by `node simulator/tools/model-card-tables.mjs` so these tables match the code. Structure follows the ISPOR–SMDM Modeling Good Research Practices Task Force-7 report on model transparency and validation (Eddy et al., *Value in Health* 2012;15:843-850).
 
 ## Intended use
 Education only: an educational, label-calibrated anesthesia pharmacology simulator with fictional adult patients. Not for clinical decisions or dosing. Not a medical device. No device, monitor, pump or patient-data interface.
 
 ## Verification and validation status
-- **Verification (does the code do what it is written to do):** automated tests — 108 engine/library tests (patient derivations, dosing and contraindications, PK/PD sanity, physiology sanity, Python-controller parity, determinism, full GA and MAC runs, model-implementation checks) and a 9-case browser smoke test.
+- **Verification (does the code do what it is written to do):** automated tests — 124 engine/library tests (patient derivations, dosing and contraindications, PK/PD sanity, physiology sanity, Python-controller parity, determinism, full GA and MAC runs, model-implementation checks, guided/automatic sequence behaviour) and a 13-case browser smoke test.
 - **Implementation check of a published model:** propofol uses the published Eleveld 2018 model; tests reproduce its reference-patient parameter values as recorded in independent open-source implementations. The PK coefficients were not compared with the original paper's Table 2 in this session (publisher pages unreachable) — see SOURCES.md.
 - **Face validity:** no expert anesthesiologist review has been recorded.
 - **External validation:** none performed. Simulator outputs have not been compared with observed patient data.
 - **Parts that cannot be validated with available sources:** all rows below marked *author estimate — unvalidated* (effect magnitudes, physiology constants, wash-in time constants, fluid-response constants).
 
-## Parameter inventory (455 parameters)
-Provenance counts: published_model: 29, author_estimate_unvalidated: 416, trial_or_physiology_study: 2, guideline: 2, project_config: 6.
+## Parameter inventory (481 parameters)
+Provenance counts: published_model: 29, author_estimate_unvalidated: 416, trial_or_physiology_study: 2, guideline: 4, project_config: 8, simulator_convention: 22.
 
 | Component | Drug | Parameter | Value | Unit | Provenance | Sources | Note |
 |---|---|---|---|---|---|---|---|
@@ -474,6 +474,86 @@ Provenance counts: published_model: 29, author_estimate_unvalidated: 416, trial_
 | extubation |  | MAP_MAX | 110 |  | author_estimate_unvalidated |  | Illustrative extubation-readiness criterion (TOFR criterion is the guideline value above). |
 | extubation |  | HR_MIN | 50 |  | author_estimate_unvalidated |  | Illustrative extubation-readiness criterion (TOFR criterion is the guideline value above). |
 | extubation |  | HR_MAX | 110 |  | author_estimate_unvalidated |  | Illustrative extubation-readiness criterion (TOFR criterion is the guideline value above). |
+| autorun |  | PRE_INDUCTION_DWELL_SEC | 60 | s | simulator_convention |  | [full demonstration only] Full demonstration waits this long after 00:00 (premedication steps run at their offsets) before "Start induction" / "Start sedation". In guided mode the clinician presses "Approve & start". |
+| autorun |  | INDUCTION_FIO2 | 1 | fraction | simulator_convention |  | [guided + full] At "Start induction" the sequence sets FiO2 1.0 (pre-oxygenation) and starts bag-mask ventilation, using the same set_fio2 and mask_ventilate actions as the Airway panel buttons. |
+| autorun |  | SEDATION_FIO2 | 0.4 | fraction | simulator_convention |  | [guided + full] At "Start sedation" the sequence sets supplemental oxygen FiO2 0.4 with the Airway panel set_fio2 action (the same value the browser smoke test uses for the MAC example). |
+| autorun |  | INTUBATION_DEPTH_MAX | 60 | depth index (0–100, illustrative; not BIS) | simulator_convention |  | [guided + full] Intubating conditions: simulated depth index ≤ 60. The engine notes laryngoscopy above 70 as light; 60 is the depth the existing GA smoke test waits for. |
+| autorun |  | INTUBATION_TOF_COUNT_MAX | 1 | TOF count | simulator_convention |  | [guided + full] Intubating conditions: TOF count ≤ 1 (the Run screen hint "asleep and paralysed (TOF count 0–1)"). All induction plan steps must also have run. |
+| autorun |  | INTUBATION_TIMEOUT_SEC | 600 | s | simulator_convention |  | [guided + full] If intubating conditions are not met within this time after induction starts: the demonstration stops; guided mode shows the unmet conditions and keeps the Intubate button disabled. |
+| autorun |  | MAINTENANCE_AFTER_AIRWAY_SEC | 60 | s | simulator_convention |  | [full demonstration only] Full demonstration enters maintenance this long after the airway is secured. In guided mode the clinician presses "Enter maintenance mode". |
+| autorun |  | SURGERY_START_MIN_SEC | 120 | s | simulator_convention |  | [guided + full] Surgery (start_surgery) starts automatically no earlier than this after maintenance begins (a short pre-incision period; in the example cases a longer unstimulated period makes MAP < 60 more frequent in this illustrative model). |
+| autorun |  | SURGERY_DEPTH_MAX | 60 | depth index (0–100, illustrative; not BIS) | simulator_convention |  | [guided + full] Surgery starts automatically only when the simulated depth index is ≤ 60. |
+| autorun |  | SURGERY_START_TIMEOUT_SEC | 900 | s | simulator_convention |  | [guided + full] If the surgery-start condition is not met within this time after maintenance begins, automatic mode stops and reports the unmet condition. |
+| autorun |  | SURGERY_DURATION_SEC | 1800 | s | simulator_convention |  | [full demonstration only] Full demonstration ends surgery after this time (the plan has no maintenance-duration field). In guided mode the clinician presses "End surgery". |
+| autorun |  | CLOSING_BEFORE_EMERGENCE_SEC | 300 | s | simulator_convention |  | [full demonstration only] Full demonstration begins emergence this long after surgery ends (matches the engine closing-stimulus duration). In guided mode the clinician presses "Enter emergence / extubation mode". |
+| autorun |  | EXTUBATION_TOFR_MIN | 0.9 | TOF ratio | guideline | S5 | [guided + full] Extubation needs sim.extubationReadiness() to be met, which includes TOFR ≥ 0.9. The sequence never uses the "Extubate anyway" override. Other readiness criteria are the engine's illustrative rules. |
+| autorun |  | READINESS_HOLD_SEC | 10 | s | simulator_convention |  | [full demonstration only] Full demonstration extubates only after readiness has been met for this many consecutive simulated seconds (readiness can flicker with seeded noise). Guided mode enables "Extubate" whenever readiness is met and re-checks it on the click. |
+| autorun |  | EXTUBATION_TIMEOUT_SEC | 1800 | s | simulator_convention |  | [guided + full] If readiness is not met within this time after emergence begins: the demonstration stops and lists the unmet criteria; guided mode lists them and keeps "Extubate" disabled. |
+| autorun |  | POST_EXTUBATION_OBSERVE_SEC | 300 | s | simulator_convention |  | [guided + full] After extubation the sequence observes for this time, then reports the case complete. |
+| autorun |  | SEDATION_TARGET_LEVEL | "plan.sedationTarget" | ASA continuum level | guideline | S31 | [guided + full] The procedure starts automatically once the simulated sedation level reaches the plan target (minimal / moderate / deep, ASA continuum definitions) and all sedation plan steps have run. The mapping from depth index to level is an illustrative engine rule. |
+| autorun |  | SEDATION_TARGET_TIMEOUT_SEC | 900 | s | simulator_convention |  | [guided + full] If the sedation target is not reached within this time after sedation starts, automatic mode stops and reports it. |
+| autorun |  | PROCEDURE_DURATION_SEC | 1200 | s | simulator_convention |  | [full demonstration only] Full demonstration ends the procedure after this time and moves to recovery. In guided mode the clinician presses "End procedure". |
+| autorun |  | RECOVERY_LEVEL_MAX | "minimal" | ASA continuum level | simulator_convention |  | [guided + full] Recovery is reported complete when the simulated sedation level is minimal or awake for RECOVERY_HOLD_SEC. This is a teaching end point, not a discharge criterion. |
+| autorun |  | RECOVERY_HOLD_SEC | 10 | s | simulator_convention |  | [guided + full] Consecutive simulated seconds the recovery level must hold. |
+| autorun |  | RECOVERY_TIMEOUT_SEC | 1800 | s | simulator_convention |  | [guided + full] If recovery is not reached within this time after the procedure ends, automatic mode stops and reports it. |
+| autorun |  | PAUSE_ON_INTERLOCK_HOLD | true | boolean | simulator_convention |  | [guided + full] Automatic mode pauses whenever an interlock hold is latched (the Run screen also stops the clock). It never calls resume_hold; the user must release the hold, then press Resume. |
+| autorun |  | INTERLOCK_MAP_CRITICAL_LOW | 60 | mmHg | project_config | S35 | [guided + full] Reused, not redefined: the engine latches the hold when MAP < 60 (config.yaml). Automatic mode reacts to the latched hold, not to its own threshold. |
+| autorun |  | INTERLOCK_HR_CRITICAL_LOW | 48 | /min | project_config | S35 | [guided + full] Reused, not redefined: the engine latches the hold when HR < 48 (config.yaml). |
+| autorun |  | PAUSE_ALARM_PRIORITIES | "high" | alarm priority | simulator_convention |  | [guided + full] Automatic mode pauses for an unacknowledged HIGH-priority alarm that is active or was raised since the last check. It never acknowledges alarms. Medium and low alarms (e.g. MAP < 65, depth over the sedation target, dose-range notices) do not pause: they are shown and announced as usual, and the user can pause or take over at any time. |
+
+## Automatic demonstration and guided mode
+Generated from `engine/autorun-config.js` and `engine/autorun.js`. Both modes are a **scripted sequence** of the same phase and airway actions as the manual Run-screen buttons (`engine/case-actions.js`); they are not a controller and not a clinical recommendation, and they have not been evaluated against clinical practice. They never give, change or stop a drug (only the user's plan steps do), never extubate unless `sim.extubationReadiness()` is met (the "Extubate anyway" override is never used), pause on a latched interlock hold or an unacknowledged HIGH-priority alarm without releasing or acknowledging it, and end as soon as any manual control is used.
+
+While either mode runs, an on-screen banner (exact text: `BANNERS` in `engine/autorun.js`) states that it is a scripted educational sequence, not a controller or a clinical recommendation. Steps taken are logged with the prefix `AUTO:` (log kind `auto`), and the debrief and the downloaded session JSON (`automaticMode`, `summary.automatic`) record the mode, outcome, pauses and where/why it stopped.
+
+**GA sequence**
+
+1. **Start induction** — gate “Approve & start induction” (guided: you press it; full demonstration: passes automatically); FiO2 1 and bag-mask ventilation, then induction plan steps run at their offsets.
+2. **Secure airway** — gate “Intubate (secure airway)” (guided: you press it; full demonstration: passes automatically); enabled when intubating conditions are met; tube + mechanical ventilation.
+3. **Start maintenance** — gate “Enter maintenance mode” (guided: you press it; full demonstration: passes automatically); maintenance plan steps run at their offsets.
+4. **Start surgery** — automatic in both modes; automatic once maintenance has run long enough and depth is adequate.
+5. **End surgery** — gate “End surgery” (guided: you press it; full demonstration: passes automatically); clinician-chosen end of surgery.
+6. **Begin emergence** — gate “Enter emergence / extubation mode” (guided: you press it; full demonstration: passes automatically); emergence plan steps run (agents off, antiemetic, reversal).
+7. **Extubate** — gate “Extubate” (guided: you press it; full demonstration: passes automatically); enabled only when sim.extubationReadiness() is met.
+8. **Observe after extubation** — automatic in both modes; observation, then complete.
+
+**MAC sequence**
+
+1. **Start sedation** — gate “Approve & start sedation” (guided: you press it; full demonstration: passes automatically); supplemental O2 FiO2 0.4, then sedation plan steps run at their offsets.
+2. **Start procedure** — automatic in both modes; automatic once the plan sedation target is reached and all sedation plan steps have run.
+3. **End procedure → recovery** — gate “End procedure” (guided: you press it; full demonstration: passes automatically); ends the procedure and starts recovery (plan stop steps run).
+4. **Recovery** — automatic in both modes; complete when sedation level is minimal or awake.
+
+Every condition and timing (26 entries; also listed in the parameter inventory as component `autorun`):
+
+| Entry | Value | Unit | Applies to | Provenance | Sources | Rationale |
+|---|---|---|---|---|---|---|
+| PRE_INDUCTION_DWELL_SEC | 60 | s | full demonstration | simulator convention (unsourced) |  | Full demonstration waits this long after 00:00 (premedication steps run at their offsets) before "Start induction" / "Start sedation". In guided mode the clinician presses "Approve & start". |
+| INDUCTION_FIO2 | 1 | fraction | both | simulator convention (unsourced) |  | At "Start induction" the sequence sets FiO2 1.0 (pre-oxygenation) and starts bag-mask ventilation, using the same set_fio2 and mask_ventilate actions as the Airway panel buttons. |
+| SEDATION_FIO2 | 0.4 | fraction | both | simulator convention (unsourced) |  | At "Start sedation" the sequence sets supplemental oxygen FiO2 0.4 with the Airway panel set_fio2 action (the same value the browser smoke test uses for the MAC example). |
+| INTUBATION_DEPTH_MAX | 60 | depth index (0–100, illustrative; not BIS) | both | simulator convention (unsourced) |  | Intubating conditions: simulated depth index ≤ 60. The engine notes laryngoscopy above 70 as light; 60 is the depth the existing GA smoke test waits for. |
+| INTUBATION_TOF_COUNT_MAX | 1 | TOF count | both | simulator convention (unsourced) |  | Intubating conditions: TOF count ≤ 1 (the Run screen hint "asleep and paralysed (TOF count 0–1)"). All induction plan steps must also have run. |
+| INTUBATION_TIMEOUT_SEC | 600 | s | both | simulator convention (unsourced) |  | If intubating conditions are not met within this time after induction starts: the demonstration stops; guided mode shows the unmet conditions and keeps the Intubate button disabled. |
+| MAINTENANCE_AFTER_AIRWAY_SEC | 60 | s | full demonstration | simulator convention (unsourced) |  | Full demonstration enters maintenance this long after the airway is secured. In guided mode the clinician presses "Enter maintenance mode". |
+| SURGERY_START_MIN_SEC | 120 | s | both | simulator convention (unsourced) |  | Surgery (start_surgery) starts automatically no earlier than this after maintenance begins (a short pre-incision period; in the example cases a longer unstimulated period makes MAP < 60 more frequent in this illustrative model). |
+| SURGERY_DEPTH_MAX | 60 | depth index (0–100, illustrative; not BIS) | both | simulator convention (unsourced) |  | Surgery starts automatically only when the simulated depth index is ≤ 60. |
+| SURGERY_START_TIMEOUT_SEC | 900 | s | both | simulator convention (unsourced) |  | If the surgery-start condition is not met within this time after maintenance begins, automatic mode stops and reports the unmet condition. |
+| SURGERY_DURATION_SEC | 1800 | s | full demonstration | simulator convention (unsourced) |  | Full demonstration ends surgery after this time (the plan has no maintenance-duration field). In guided mode the clinician presses "End surgery". |
+| CLOSING_BEFORE_EMERGENCE_SEC | 300 | s | full demonstration | simulator convention (unsourced) |  | Full demonstration begins emergence this long after surgery ends (matches the engine closing-stimulus duration). In guided mode the clinician presses "Enter emergence / extubation mode". |
+| EXTUBATION_TOFR_MIN | 0.9 | TOF ratio | both | guideline | S5 | Extubation needs sim.extubationReadiness() to be met, which includes TOFR ≥ 0.9. The sequence never uses the "Extubate anyway" override. Other readiness criteria are the engine's illustrative rules. |
+| READINESS_HOLD_SEC | 10 | s | full demonstration | simulator convention (unsourced) |  | Full demonstration extubates only after readiness has been met for this many consecutive simulated seconds (readiness can flicker with seeded noise). Guided mode enables "Extubate" whenever readiness is met and re-checks it on the click. |
+| EXTUBATION_TIMEOUT_SEC | 1800 | s | both | simulator convention (unsourced) |  | If readiness is not met within this time after emergence begins: the demonstration stops and lists the unmet criteria; guided mode lists them and keeps "Extubate" disabled. |
+| POST_EXTUBATION_OBSERVE_SEC | 300 | s | both | simulator convention (unsourced) |  | After extubation the sequence observes for this time, then reports the case complete. |
+| SEDATION_TARGET_LEVEL | "plan.sedationTarget" | ASA continuum level | both | guideline | S31 | The procedure starts automatically once the simulated sedation level reaches the plan target (minimal / moderate / deep, ASA continuum definitions) and all sedation plan steps have run. The mapping from depth index to level is an illustrative engine rule. |
+| SEDATION_TARGET_TIMEOUT_SEC | 900 | s | both | simulator convention (unsourced) |  | If the sedation target is not reached within this time after sedation starts, automatic mode stops and reports it. |
+| PROCEDURE_DURATION_SEC | 1200 | s | full demonstration | simulator convention (unsourced) |  | Full demonstration ends the procedure after this time and moves to recovery. In guided mode the clinician presses "End procedure". |
+| RECOVERY_LEVEL_MAX | "minimal" | ASA continuum level | both | simulator convention (unsourced) |  | Recovery is reported complete when the simulated sedation level is minimal or awake for RECOVERY_HOLD_SEC. This is a teaching end point, not a discharge criterion. |
+| RECOVERY_HOLD_SEC | 10 | s | both | simulator convention (unsourced) |  | Consecutive simulated seconds the recovery level must hold. |
+| RECOVERY_TIMEOUT_SEC | 1800 | s | both | simulator convention (unsourced) |  | If recovery is not reached within this time after the procedure ends, automatic mode stops and reports it. |
+| PAUSE_ON_INTERLOCK_HOLD | true | boolean | both | simulator convention (unsourced) |  | Automatic mode pauses whenever an interlock hold is latched (the Run screen also stops the clock). It never calls resume_hold; the user must release the hold, then press Resume. |
+| INTERLOCK_MAP_CRITICAL_LOW | 60 | mmHg | both | project_config | S35 | Reused, not redefined: the engine latches the hold when MAP < 60 (config.yaml). Automatic mode reacts to the latched hold, not to its own threshold. |
+| INTERLOCK_HR_CRITICAL_LOW | 48 | /min | both | project_config | S35 | Reused, not redefined: the engine latches the hold when HR < 48 (config.yaml). |
+| PAUSE_ALARM_PRIORITIES | "high" | alarm priority | both | simulator convention (unsourced) |  | Automatic mode pauses for an unacknowledged HIGH-priority alarm that is active or was raised since the last check. It never acknowledges alarms. Medium and low alarms (e.g. MAP < 65, depth over the sedation target, dose-range notices) do not pause: they are shown and announced as usual, and the user can pause or take over at any time. |
 
 ## Sources
 Full citations, what each supports, and how each was checked are in [SOURCES.md](SOURCES.md) (43 entries).

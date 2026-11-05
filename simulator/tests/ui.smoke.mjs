@@ -47,7 +47,47 @@ async function toRun(page) {
   await page.click('#pl-continue'); await page.waitForSelector('#mon-play');
 }
 
-test('simulator UI smoke', { skip, timeout: 300000 }, async (t) => {
+
+// ---- guided / automatic modes
+const autoStatus = (page) => page.evaluate(() => { const a = window.__smartNoa.store.run.auto; const s = window.__smartNoa.store.sim; return a ? JSON.parse(JSON.stringify({ ...a.status(), t: s.state.tSec, phase: s.state.phase, v: s.state.vitals, ready: s.extubationReadiness().ready })) : null; });
+/** Acts as the user when the runner pauses: acknowledge HIGH alarms, release a latched hold, press Resume. */
+async function userResolvesPause(page) {
+  for (const b of await page.locator('#mon-alarms button[data-ack]:not([disabled])').all()) await b.click();
+  if (await page.isEnabled('#mon-resume')) await page.click('#mon-resume');
+  if (await page.isEnabled('#auto-resume')) await page.click('#auto-resume');
+}
+async function waitAuto(page, pred, { timeout = 240000, label = 'auto condition', resolvePauses = true } = {}) {
+  const t0 = Date.now();
+  for (;;) {
+    const s = await autoStatus(page);
+    if (s && pred(s)) return s;
+    if (s && ['stopped', 'manual'].includes(s.state)) throw new Error(`${label}: runner ${s.state} — ${s.message}`);
+    if (s && s.state === 'paused' && resolvePauses) await userResolvesPause(page);
+    if (Date.now() - t0 > timeout) throw new Error(`Timed out waiting for ${label}; last ${JSON.stringify(s && { state: s.state, cur: s.current, t: s.t, msg: s.message })}`);
+    await page.waitForTimeout(150);
+  }
+}
+/** Waits until the gate button on the page shows `label` and is enabled (resolving pauses as a user), then clicks it. */
+async function gate(page, label, { timeout = 240000 } = {}) {
+  const t0 = Date.now();
+  for (;;) {
+    const dom = await page.evaluate(() => { const b = document.getElementById('auto-gate'); return b ? { text: b.textContent.trim(), on: !b.disabled && !b.hidden } : null; });
+    if (dom && dom.text === label && dom.on) {
+      const s = await autoStatus(page);
+      await page.click('#auto-gate');
+      return s;
+    }
+    const s = await autoStatus(page);
+    if (s && ['stopped', 'manual', 'completed'].includes(s.state)) throw new Error(`gate ${label}: runner ${s.state} — ${s.message}`);
+    if (s && s.state === 'paused') await userResolvesPause(page);
+    if (Date.now() - t0 > timeout) throw new Error(`Timed out waiting for gate ${label}; DOM ${JSON.stringify(dom)}`);
+    await page.waitForTimeout(100);
+  }
+}
+const GUIDED_BANNER = 'Guided mode: each phase runs from your approved plan; you confirm every transition. Educational simulation — not a closed-loop controller or a clinical recommendation.';
+const FULL_BANNER = 'Automatic demonstration: scripted sequence, not a closed-loop controller or a clinical recommendation';
+
+test('simulator UI smoke', { skip, timeout: 900000 }, async (t) => {
   const browser = await chromium.launch();
   const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 }, acceptDownloads: true });
   const page = await ctx.newPage();
@@ -170,6 +210,89 @@ test('simulator UI smoke', { skip, timeout: 300000 }, async (t) => {
       assert.match(await page.textContent('#mon-il-badge'), /HOLD/);
       await page.click('#mon-resume');
       assert.match(await page.textContent('#mon-log'), /Hold released by explicit user action/);
+    });
+
+    await t.test('guided mode, GA (elderly example) at 60×: gates in order, intubate/extubate only when conditions met', async () => {
+      await loadCase(page, 'elderly_cad_ckd'); await toRun(page);
+      await page.click('[data-speed="60"]');
+      await page.click('#auto-guided');
+      assert.equal((await page.textContent('#auto-banner')).trim(), GUIDED_BANNER);
+      assert.equal((await page.textContent('#auto-gate')).trim(), 'Approve & start induction');
+      await page.waitForTimeout(1500);
+      let s = await autoStatus(page);
+      assert.ok(s.t > 20 && s.phase === 'premed', `nothing advances without the gate (t ${s.t}, ${s.phase})`);
+      await page.click('#auto-gate');
+      s = await waitAuto(page, (x) => x.current && x.current.id === 'secure_airway', { label: 'intubate gate shown' });
+      await page.waitForFunction(() => document.getElementById('auto-gate').textContent.trim() === 'Intubate (secure airway)');
+      assert.ok(await page.isDisabled('#auto-gate'), 'Intubate disabled before intubating conditions');
+      await shot(page, 'auto-guided-induction.png');
+      s = await gate(page, 'Intubate (secure airway)');
+      assert.ok(s.v.tofCount <= 1 && s.v.depthIndex <= 60, `intubating conditions when enabled: ${JSON.stringify(s.v)}`);
+      s = await waitAuto(page, (x) => x.current && x.current.id === 'start_maintenance', { label: 'maintenance gate' });
+      const t1 = s.t; await page.waitForTimeout(1000);
+      assert.equal((await autoStatus(page)).phase, 'induction', 'maintenance waits for the clinician');
+      assert.ok((await autoStatus(page)).t > t1);
+      await gate(page, 'Enter maintenance mode');
+      s = await waitAuto(page, (x) => x.current && x.current.id === 'end_surgery', { label: 'surgery started automatically' });
+      assert.ok(await page.evaluate(() => window.__smartNoa.store.sim.state.log.some((e) => e.kind === 'auto' && /^AUTO: step 4\/8 — Start surgery \(automatic within the approved phase\)/.test(e.message))), 'surgery started automatically (logged)');
+      await shot(page, 'auto-guided-maintenance.png');
+      await gate(page, 'End surgery');
+      await gate(page, 'Enter emergence / extubation mode');
+      s = await waitAuto(page, (x) => x.current && x.current.id === 'extubate', { label: 'extubate gate' });
+      if (!s.ready) assert.ok(await page.isDisabled('#auto-gate'), 'Extubate disabled until ready');
+      await gate(page, 'Extubate');
+      s = await waitAuto(page, (x) => x.state === 'completed', { label: 'guided GA complete' });
+      assert.equal(s.v && (await simState(page)).airway.secured, false);
+      await page.click('#mon-debrief'); await page.waitForSelector('#db-auto-note');
+      assert.match(await page.textContent('#db-auto-note'), /ran in guided mode/);
+      assert.match(await page.textContent('main'), /Extubated at .* readiness met/);
+      await shot(page, 'auto-guided-debrief.png');
+    });
+
+    await t.test('guided mode, MAC (obese OSA example) at 60×', async () => {
+      await loadCase(page, 'obese_osa'); await toRun(page);
+      await page.click('[data-speed="60"]');
+      await page.click('#auto-guided');
+      assert.equal((await page.textContent('#auto-banner')).trim(), GUIDED_BANNER);
+      await gate(page, 'Approve & start sedation');
+      const s = await waitAuto(page, (x) => x.current && x.current.id === 'end_procedure', { label: 'procedure started automatically' });
+      assert.equal(s.phase, 'sedation');
+      await gate(page, 'End procedure');
+      await waitAuto(page, (x) => x.state === 'completed', { label: 'guided MAC complete' });
+      await page.click('#mon-debrief'); await page.waitForSelector('#db-auto-note');
+      assert.match(await page.textContent('#db-auto-note'), /ran in guided mode/);
+    });
+
+    for (const [id, label] of [['mh_susceptible', 'GA (MH-susceptible TIVA)'], ['obese_osa', 'MAC (obese OSA)']]) {
+      await t.test(`run full case automatically, ${label} at 60×`, async () => {
+        await loadCase(page, id); await toRun(page);
+        await page.click('[data-speed="60"]');
+        await page.click('#auto-full');
+        assert.equal((await page.textContent('#auto-banner')).trim(), FULL_BANNER);
+        await shot(page, `auto-full-${id}-running.png`);
+        await waitAuto(page, (x) => x.state === 'completed', { label: `full ${id} complete` });
+        const log = await page.evaluate(() => window.__smartNoa.store.sim.state.log);
+        assert.ok(log.some((e) => e.kind === 'auto' && /^AUTO: step 1\//.test(e.message)));
+        assert.ok(!log.some((e) => /despite unmet readiness/.test(e.message)), 'override never used');
+        await page.click('#mon-debrief'); await page.waitForSelector('#db-auto-note');
+        assert.match(await page.textContent('#db-auto-note'), /ran automatically/);
+        await shot(page, `auto-full-${id}-debrief.png`);
+        const [dl] = await Promise.all([page.waitForEvent('download'), page.click('#db-download')]);
+        const json = JSON.parse(await (await import('node:fs/promises')).readFile(await dl.path(), 'utf8'));
+        assert.equal(json.automaticMode.used, true); assert.equal(json.automaticMode.mode, 'full'); assert.equal(json.summary.automatic.outcome, 'completed');
+      });
+    }
+
+    await t.test('a manual control ends automatic mode', async () => {
+      await loadCase(page, 'healthy_adult'); await toRun(page);
+      await page.click('#auto-full');
+      await page.waitForSelector('#auto-takeover:not([hidden])');
+      await page.click('[data-step="10"]');
+      const s = await autoStatus(page);
+      assert.equal(s.state, 'manual');
+      assert.match(await page.textContent('#auto-status'), /ended \(manual control\)/);
+      assert.match(await page.textContent('#mon-log'), /AUTO: Automatic demonstration ended — manual control used/);
+      assert.ok(await page.isVisible('#auto-full'), 'start buttons offered again');
     });
 
     await t.test('panels open', async () => {

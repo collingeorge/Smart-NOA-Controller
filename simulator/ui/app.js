@@ -3,6 +3,7 @@ import * as LIB from '../data/drugs.js';
 import { h, clear, announce, fmtClock } from './dom.js';
 import { derivePatient, validatePatient } from '../engine/patient.js';
 import { createSimulation } from '../engine/sim.js';
+import { CASE_ACTIONS } from '../engine/case-actions.js';
 import { EXAMPLE_PATIENTS, EXAMPLE_PLANS, buildPlan } from '../data/scenarios.js';
 import { initSources, srcTags } from './sources.js';
 import { renderPatient, defaultPatientInput } from './patient-form.js';
@@ -135,9 +136,9 @@ function openExtubation(sim, after) {
   const unmet = r.criteria.filter((c) => !c.met);
   const E = lib.SOURCE_IDS_ENGINE || {};
   const doIt = (override) => {
+    // Shared case actions (engine/case-actions.js); the guided/automatic runner never calls the override.
     if (override) store.run.overrides.push({ tSec: sim.state.tSec, unmet: unmet.map((c) => c.label) });
-    const res = sim.action('extubate');
-    if (override) sim.state.log.push({ tSec: Math.round(sim.state.tSec * 10) / 10, kind: 'action', message: `User confirmed extubation despite unmet readiness criteria: ${unmet.map((c) => c.label).join(', ')}` });
+    const res = override ? CASE_ACTIONS.extubateOverride(sim) : CASE_ACTIONS.extubateFromDialog(sim);
     dlg.close();
     announce(res.message, !r.ready);
     after();
