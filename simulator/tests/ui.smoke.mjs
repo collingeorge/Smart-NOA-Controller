@@ -218,7 +218,8 @@ test('simulator UI smoke', { skip, timeout: 900000 }, async (t) => {
       await page.click('#stepper-4'); await page.waitForSelector('#mon-play');
       await page.click('#mon-debrief'); await page.click('.actions .btn:has-text("Run again")');
       await page.waitForSelector('#mon-play');
-      await page.click('#ph-induction'); await page.click('[data-step="60"]'); await page.click('[data-step="60"]'); await page.click('[data-step="60"]');
+      // induction drugs wait for the 2-min premedication; propofol +3:00 and rocuronium +4:00 after fentanyl → asleep after 7 min
+      await page.click('#ph-induction'); for (let i = 0; i < 7; i++) await page.click('[data-step="60"]');
       await page.click('#ph-secure');
       await page.click('#ph-extubate');
       await page.waitForSelector('#ext-override');
@@ -374,7 +375,8 @@ test('simulator UI smoke', { skip, timeout: 900000 }, async (t) => {
 
     await t.test('extubation dialog pauses the clock and re-checks readiness at confirm', async () => {
       await loadCase(page, 'healthy_adult'); await toRun(page);
-      await page.click('#ph-induction'); await page.click('[data-step="60"]'); await page.click('[data-step="60"]'); await page.click('[data-step="60"]');
+      // induction drugs wait for the 2-min premedication; propofol +3:00 and rocuronium +4:00 after fentanyl → asleep after 7 min
+      await page.click('#ph-induction'); for (let i = 0; i < 7; i++) await page.click('[data-step="60"]');
       await page.click('#ph-secure');
       // This test checks the real play loop: wall clock on, explicit state conditions only.
       await page.evaluate(() => window.__smartNoa.testClock(false));
