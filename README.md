@@ -15,7 +15,7 @@ python -m unittest discover -v
 python smart_noa_controller.py
 ```
 
-The demo uses fictional profiles and sleeps between iterations. Do not enter patient information, connect equipment, or interpret printed values as clinical advice.
+`python smart_noa_controller.py` runs three **scripted** scenarios (fixed, hand-written fictional vital signs, so every run is identical): a high-risk profile whose falling MAP latches a hold, a healthy adult whose dexmedetomidine model concentration rises until a gradual fall in heart rate latches a hold, and a heart-rate sensor fault that fails safe. It runs instantly; add `--realtime` for one second per simulated second. `monitor_and_control()` accepts optional `vitals` (scripted `(hr, map)` pairs), `sleep_sec` and `log_every`; without `vitals` it keeps its original random readings. Do not enter patient information, connect equipment, or interpret printed values as clinical advice.
 
 ## Paired examples and decision flow
 
