@@ -65,6 +65,8 @@ export const AUTORUN_CONFIG = Object.freeze({
   SEDATION_TARGET_LEVEL: e('plan.sedationTarget', 'ASA continuum level', 'both',
     'The procedure starts automatically once the simulated sedation level reaches the plan target (minimal / moderate / deep, ASA continuum definitions) and all sedation plan steps have run. The mapping from depth index to level is an illustrative engine rule.',
     'guideline', ['S31']),
+  SEDATION_TARGET_HOLD_SEC: e(10, 's', 'both',
+    'The sedation target must be met for this many consecutive simulated seconds before the procedure starts, so a single noisy sample does not start it (2026-11 audit; same idea as READINESS_HOLD_SEC and RECOVERY_HOLD_SEC).'),
   SEDATION_TARGET_TIMEOUT_SEC: e(900, 's', 'both',
     'If the sedation target is not reached within this time after sedation starts, automatic mode stops and reports it.'),
   PROCEDURE_DURATION_SEC: e(1200, 's', 'full',

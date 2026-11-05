@@ -122,7 +122,7 @@ export const ROUTE_KA_ILLUSTRATIVE = Object.freeze({ IM: 0.15, SC: 0.07 });
 // ILLUSTRATIVE (2026-11 audit): IM/SC absorption slows when tissue perfusion is poor. The
 // absorption rate is multiplied by a factor that falls linearly from 1 (MAP ≥ MAP_FRAC_FULL × the
 // patient's baseline MAP) to KA_FACTOR_MIN (MAP ≤ MAP_FRAC_MIN × baseline). Author estimates.
-export const ROUTE_PERFUSION_ILLUSTRATIVE = Object.freeze({ MAP_FRAC_FULL: 0.8, MAP_FRAC_MIN: 0.4, KA_FACTOR_MIN: 0.3 });
+export const ROUTE_PERFUSION_ILLUSTRATIVE = Object.freeze({ MAP_FRAC_FULL: 0.8, MAP_FRAC_MIN: 0.4, KA_FACTOR_MIN: 0.1 });
 export function perfusionKaFactor(mapFrac) {
   const P = ROUTE_PERFUSION_ILLUSTRATIVE;
   if (!Number.isFinite(mapFrac)) return 1;
@@ -141,6 +141,10 @@ export const VOLATILE_TAU_MIN = Object.freeze({ desflurane: 1.5, nitrous_oxide: 
 export const isNitrous = (drug) => /nitrous|n2o/i.test(drug.id);
 export const isInhaled = (drug) => drug.cls === 'volatile' || drug.amountUnit === '%' || Object.values(drug.regimens || {}).some((r) => r && r.kind === 'inhaled');
 export const REFERENCE_WEIGHT_KG = 70;
+// Used ONLY if the drug library supplies no MAC40 for a volatile agent. Engine
+// author's recollection of the sevoflurane age-40 MAC in Mapleson 1996 (BJA
+// 76:179-185); NOT verified in this build. Treat any output using it as illustrative.
+export const FALLBACK_SEVO_MAC40 = 1.8;
 
 export function macForAge(mac40, ageYears) {
   return mac40 * Math.pow(10, -0.00269 * (ageYears - 40));
@@ -434,7 +438,3 @@ export function createPkModel(drug, patient, opts = {}) {
   return { ...b, ref: referenceConcentration(drug, opts.refPrefs || []) };
 }
 
-// Used ONLY if the drug library supplies no MAC40 for a volatile agent. Engine
-// author's recollection of the sevoflurane age-40 MAC in Mapleson 1996 (BJA
-// 76:179-185); NOT verified in this build. Treat any output using it as illustrative.
-export const FALLBACK_SEVO_MAC40 = 1.8;

@@ -132,9 +132,9 @@ export function renderPlan(ctx, main) {
     const info = h('div', { class: 'step-card__info' });
     const fid = (n) => `st-${s.uid}-${n}`;
     const fields = h('div', { class: 'step-card__fields' });
-    const time = h('input', { type: 'text', inputmode: 'numeric', id: fid('t'), class: 'input input--time', value: fmtClock(s.atSec), 'aria-describedby': fid('t-hint'), pattern: '\\d{1,3}:[0-5]\\d' });
+    const time = h('input', { type: 'text', inputmode: 'numeric', id: fid('t'), class: 'input input--time', value: fmtClock(s.atSec), 'aria-describedby': fid('t-hint'), pattern: '(\\d{1,2}:[0-5]\\d:[0-5]\\d|\\d{1,3}:[0-5]\\d|\\d{1,5})' });
     time.addEventListener('change', () => { const v = parseClock(time.value); s.atSec = v; if (v !== null) time.value = fmtClock(v); update(); });
-    fields.append(h('div', { class: 'field field--sm' }, h('label', { class: 'label', for: fid('t') }, 'Time offset in phase'), time, h('p', { class: 'hint', id: fid('t-hint') }, 'mm:ss from phase start')));
+    fields.append(h('div', { class: 'field field--sm' }, h('label', { class: 'label', for: fid('t') }, 'Time offset in phase'), time, h('p', { class: 'hint', id: fid('t-hint') }, 'mm:ss (or h:mm:ss) from phase start')));
     if (s.kind === 'bolus') {
       const amt = h('input', { type: 'number', step: 'any', min: 0, id: fid('a'), class: 'input input--num', value: s.amount });
       amt.addEventListener('change', () => { s.amount = amt.value === '' ? NaN : Number(amt.value); update(); });
@@ -234,12 +234,13 @@ export function renderPlan(ctx, main) {
       groups.get(d.cls).push({ d, rec, key });
       if (rec.locked) locked.push({ d, rec });
     }
-    const rescue = lib.DRUGS.filter((d) => d.regimens && d.regimens.rescue && key !== 'rescue').map((d) => ({ d, rec: recommend(patient, 'rescue', d.id, lib), key: 'rescue' }));
+    // Rescue regimens (key 'rescue' or 'rescue_<route>', e.g. epinephrine rescue_iv) are offered in every phase.
+    const rescue = lib.DRUGS.flatMap((d) => Object.keys(d.regimens || {}).filter((k) => /^rescue(_|$)/.test(k) && k !== key).map((k) => ({ d, rec: recommend(patient, k, d.id, lib), key: k })));
     for (const r of rescue) if (r.rec.locked && !locked.some((x) => x.d.id === r.d.id)) locked.push(r);
     const sel = h('select', { id: `pl-pick-${ph}`, class: 'input' }, h('option', { value: '' }, `Add a drug (${REGIMEN_LABELS[key]} regimens)…`),
       CLASS_ORDER.filter((cl) => groups.has(cl)).concat([...groups.keys()].filter((cl) => !CLASS_ORDER.includes(cl))).map((cl) => h('optgroup', { label: CLASS_LABELS[cl] || cl },
         groups.get(cl).map(({ d, rec }) => h('option', { value: `${d.id}|${key}`, disabled: rec.locked }, `${d.name}${rec.locked ? ' — LOCKED for this patient' : rec.warnings.length ? ' — warning' : ''}`)))),
-      rescue.length ? h('optgroup', { label: 'Rescue / as needed' }, rescue.map(({ d, rec }) => h('option', { value: `${d.id}|rescue`, disabled: rec.locked }, `${d.name} (rescue)${rec.locked ? ' — LOCKED' : ''}`))) : null);
+      rescue.length ? h('optgroup', { label: 'Rescue / as needed' }, rescue.map(({ d, rec, key: rk }) => h('option', { value: `${d.id}|${rk}`, disabled: rec.locked }, `${d.name} (${REGIMEN_LABELS[rk] || rk}${rec.route && rec.route !== 'IV' ? `, ${rec.route}` : rk !== 'rescue' && rec.route ? `, ${rec.route}` : ''})${rec.locked ? ' — LOCKED' : ''}`))) : null);
     const add = h('button', { type: 'button', class: 'btn', id: `pl-add-${ph}` }, 'Add');
     add.addEventListener('click', () => {
       if (!sel.value) { sel.focus(); announce('Choose a drug first.'); return; }
@@ -300,8 +301,11 @@ export function renderPlan(ctx, main) {
       const steps = plan.steps.filter((s) => s.phase === ph);
       const maxT = Math.max(300, ...steps.map((s) => (s.atSec || 0) + (isNum(s.overSec) ? s.overSec : 0) + 60));
       const track = h('div', { class: 'tl-track', 'aria-hidden': 'true' });
-      for (let t = 0; t <= maxT; t += maxT > 1200 ? 300 : 60) track.append(h('span', { class: 'tl-tick', dataset: { t: fmtClock(t) } }));
-      for (const tick of track.querySelectorAll('.tl-tick')) tick.style.left = `${(parseClock(tick.dataset.t) / maxT) * 100}%`;
+      for (let t = 0; t <= maxT; t += maxT > 1200 ? 300 : 60) {
+        const tick = h('span', { class: 'tl-tick', dataset: { t: fmtClock(t) } });
+        tick.style.left = `${(t / maxT) * 100}%`; // position from the numeric time, not by re-parsing the label
+        track.append(tick);
+      }
       steps.forEach((s, i) => {
         const left = ((s.atSec || 0) / maxT) * 100;
         const m = h('span', { class: `tl-mark tl-mark--${s.kind}` }, String(i + 1));

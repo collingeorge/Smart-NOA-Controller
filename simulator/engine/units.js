@@ -2,12 +2,14 @@
 // Amount units: g | mg | mcg (µg, ug) | units | %
 // Rate units:  <amount>[/kg]/<min|h>, e.g. 'mcg/kg/min', 'mg/kg/h', 'mg/h'; or '%' (vaporizer dial).
 
-const MASS_TO_MG = { g: 1000, mg: 1, mcg: 0.001, ug: 0.001, 'µg': 0.001, 'μg': 0.001 };
+const MASS_TO_MG = Object.freeze(Object.assign(Object.create(null), { g: 1000, mg: 1, mcg: 0.001, ug: 0.001, 'µg': 0.001, 'μg': 0.001 }));
+// Own-property lookup only, so prototype names ('constructor', '__proto__', 'toString') are not units.
+const isMassUnit = (s) => typeof s === 'string' && Object.hasOwn(MASS_TO_MG, s);
 
 export function normAmountUnit(u) {
   if (typeof u !== 'string') return null;
   const s = u.trim().toLowerCase().replace(/μ|µ/g, 'mc').replace(/^ug$/, 'mcg');
-  if (s in MASS_TO_MG) return s === 'ug' ? 'mcg' : s;
+  if (isMassUnit(s)) return s === 'ug' ? 'mcg' : s;
   if (s === 'unit' || s === 'units' || s === 'u') return 'units';
   if (s === '%') return '%';
   return null;
@@ -17,7 +19,7 @@ export function convertAmount(value, from, to) {
   const f = normAmountUnit(from), tt = normAmountUnit(to);
   if (!f || !tt) throw new Error(`Unknown amount unit: ${!f ? from : to}`);
   if (f === tt) return value;
-  if (f in MASS_TO_MG && tt in MASS_TO_MG) return value * MASS_TO_MG[f] / MASS_TO_MG[tt];
+  if (isMassUnit(f) && isMassUnit(tt)) return value * MASS_TO_MG[f] / MASS_TO_MG[tt];
   throw new Error(`Cannot convert ${from} to ${to}`);
 }
 

@@ -7,7 +7,7 @@ import { CompartmentModel, VolatileModel, fitCalibrated, curveMetrics, macForAge
 import { severinghaus } from '../engine/physiology.js';
 import { AlarmManager } from '../engine/alarms.js';
 import { SCENARIOS, EXAMPLE_PATIENTS, EXAMPLE_PLANS, buildPlan, overSecFromTiming } from '../data/scenarios.js';
-import { basePatient, FIXTURE, LIBS, runFor, track } from './helpers.mjs';
+import { basePatient, LIBS, runFor, track } from './helpers.mjs';
 
 // ------------------------------------------------------------------ PK sanity
 test('PK: bolus rises then falls, never negative, mass balance holds', () => {
@@ -240,15 +240,25 @@ for (const { name, lib } of LIBS) {
 
   test(`${name}: ceilings — cumulative/per-bolus blocked, range warnings, timed loading`, () => {
     const sim = sim0();
-    const capped = lib.DRUGS.find((d) => interpretCeilings(d, sim.patient).some((l) => l.type === 'cumulative' && !l.daily));
-    const L = interpretCeilings(capped, sim.patient).find((l) => l.type === 'cumulative');
+    const capped = lib.DRUGS.find((d) => interpretCeilings(d, sim.patient).some((l) => l.type === 'cumulative' && !l.daily && !l.bolusOnly));
+    const L = interpretCeilings(capped, sim.patient).find((l) => l.type === 'cumulative' && !l.bolusOnly);
     assert.ok(sim.administer({ drugId: capped.id, kind: 'bolus', amount: L.absolute * 0.6, amountUnit: capped.amountUnit }).ok);
     const r = sim.administer({ drugId: capped.id, kind: 'bolus', amount: L.absolute * 0.6, amountUnit: capped.amountUnit });
     assert.equal(r.blocked, true, capped.id); assert.match(r.reasons[0], /Cumulative/);
     assert.ok(sim.state.alarms.some((a) => a.id === 'dose_blocked'));
     if (lib.DRUGS.some((d) => d.id === 'phenylephrine' && d.ceiling && d.ceiling.scope)) {
       const pb = sim.administer({ drugId: 'phenylephrine', kind: 'bolus', amount: 300, amountUnit: 'mcg' });
-      assert.equal(pb.blocked, true); assert.match(pb.reasons[0], /Single dose/);
+      assert.equal(pb.blocked, true); assert.match(pb.reasons[0], /Single dose|Total bolus/);
+      if (name === 'real') {
+        // Conservative reading of the label: 200 mcg is a TOTAL bolus dosage (2026-11 audit, clinical finding 3).
+        const ph = sim0();
+        assert.ok(ph.administer({ drugId: 'phenylephrine', kind: 'bolus', amount: 100, amountUnit: 'mcg' }).ok);
+        assert.ok(ph.administer({ drugId: 'phenylephrine', kind: 'bolus', amount: 100, amountUnit: 'mcg' }).ok);
+        const third = ph.administer({ drugId: 'phenylephrine', kind: 'bolus', amount: 40, amountUnit: 'mcg' });
+        assert.equal(third.blocked, true); assert.match(third.reasons[0], /Total bolus dose would exceed 200 mcg/);
+        assert.ok(ph.administer({ drugId: 'phenylephrine', kind: 'infusion', rate: 20, rateUnit: 'mcg/min' }).ok, 'infusion not counted against the bolus total');
+        runFor(ph, 1200); assert.ok(ph.state.drugs.phenylephrine.infusionRate > 0, 'infusion keeps running past 200 mcg total');
+      }
       assert.equal(sim.administer({ drugId: 'phenylephrine', kind: 'infusion', rate: 250, rateUnit: 'mcg/min' }).blocked, true);
     }
     const w = sim.administer({ drugId: 'propofol', kind: 'bolus', amount: 20, amountUnit: 'mg' });

@@ -2,7 +2,7 @@
 // against sourced ranges, label ceilings and (when enabled) Smart NOA simulation ceilings.
 // No DOM.
 import { recommend, interpretCeilings, convertRateSafe, regimenKeyForPhase } from '../engine/dosing.js';
-import { NOA_CONFIG, SIM_TO_PY_ID, CONTROLLED, PY_RATE_UNITS } from '../engine/interlocks.js';
+import { NOA_CONFIG, SIM_TO_PY_ID, CONTROLLED, PY_RATE_UNITS, aboveCeiling } from '../engine/interlocks.js';
 import { scalarWeight } from '../engine/patient.js';
 import { MIN_FIO2_WITH_N2O } from '../engine/sim.js';
 import { overSecFromTiming } from '../data/scenarios.js';
@@ -32,8 +32,21 @@ export function interlockCeiling(drug, unit, patient) {
   const py = SIM_TO_PY_ID[drug.id];
   if (!py || !CONTROLLED.includes(py)) return null;
   const ceil = NOA_CONFIG.simulation_rate_ceilings[py]; const pyUnit = PY_RATE_UNITS[py];
-  const v = unit === pyUnit ? ceil : convertRateSafe(ceil, pyUnit, unit, rateWeightFor(drug, patient));
-  return isNum(v) ? { value: roundSig(v), unit, pyValue: ceil, pyUnit } : null;
+  const w = rateWeightFor(drug, patient);
+  const v = unit === pyUnit ? ceil : convertRateSafe(ceil, pyUnit, unit, w);
+  if (!isNum(v)) return null;
+  // Display value: 4 significant figures, but never above the ceiling once converted back.
+  let shown = unit === pyUnit ? ceil : roundSig(v);
+  if (unit !== pyUnit && aboveCeiling(convertRateSafe(shown, unit, pyUnit, w), ceil)) { const p = Math.pow(10, 3 - Math.floor(Math.log10(Math.abs(v)))); shown = Math.floor(v * p) / p; }
+  return { value: shown, unit, pyValue: ceil, pyUnit, weightKg: w };
+}
+
+/** Same comparison as the engine (sim.js admission and InterlockCore.rateFaults): in the Python unit, shared tolerance. */
+export function exceedsInterlockCeiling(drug, rate, unit, patient) {
+  const ic = interlockCeiling(drug, unit, patient);
+  if (!ic || !isNum(rate)) return false;
+  const pyRate = convertRateSafe(rate, unit, ic.pyUnit, ic.weightKg);
+  return pyRate === null || aboveCeiling(pyRate, ic.pyValue);
 }
 
 export function interlockNote(rec, ic) {
@@ -50,12 +63,12 @@ export function makeSteps({ lib, patient, interlocks, patientVersion }, drugId, 
   const base = { phase, atSec, drugId, regimenKey, filledFor: patientVersion, addWarnings: rec.warnings.slice() };
   const out = [];
   if (rec.kind === 'bolus' && rec.dose) {
-    out.push({ ...base, uid: newUid(), kind: 'bolus', amount: rec.dose.value, amountUnit: rec.dose.unit, overSec: overSecFromTiming(rec.timing) });
+    out.push({ ...base, uid: newUid(), kind: 'bolus', amount: rec.dose.value, amountUnit: rec.dose.unit, overSec: rec.route && rec.route !== 'IV' ? null : overSecFromTiming(rec.timing), route: rec.route || null });
   } else if (rec.kind === 'infusion' && rec.rate) {
     if (rec.loading && isNum(rec.loading.value)) out.push({ ...base, uid: newUid(), kind: 'bolus', loading: true, amount: rec.loading.value, amountUnit: rec.loading.unit, overSec: rec.loading.overSec || null });
     const st = { ...base, uid: newUid(), kind: 'infusion', rate: rec.rate.value, rateUnit: rec.rate.unit, labelDefault: rec.rate.value };
     const ic = interlockCeiling(drug, rec.rate.unit, patient);
-    if (interlocks && ic && rec.rate.value > ic.value + 1e-9) { st.rate = ic.value; st.prefillNote = interlockNote(rec, ic); }
+    if (interlocks && ic && exceedsInterlockCeiling(drug, rec.rate.value, rec.rate.unit, patient)) { st.rate = ic.value; st.prefillNote = interlockNote(rec, ic); }
     out.push(st);
   } else if (rec.kind === 'inhaled' && rec.rate) {
     out.push({ ...base, uid: newUid(), kind: 'inhaled', rate: rec.rate.value, rateUnit: '%' });
@@ -74,12 +87,12 @@ export function refillStep(c, step) {
   if (!rec.available || rec.locked) return step;
   if (step.kind === 'bolus') {
     const d = step.loading ? rec.loading : rec.dose;
-    if (d && isNum(d.value)) { step.amount = d.value; step.amountUnit = d.unit; step.overSec = step.loading ? (d.overSec || null) : overSecFromTiming(rec.timing); }
+    if (d && isNum(d.value)) { step.amount = d.value; step.amountUnit = d.unit; step.overSec = step.loading ? (d.overSec || null) : rec.route && rec.route !== 'IV' ? null : overSecFromTiming(rec.timing); step.route = step.loading ? null : rec.route || null; }
   } else if (rec.rate) {
     step.rate = step.kind === 'inhaled' ? rec.rate.value : rec.rate.value; step.rateUnit = rec.rate.unit; step.labelDefault = rec.rate.value;
     if (step.kind === 'infusion') {
       const ic = interlockCeiling(drug, rec.rate.unit, c.patient);
-      if (c.interlocks && ic && rec.rate.value > ic.value + 1e-9) { step.rate = ic.value; step.prefillNote = interlockNote(rec, ic); }
+      if (c.interlocks && ic && exceedsInterlockCeiling(drug, rec.rate.value, rec.rate.unit, c.patient)) { step.rate = ic.value; step.prefillNote = interlockNote(rec, ic); }
     }
   }
   return step;
@@ -89,14 +102,14 @@ export function refillStep(c, step) {
 export function stepsFromBuiltPlan(c, plan) {
   return plan.steps.map((s) => {
     const st = { uid: newUid(), phase: s.phase, atSec: s.atSec || 0, drugId: s.drugId, regimenKey: s.regimenKey || null, kind: s.kind, filledFor: c.patientVersion, addWarnings: [] };
-    if (s.kind === 'bolus') Object.assign(st, { amount: s.amount, amountUnit: s.amountUnit, overSec: s.overSec || null, loading: !!s.loading });
+    if (s.kind === 'bolus') Object.assign(st, { amount: s.amount, amountUnit: s.amountUnit, overSec: s.overSec || null, loading: !!s.loading, route: s.route || null });
     if (s.kind === 'infusion' || s.kind === 'inhaled') Object.assign(st, { rate: s.rate, rateUnit: s.rateUnit, labelDefault: s.rate });
     if (s.kind !== 'stop') {
       const rec = recommend(c.patient, st.regimenKey, st.drugId, c.lib);
       st.addWarnings = rec.warnings.slice();
       if (s.kind === 'infusion') {
         const ic = interlockCeiling(getDrugById(c.lib, s.drugId), s.rateUnit, c.patient);
-        if (c.interlocks && ic && s.rate > ic.value + 1e-9 && rec.rate) { st.rate = ic.value; st.prefillNote = interlockNote(rec, ic); }
+        if (c.interlocks && ic && exceedsInterlockCeiling(getDrugById(c.lib, s.drugId), s.rate, s.rateUnit, c.patient) && rec.rate) { st.rate = ic.value; st.prefillNote = interlockNote(rec, ic); }
       }
       if (s.kind === 'inhaled' && rec.rate && rec.rate.ageAdjustedMac && Math.abs(s.rate - rec.rate.ageAdjustedMac.value) < 1e-9) st.dialNote = `Example plan dial = 1.0 × age-adjusted MAC (${rec.rate.ageAdjustedMac.value} %), clamped to the label range.`;
     }
@@ -112,7 +125,7 @@ export function checkStep(c, step, allSteps) {
   const errors = []; const warnings = []; const info = {};
   const drug = getDrugById(c.lib, step.drugId);
   if (!drug) return { errors: [{ text: `Unknown drug ${step.drugId}` }], warnings, rec: null };
-  if (step.atSec === null || !isNum(step.atSec) || step.atSec < 0) errors.push({ text: 'Time offset must be mm:ss (e.g. 01:30).' });
+  if (step.atSec === null || !isNum(step.atSec) || step.atSec < 0) errors.push({ text: 'Time offset must be mm:ss or h:mm:ss (e.g. 01:30).' });
   if (step.kind === 'stop') {
     const started = allSteps.some((s) => s.drugId === step.drugId && (s.kind === 'infusion' || s.kind === 'inhaled'));
     if (!started) warnings.push(`No ${drug.name} infusion or dial setting earlier in the plan; this stop does nothing.`);
@@ -122,7 +135,9 @@ export function checkStep(c, step, allSteps) {
   info.rec = rec;
   if (rec.locked) { errors.push({ text: `Locked for this patient: ${rec.lockReasons.join('; ')}` }); return { errors, warnings, rec }; }
   if (!rec.available) { errors.push({ text: `No sourced ${step.regimenKey} regimen for ${drug.name}. Remove this step.` }); return { errors, warnings, rec }; }
-  const limits = interpretCeilings(drug, c.patient);
+  const limits = interpretCeilings(drug, c.patient).filter((L) => !L.route || L.route === (step.route || rec.route || 'IV'));
+  // Surgery-timing runtime rules (e.g. ketorolac) shown at plan time for the phases they concern.
+  for (const r of drug.runtimeRules || []) if (Array.isArray(r.planPhases) && r.planPhases.includes(step.phase)) warnings.push(r.message);
   if (step.kind === 'bolus') {
     if (!isNum(step.amount) || step.amount <= 0) errors.push({ text: 'Dose must be a positive number.' });
     else {
@@ -131,12 +146,13 @@ export function checkStep(c, step, allSteps) {
       for (const L of limits) {
         if (L.type === 'bolus' && step.amount > L.absolute + 1e-9) errors.push({ text: `Blocked: single dose above ${L.label} (${roundSig(L.absolute)} ${drug.amountUnit} for this patient).`, fix: { label: `Use ${roundSig(L.absolute)} ${drug.amountUnit}`, apply: (s) => { s.amount = roundSig(L.absolute); } } });
         if (L.type === 'cumulative') {
-          const total = allSteps.filter((s) => s.drugId === step.drugId && s.kind === 'bolus' && isNum(s.amount)).reduce((a, s) => a + s.amount, 0);
+          const total = allSteps.filter((s) => s.drugId === step.drugId && s.kind === 'bolus' && isNum(s.amount)).reduce((a, s) => a + s.amount, 0); // boluses only (also correct for 'cumulative boluses' limits)
           if (total > L.absolute + 1e-9) errors.push({ text: `Blocked: planned total ${roundSig(total)} ${drug.amountUnit} exceeds ${L.label} (${roundSig(L.absolute)} ${drug.amountUnit} for this patient${L.daily ? '; daily limit applied to the session' : ''}).` });
         }
       }
     }
     if (step.overSec !== null && step.overSec !== undefined && (!isNum(step.overSec) || step.overSec < 0)) errors.push({ text: '“Give over” must be a number of minutes (blank or 0 = push).' });
+    else if (isNum(step.overSec) && step.overSec > 0 && step.overSec < 60) errors.push({ text: '“Give over” under 1 min is not modelled: leave it blank for a push, or use 1 min or more.', fix: { label: 'Make it a push', apply: (s) => { s.overSec = null; } } });
   } else {
     if (!isNum(step.rate) || step.rate < 0) errors.push({ text: 'Rate must be zero or a positive number.' });
     else if (rec.rate) {
@@ -153,7 +169,7 @@ export function checkStep(c, step, allSteps) {
         const ic = interlockCeiling(drug, step.rateUnit, c.patient);
         if (ic) {
           info.interlockCeiling = ic;
-          if (c.interlocks && step.rate > ic.value + 1e-9) errors.push({ text: `Blocked while interlocks are on: above the Smart NOA simulation ceiling ${ic.pyValue} ${ic.pyUnit} (config.yaml). Label range ${rec.rate.range.min ?? 0}–${rec.rate.range.max} ${rec.rate.unit}.`, fix: { label: `Use ceiling ${ic.value}`, apply: (s) => { s.rate = ic.value; s.prefillNote = interlockNote(rec, ic); } } });
+          if (c.interlocks && exceedsInterlockCeiling(drug, step.rate, step.rateUnit, c.patient)) errors.push({ text: `Blocked while interlocks are on: above the Smart NOA simulation ceiling ${ic.pyValue} ${ic.pyUnit} (config.yaml). Label range ${rec.rate.range.min ?? 0}–${rec.rate.range.max} ${rec.rate.unit}.`, fix: { label: `Use ceiling ${ic.value}`, apply: (s) => { s.rate = ic.value; s.prefillNote = interlockNote(rec, ic); } } });
         }
       }
       if (step.kind === 'inhaled' && isNitrousDrug(drug)) {
@@ -173,7 +189,7 @@ export function exportPlan(plan) {
   for (const ph of phases) {
     for (const s of plan.steps.filter((x) => x.phase === ph)) {
       const o = { id: s.uid, phase: s.phase, atSec: s.atSec || 0, order: order++, drugId: s.drugId, kind: s.kind, regimenKey: s.regimenKey };
-      if (s.kind === 'bolus') Object.assign(o, { amount: s.amount, amountUnit: s.amountUnit, overSec: isNum(s.overSec) && s.overSec > 0 ? s.overSec : null, loading: !!s.loading });
+      if (s.kind === 'bolus') Object.assign(o, { amount: s.amount, amountUnit: s.amountUnit, overSec: isNum(s.overSec) && s.overSec > 0 ? s.overSec : null, loading: !!s.loading, ...(s.route ? { route: s.route } : {}) });
       if (s.kind === 'infusion' || s.kind === 'inhaled') Object.assign(o, { rate: s.rate, rateUnit: s.rateUnit });
       steps.push(o);
     }

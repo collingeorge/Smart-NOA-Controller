@@ -31,7 +31,7 @@ import { AUTORUN_CONFIG, CONVENTION } from './autorun-config.js';
 export const PROVENANCE = Object.freeze(['fda_label', 'published_model', 'guideline', 'trial_or_physiology_study', 'project_config', 'author_estimate_unvalidated', 'simulator_convention']);
 const AUTHOR = 'author_estimate_unvalidated';
 
-export function buildParameterInventory({ lib, patient, models = {}, fluidModel, mw, minFio2WithN2O, alarmThresholds, extubationCriteria, stimulus }) {
+export function buildParameterInventory({ lib, models = {}, fluidModel, mw, minFio2WithN2O, alarmThresholds, extubationCriteria, stimulus }) {
   const out = [];
   const add = (component, name, value, unit, provenance, sourceIds = [], note = '', extra = {}) => out.push({ component, name, value, unit, provenance, sourceIds, note, ...extra });
   const eng = (lib && lib.SOURCE_IDS_ENGINE) || {};

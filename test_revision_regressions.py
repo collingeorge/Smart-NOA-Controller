@@ -3,11 +3,14 @@ import contextlib
 import io
 import math
 import tempfile
-from pathlib import Path
-import yaml
 import unittest
+from pathlib import Path
 from unittest.mock import patch
-from smart_noa_controller import Pharmacokinetics, Patient, SmartNOAController, ConfigLoader
+
+import yaml
+
+from smart_noa_controller import ConfigLoader, Patient, Pharmacokinetics, SmartNOAController
+
 
 class RevisionRegressionTests(unittest.TestCase):
     def controller(self):

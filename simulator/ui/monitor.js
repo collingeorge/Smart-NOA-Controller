@@ -5,7 +5,7 @@ import { SCENARIOS } from '../data/scenarios.js';
 import { drawChart, SERIES_COLORS, WINDOW_SEC } from './charts.js';
 import { srcTags } from './sources.js';
 import { CLASS_LABELS, CLASS_ORDER, PHASE_LABELS, PHASE_LABELS_MAC, PRIORITY_LABELS, PRIORITY_SHAPES, INTERLOCK_TEXT, KIND_LABELS } from './labels.js';
-import { getDrugById, isInhaledDrug, interlockCeiling, interlockNote } from './plan-model.js';
+import { getDrugById, isInhaledDrug, interlockCeiling, interlockNote, exceedsInterlockCeiling } from './plan-model.js';
 import { interlockExplanation } from './plan-editor.js';
 import { CASE_ACTIONS, surgeryState } from '../engine/case-actions.js';
 import { createAutoRunner, BANNERS, MODE_LABELS } from '../engine/autorun.js';
@@ -17,6 +17,7 @@ const TILE_ALARMS = {
 };
 const RANK = { high: 3, medium: 2, low: 1 };
 const SAMPLE_SEC = 2;
+const GATE_COOLDOWN_MS = 600;
 
 export function tofDepthText(count, ratio) {
   if (count === 0) return 'deep block (TOF count 0)';
@@ -135,7 +136,11 @@ export function renderMonitor(ctx, main) {
     pbtn('surgery', 'Start surgery', () => caseAct('start_surgery')),
     pbtn('endsurgery', 'End surgery', () => caseAct('end_surgery')),
     pbtn('emergence', 'Begin emergence', () => caseAct('begin_emergence')),
-    pbtn('extubate', 'Extubate…', () => ctx.openExtubation(sim, () => render(true))),
+    pbtn('extubate', 'Extubate…', () => {
+      // The clock is paused while the dialog is open and restored when it closes (2026-11 audit, finding 3).
+      let wasPlaying = false;
+      ctx.openExtubation(sim, { pause: () => { wasPlaying = run.playing; if (run.playing) setPlaying(false, true); }, resume: () => { if (wasPlaying && alive) setPlaying(true, true); }, after: () => render(true) });
+    }),
   ] : [
     pbtn('sedation', 'Start sedation', () => caseAct('start_sedation')),
     pbtn('surgery', 'Start procedure', () => caseAct('start_procedure')),
@@ -193,30 +198,43 @@ export function renderMonitor(ctx, main) {
   const adDrug = h('select', { id: 'ad-drug', class: 'input input--hmi' }, h('option', { value: '' }, 'Choose drug…'),
     groupDrugs(lib).map(([cl, ds]) => h('optgroup', { label: CLASS_LABELS[cl] || cl }, ds.map((d) => h('option', { value: d.id, disabled: !!sim.state.interlocks.lockouts[d.id] }, `${d.name}${sim.state.interlocks.lockouts[d.id] ? ' — LOCKED' : ''}`)))));
   const adKind = h('select', { id: 'ad-kind', class: 'input input--hmi' });
+  const adRoute = h('select', { id: 'ad-route', class: 'input input--hmi' });
+  const adRouteWrap = h('div', { class: 'field field--sm', hidden: true }, h('label', { for: 'ad-route', class: 'label' }, 'Route'), adRoute);
   const adVal = h('input', { type: 'number', step: 'any', min: 0, id: 'ad-value', class: 'input input--hmi input--num' });
   const adUnit = h('span', { class: 'unit', id: 'ad-unit' });
   const adOver = h('input', { type: 'number', step: 'any', min: 0, id: 'ad-over', class: 'input input--hmi input--num', placeholder: 'push' });
-  const adOverWrap = h('div', { class: 'field field--sm' }, h('label', { for: 'ad-over', class: 'label' }, 'Over (min)'), adOver);
+  const adOverWrap = h('div', { class: 'field field--sm' }, h('label', { for: 'ad-over', class: 'label' }, 'Over (min)'), adOver, h('p', { class: 'hint hint--hmi', id: 'ad-over-hint' }, 'blank = push; ≥ 1 min'));
+  adOver.setAttribute('aria-describedby', 'ad-over-hint');
   const adInfo = h('div', { class: 'ad-info', id: 'ad-info' });
   const adGive = h('button', { type: 'button', class: 'btn btn--hmi btn--primary', id: 'ad-give' }, 'Give');
   let adCtx = null;
   adDrug.addEventListener('change', () => fillKinds());
-  adKind.addEventListener('change', () => prefill());
+  adKind.addEventListener('change', () => { syncRoutes(); prefill(); });
+  adRoute.addEventListener('change', () => prefill());
+  function syncRoutes() {
+    const d = getDrugById(lib, adDrug.value);
+    const routes = d && Array.isArray(d.bolusRoutes) && d.bolusRoutes.length > 1 ? d.bolusRoutes : null;
+    const show = !!routes && adKind.value === 'bolus';
+    adRouteWrap.hidden = !show; adRoute.hidden = !show;
+    if (show && [...adRoute.options].map((o) => o.value).join() !== routes.join()) { clear(adRoute).append(...routes.map((r) => h('option', { value: r }, r))); }
+  }
   function fillKinds(kindWanted = null) {
     clear(adKind); const d = getDrugById(lib, adDrug.value); if (!d) { clear(adInfo); return; }
     const kinds = [...new Set(Object.values(d.regimens || {}).flatMap((r) => (r.kind === 'infusion' && r.loading ? ['bolus', 'infusion'] : [r.kind])))];
     for (const k of kinds) adKind.append(h('option', { value: k, selected: k === kindWanted }, KIND_LABELS[k]));
+    syncRoutes();
     prefill();
   }
   function prefill() {
     const d = getDrugById(lib, adDrug.value); const kind = adKind.value; if (!d || !kind) return;
     const pk = regimenKeyForPhase(sim.state.phase, sim.plan.sedationTarget);
     const keys = [pk, 'rescue', ...Object.keys(d.regimens || {})];
-    let key = keys.find((k) => d.regimens[k] && (d.regimens[k].kind === kind || (kind === 'bolus' && d.regimens[k].loading)));
+    const route = adRoute.hidden ? null : adRoute.value;
+    const key = keys.find((k) => d.regimens[k] && (d.regimens[k].kind === kind || (kind === 'bolus' && d.regimens[k].loading)) && (!route || kind !== 'bolus' || (d.regimens[k].route || 'IV') === route));
     const rec = key ? recommend(patient, key, d.id, lib) : null;
     adCtx = { drug: d, kind, key, rec };
     clear(adInfo);
-    adOverWrap.hidden = kind !== 'bolus'; adOver.value = '';
+    adOverWrap.hidden = kind !== 'bolus' || (route && route !== 'IV'); adOver.value = '';
     const ds = sim.state.drugs[d.id];
     if (kind === 'bolus') {
       const dz = rec && (rec.kind === 'bolus' ? rec.dose : rec.loading);
@@ -228,7 +246,7 @@ export function renderMonitor(ctx, main) {
       let v = ds.infusionRate > 0 ? ds.infusionRate : r ? r.value : '';
       const unit = r ? r.unit : ds.rateUnit;
       const ic = kind === 'infusion' ? interlockCeiling(d, unit, patient) : null;
-      if (store.interlocks && ic && isNum(v) && v > ic.value + 1e-9) { v = ic.value; adInfo.append(h('p', { class: 'note note--interlock' }, interlockNote(rec, ic), ' ', srcTags([E.pythonConfig]))); }
+      if (store.interlocks && ic && isNum(v) && exceedsInterlockCeiling(d, v, unit, patient)) { v = ic.value; adInfo.append(h('p', { class: 'note note--interlock' }, interlockNote(rec, ic), ' ', srcTags([E.pythonConfig]))); }
       adVal.value = v; adUnit.textContent = unit || '';
       if (r) adInfo.append(h('p', {}, `Sourced ${key} range ${r.range.min ?? 0}–${r.range.max} ${r.unit}${r.unit.includes('/kg') ? ` · ${rec.weightUsedKg} kg ${rec.scalar}` : ''} `, srcTags(rec.sources)));
       if (r && r.ageAdjustedMac) adInfo.append(h('p', { class: 'hint hint--hmi' }, `1.0 × age-adjusted MAC = ${r.ageAdjustedMac.value} % `, srcTags(r.ageAdjustedMac.sources)));
@@ -239,10 +257,19 @@ export function renderMonitor(ctx, main) {
     if (!adCtx || !adCtx.drug) { adDrug.focus(); feedback('Choose a drug first.', true); return; }
     const v = Number(adVal.value); const { drug, kind } = adCtx;
     const cmd = { drugId: drug.id, kind };
-    if (kind === 'bolus') { cmd.amount = v; cmd.amountUnit = drug.amountUnit; const o = Number(adOver.value); if (adOver.value !== '' && o > 0) cmd.overSec = o * 60; }
+    if (kind === 'bolus') {
+      cmd.amount = v; cmd.amountUnit = drug.amountUnit;
+      if (!adRoute.hidden) cmd.route = adRoute.value;
+      const o = Number(adOver.value);
+      if (!adOverWrap.hidden && adOver.value !== '') {
+        if (!isNum(o) || o < 0) { feedback('“Over” must be a number of minutes (blank or 0 = push).', true); adOver.focus(); return; }
+        if (o > 0 && o < 1) { feedback('“Over” under 1 min is not modelled: leave it blank for a push, or use 1 min or more.', true); adOver.focus(); return; }
+        if (o >= 1) cmd.overSec = o * 60;
+      }
+    }
     else { cmd.rate = v; cmd.rateUnit = adUnit.textContent || sim.state.drugs[drug.id].rateUnit; }
     const r = sim.administer(cmd);
-    const what = kind === 'bolus' ? `${v} ${drug.amountUnit}` : `${v} ${cmd.rateUnit}`;
+    const what = kind === 'bolus' ? `${v} ${drug.amountUnit}${cmd.route ? ` ${cmd.route}` : ''}` : `${v} ${cmd.rateUnit}`;
     feedback(r.ok ? `${drug.name} ${what} ${kind === 'bolus' ? 'given' : 'set'}.${r.warnings.length ? ` Warnings: ${r.warnings.join('; ')}` : ''}` : `BLOCKED: ${drug.name} ${what} — ${r.reasons.join('; ')}`, !r.ok, r.warnings.length > 0);
     render(true);
   });
@@ -251,6 +278,7 @@ export function renderMonitor(ctx, main) {
     h('div', { class: 'admin-form__row' },
       h('div', { class: 'field field--sm' }, h('label', { for: 'ad-drug', class: 'label' }, 'Drug'), adDrug),
       h('div', { class: 'field field--sm' }, h('label', { for: 'ad-kind', class: 'label' }, 'How'), adKind),
+      adRouteWrap,
       h('div', { class: 'field field--sm' }, h('label', { for: 'ad-value', class: 'label' }, 'Amount / rate'), h('span', { class: 'with-unit' }, adVal, adUnit)),
       adOverWrap, adGive), adInfo);
   const fb = h('p', { class: 'feedback', id: 'mon-feedback', role: 'status' });
@@ -305,9 +333,20 @@ export function renderMonitor(ctx, main) {
   autoPause.addEventListener('click', () => { if (run.auto) { const r = run.auto.pause(); if (!r.ok) feedback(r.message, true); render(true); } });
   autoResume.addEventListener('click', () => { if (!run.auto) return; const r = run.auto.resume(); if (r.ok) setPlaying(true, true); render(true); });
   autoTake.addEventListener('click', () => { if (run.auto) { run.auto.takeOver('Take over manually button'); render(true); } });
+  // A gate click approves only the gate id that was rendered on the button (dataset.gate), and the
+  // button stays disabled while the approval is processed and for GATE_COOLDOWN_MS afterwards, so a
+  // double-click or key repeat cannot approve the next gate (2026-11 audit, finding 2).
+  let gateBusy = false; let gateTimer = null;
   autoGate.addEventListener('click', () => {
-    const st = run.auto && run.auto.status(); if (!st || !st.current) return;
-    const r = run.auto.approve(st.current.id); feedback(r.message, !r.ok);
+    if (gateBusy || autoGate.disabled || !run.auto) return;
+    const shownId = autoGate.dataset.gate; if (!shownId) return;
+    gateBusy = true; autoGate.disabled = true;
+    let r;
+    try { r = run.auto.approve(shownId); } finally {
+      if (gateTimer) clearTimeout(gateTimer);
+      gateTimer = setTimeout(() => { gateBusy = false; gateTimer = null; if (alive) render(true); }, GATE_COOLDOWN_MS);
+    }
+    feedback(r.message, !r.ok);
     if (r.ok && run.auto.state === 'running' && !run.playing) setPlaying(true, true);
     render(true);
   });
@@ -329,7 +368,8 @@ export function renderMonitor(ctx, main) {
     const c = st.current;
     const showGate = active && st.mode === 'guided' && c && c.gate;
     autoGate.hidden = !showGate;
-    if (showGate) { setText(autoGate, c.gateLabel); autoGate.disabled = !c.enabled; autoGate.dataset.gate = c.id; }
+    if (showGate) { setText(autoGate, c.gateLabel); autoGate.disabled = !c.enabled || gateBusy; autoGate.dataset.gate = c.id; }
+    else delete autoGate.dataset.gate;
     const unmet = st.state === 'stopped' ? st.unmetAtStop : active && c && !c.conditionsMet ? c.unmet : [];
     const usig = unmet.join('|') + st.state;
     if (autoUnmet.dataset.sig !== usig) {
@@ -373,9 +413,11 @@ export function renderMonitor(ctx, main) {
       logPanel),
     h('div', { class: 'actions' }, h('button', { type: 'button', class: 'btn', onclick: () => ctx.go(3) }, '← Back to plan'), toDebrief));
 
+  // Buttons that only show information or pre-fill a form (source tags, drug-row Bolus/Adjust)
+  // are not manual control and do not end guided/automatic mode (2026-11 audit, finding 6).
   document.getElementById('hmi').addEventListener('click', (e) => {
     const b = e.target.closest('button');
-    if (!b || b.disabled || !run.auto || !run.auto.active || b.closest('[data-auto-safe]')) return;
+    if (!b || b.disabled || !run.auto || !run.auto.active || b.closest('[data-auto-safe]') || b.classList.contains('src-tag')) return;
     run.auto.takeOver(describeControl(b));
     feedback(run.auto.message, false, true); announce(run.auto.message);
   }, true);
@@ -437,7 +479,7 @@ export function renderMonitor(ctx, main) {
     setText(t.alarm, a ? `${PRIORITY_SHAPES[a.priority]} ${PRIORITY_LABELS[a.priority]}${a.active ? '' : ' (latched)'}: ${a.message}` : '');
   }
 
-  function render(force = false) {
+  function render() {
     if (!alive) return;
     const S = sim.state; const V = S.vitals; const A = S.airway;
     setText(clock, fmtClock(S.tSec)); setText(phaseEl, phaseLabel(S.phase));
@@ -449,7 +491,8 @@ export function renderMonitor(ctx, main) {
     const supported = (A.secured && A.ventilated) || A.maskVentilation;
     const noBreaths = !(V.rr > 0) && !supported;
     setTile('rr', String(V.rr), noBreaths ? 'APNOEA — no breaths' : A.secured && A.ventilated ? 'ventilator' : A.maskVentilation ? 'bag-mask' : 'spontaneous');
-    setTile('etco2', noBreaths ? '—' : String(V.etco2), noBreaths ? '(no breaths)' : 'illustrative');
+    const noEt = noBreaths || !isNum(V.etco2); // engine reports null without exhaled gas (no capnography signal)
+    setTile('etco2', noEt ? '—' : String(V.etco2), noEt ? '(no breaths)' : 'illustrative');
     setTile('depth', String(V.depthIndex), `${V.sedationLevel} · illustrative; not BIS`);
     setTile('tof', `${V.tofCount}/4`, V.tofCount === 4 ? `TOFR ${V.tofRatio.toFixed(2)} · ${tofDepthText(V.tofCount, V.tofRatio)}` : `TOFR n/a · ${tofDepthText(V.tofCount, V.tofRatio)}`);
     let mac = 0; const agents = [];
@@ -529,8 +572,8 @@ export function renderMonitor(ctx, main) {
       drugSig = sig; clear(drugBody);
       for (const d of active) {
         const rate = h('td', { class: 'mono' }); const ce = h('td', { class: 'mono' }); const cum = h('td', { class: 'mono' });
-        const bol = h('button', { type: 'button', class: 'btn btn--hmi btn--small', 'aria-label': `Bolus ${d.name}` }, 'Bolus');
-        const adj = h('button', { type: 'button', class: 'btn btn--hmi btn--small', 'aria-label': `Adjust ${d.name} rate` }, 'Adjust');
+        const bol = h('button', { type: 'button', class: 'btn btn--hmi btn--small', 'data-auto-safe': 'prefill', 'aria-label': `Bolus ${d.name}` }, 'Bolus');
+        const adj = h('button', { type: 'button', class: 'btn btn--hmi btn--small', 'data-auto-safe': 'prefill', 'aria-label': `Adjust ${d.name} rate` }, 'Adjust');
         const stop = h('button', { type: 'button', class: 'btn btn--hmi btn--small btn--danger', 'aria-label': `Stop ${d.name}` }, 'Stop');
         const kinds = new Set(Object.values(d.regimens || {}).map((r) => r.kind));
         bol.hidden = !(kinds.has('bolus') || Object.values(d.regimens || {}).some((r) => r.loading));

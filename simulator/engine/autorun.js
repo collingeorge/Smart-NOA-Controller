@@ -34,8 +34,8 @@ export function buildSequence(planMode, config = AUTORUN_CONFIG) {
     return [
       { id: 'start_sedation', label: 'Start sedation', gate: true, gateLabel: 'Approve & start sedation', fullWaitSec: v('PRE_INDUCTION_DWELL_SEC'),
         actions: [['set_fio2', v('SEDATION_FIO2')], ['start_sedation']], describe: `supplemental O2 FiO2 ${v('SEDATION_FIO2')}, then sedation plan steps run at their offsets` },
-      { id: 'start_procedure', label: 'Start procedure', gate: false, check: 'sedationTarget', timeoutSec: v('SEDATION_TARGET_TIMEOUT_SEC'), actions: [['start_procedure']],
-        describe: 'automatic once the plan sedation target is reached and all sedation plan steps have run' },
+      { id: 'start_procedure', label: 'Start procedure', gate: false, check: 'sedationTarget', holdSec: v('SEDATION_TARGET_HOLD_SEC'), timeoutSec: v('SEDATION_TARGET_TIMEOUT_SEC'), actions: [['start_procedure']],
+        describe: `automatic once the plan sedation target has held for ${v('SEDATION_TARGET_HOLD_SEC')} s and all sedation plan steps have run` },
       { id: 'end_procedure', label: 'End procedure → recovery', gate: true, gateLabel: 'End procedure', fullWaitSec: v('PROCEDURE_DURATION_SEC'),
         actions: [['end_procedure'], ['end_sedation']], describe: 'ends the procedure and starts recovery (plan stop steps run)' },
       { id: 'recovery', label: 'Recovery', gate: false, check: 'recovery', holdSec: v('RECOVERY_HOLD_SEC'), timeoutSec: v('RECOVERY_TIMEOUT_SEC'), actions: [], final: true,
@@ -58,10 +58,6 @@ export function buildSequence(planMode, config = AUTORUN_CONFIG) {
       actions: [['extubate']], describe: 'enabled only when sim.extubationReadiness() is met' },
     { id: 'observe', label: 'Observe after extubation', gate: false, minSec: v('POST_EXTUBATION_OBSERVE_SEC'), actions: [], final: true, describe: 'observation, then complete' },
   ];
-}
-
-export function createAutoRunner({ sim, plan = null, mode = 'full', config = AUTORUN_CONFIG, actions = CASE_ACTIONS, onEvent = null } = {}) {
-  return new AutoRunner({ sim, plan, mode, config, actions, onEvent });
 }
 
 class AutoRunner {
@@ -202,7 +198,7 @@ class AutoRunner {
     return this._execute(step, 'clinician', c);
   }
 
-  _execute(step, by, c) {
+  _execute(step, by, _conditions) {
     const t = this._t();
     const n = this.seq.length; const k = this.idx + 1;
     this._log(`step ${k}/${n} — ${step.label}${by === 'clinician' ? ' (approved by the clinician)' : this.mode === 'guided' ? ' (automatic within the approved phase)' : ' (automatic demonstration)'}${step.check ? ' — conditions met' : ''}`);
@@ -300,3 +296,8 @@ class AutoRunner {
 }
 
 export { AutoRunner };
+
+export function createAutoRunner({ sim, plan = null, mode = 'full', config = AUTORUN_CONFIG, actions = CASE_ACTIONS, onEvent = null } = {}) {
+  return new AutoRunner({ sim, plan, mode, config, actions, onEvent });
+}
+

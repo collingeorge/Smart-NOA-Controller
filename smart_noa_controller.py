@@ -6,13 +6,19 @@
 # Author: Collin B. George (pre-medical student)
 # =============================================================================
 
-import time
-import random
 import math
-import yaml
+import random
+import time
 from dataclasses import dataclass
-from typing import Dict, Tuple, List, Optional
 from pathlib import Path
+
+import yaml
+
+# Absolute tolerance for "rate above the simulation ceiling", in the ceiling's own unit
+# (mcg/kg/h or mg/kg/h). A rate equal to the ceiling, or within float noise of it, is allowed.
+# The web simulator uses the same value (simulator/engine/interlocks.js RATE_CEILING_EPS; a parity
+# test keeps them equal).
+RATE_CEILING_TOLERANCE = 1e-9
 
 # --- Data Structures ---
 
@@ -35,8 +41,8 @@ class Patient:
     weight_kg: float
     asa_class: int
     egfr: float
-    allergies: List[str]
-    comorbidities: List[str]
+    allergies: list[str]
+    comorbidities: list[str]
 
     def __post_init__(self):
         if isinstance(self.age, bool) or not isinstance(self.age, int) or not 0 <= self.age <= 120:
@@ -55,41 +61,41 @@ class Patient:
 
 class ConfigLoader:
     """Loads and validates simulation configuration from YAML file."""
-    
+
     def __init__(self, config_path: str = "config.yaml") -> None:
         """
         Initialize configuration loader.
-        
+
         Args:
             config_path: Path to YAML configuration file
         """
         self.config_path = Path(config_path)
-        self.config: Dict = self._load_config()
+        self.config: dict = self._load_config()
         self._validate_config()
-    
-    def _load_config(self) -> Dict:
+
+    def _load_config(self) -> dict:
         """
         Load configuration from YAML file.
-        
+
         Returns:
             Dictionary containing all configuration parameters
-            
+
         Raises:
             FileNotFoundError: If config file doesn't exist
             yaml.YAMLError: If config file is malformed
         """
         if not self.config_path.exists():
             raise FileNotFoundError(f"Configuration file not found: {self.config_path}")
-        
-        with open(self.config_path, 'r', encoding='utf-8') as f:
+
+        with open(self.config_path, encoding='utf-8') as f:
             config = yaml.safe_load(f)
-        
+
         return config
-    
+
     def _validate_config(self) -> None:
         """
         Validate that all required configuration sections exist.
-        
+
         Raises:
             ValueError: If critical configuration sections are missing
         """
@@ -102,17 +108,17 @@ class ConfigLoader:
             'contraindications',
             'simulation_rate_ceilings'
         ]
-        
+
         missing_sections = []
         for section in required_sections:
             if section not in self.config:
                 missing_sections.append(section)
-        
+
         if missing_sections:
             raise ValueError(
                 f"Configuration missing required sections: {', '.join(missing_sections)}"
             )
-    
+
         numeric_paths = {
             ('hemodynamic_thresholds', 'hr_critical_low'): True,
             ('hemodynamic_thresholds', 'map_critical_low'): True,
@@ -151,11 +157,11 @@ class ConfigLoader:
     def get(self, *keys: str, default=None):
         """
         Get nested configuration value.
-        
+
         Args:
             *keys: Nested keys to traverse (e.g., 'hemodynamic_thresholds', 'hr_critical_low')
             default: Default value if key not found
-            
+
         Returns:
             Configuration value or default
         """
@@ -172,21 +178,21 @@ class ConfigLoader:
 
 class Pharmacokinetics:
     """
-    Implements an unvalidated one-compartment model with an effect site for the drug 
+    Implements an unvalidated one-compartment model with an effect site for the drug
     concentration at the effect-site (Ce) over time, a crucial element for TCI.
-    
+
     The model uses first-order kinetics with discrete-time updates suitable
     for educational discrete-time simulation only; this is not a TCI controller.
     """
-    
-    def __init__(self, 
-                 weight_kg: float, 
-                 central_vol: float, 
-                 k10: float, 
+
+    def __init__(self,
+                 weight_kg: float,
+                 central_vol: float,
+                 k10: float,
                  k1e: float) -> None:
         """
         Initialize pharmacokinetic model.
-        
+
         Args:
             weight_kg: Subject weight in kg (simulated)
             central_vol: Central compartment volume in L/kg
@@ -210,16 +216,16 @@ class Pharmacokinetics:
         self.Cp: float = 0.0  # Plasma Concentration
         self.Ce: float = 0.0  # Effect-Site Concentration
 
-    def update_concentration(self, 
-                           infusion_rate_mcg_per_min: float, 
-                           time_delta_min: float = 1.0) -> Tuple[float, float]:
+    def update_concentration(self,
+                           infusion_rate_mcg_per_min: float,
+                           time_delta_min: float = 1.0) -> tuple[float, float]:
         """
         Updates the estimated concentrations based on current infusion and time elapsed.
-        
+
         Args:
             infusion_rate_mcg_per_min: Current infusion rate in mcg/min
             time_delta_min: Time step in minutes (default: 1.0)
-            
+
         Returns:
             Tuple of (plasma_concentration, effect_site_concentration) in ng/mL
         """
@@ -260,11 +266,11 @@ class SmartNOAController:
     demonstrates incomplete configured rule checks.
     NOT for clinical use.
     """
-    
+
     def __init__(self, patient: Patient, config_path: str = "config.yaml") -> None:
         """
         Initialize Smart NOA Controller.
-        
+
         Args:
             patient: Patient object with simulated demographic and profile data
             config_path: Path to configuration YAML file
@@ -273,15 +279,15 @@ class SmartNOAController:
             raise ValueError("Simulated weight must be finite and positive")
         self.patient: Patient = patient
         self.config: ConfigLoader = ConfigLoader(config_path)
-        
+
         # Infusion rates are stored in mcg/kg/h or mg/kg/h
-        self.infusions: Dict[str, float] = {
-            "Dexmedetomidine": 0.0, 
-            "Ketamine": 0.0, 
+        self.infusions: dict[str, float] = {
+            "Dexmedetomidine": 0.0,
+            "Ketamine": 0.0,
             "Lidocaine": 0.0
         }
-        
-        self.hard_lockouts: List[str] = self._calculate_initial_lockouts()
+
+        self.hard_lockouts: list[str] = self._calculate_initial_lockouts()
         self.status: str = "INITIALIZING"
         self.hold_latched = False
         # Agents zeroed by a hold stay at zero for as long as the hold is latched.
@@ -289,19 +295,19 @@ class SmartNOAController:
 
         # Initialize PK model for Dexmedetomidine
         self.dex_pk: Pharmacokinetics = self._initialize_pk_model()
-        
+
         print(f"Controller Initialized for {self.patient.age}yo, {self.patient.weight_kg}kg.")
         print(f"Hard Lockouts Enabled: {self.hard_lockouts}")
 
     def _initialize_pk_model(self) -> Pharmacokinetics:
         """
         Initialize pharmacokinetic model with parameters from config.
-        
+
         Returns:
             Configured Pharmacokinetics instance for dexmedetomidine
         """
         pk_params = self.config.get('pharmacokinetics', 'dexmedetomidine')
-        
+
         return Pharmacokinetics(
             weight_kg=self.patient.weight_kg,
             central_vol=pk_params['central_volume_L_per_kg'],
@@ -309,38 +315,38 @@ class SmartNOAController:
             k1e=pk_params['effect_site_transfer_k1e']
         )
 
-    def _calculate_initial_lockouts(self) -> List[str]:
+    def _calculate_initial_lockouts(self) -> list[str]:
         """
         Phase 1: Generates example lockouts; not a complete clinical assessment.
-        
+
         Returns:
             List of drug names that are hard-locked for this simulated profile
         """
-        locks: List[str] = []
-        
+        locks: list[str] = []
+
         # Load contraindication criteria from config
         ci_dex = self.config.get('contraindications', 'dexmedetomidine')
         ci_keto = self.config.get('contraindications', 'ketorolac')
-        
+
         # Renal Failure: Contraindicates NSAIDs (Ketorolac)
         egfr_min = ci_keto['egfr_minimum']
         if self.patient.egfr < egfr_min:
             locks.append("Ketorolac")
-        
+
         # Cardiac Risk: Contraindicates alpha-2 agonists (Dexmedetomidine)
         cardiac_conditions = ci_dex['cardiac_conditions']
         if self._matches(self.patient.comorbidities, cardiac_conditions):
             locks.append("Dexmedetomidine")
-        
+
         # Allergy Check
         allergy_triggers = ci_keto['allergy_triggers']
         if self._matches(self.patient.allergies, allergy_triggers) and "Ketorolac" not in locks:
             locks.append("Ketorolac")
-        
+
         return locks
 
     @staticmethod
-    def _matches(entries: List[str], triggers: List[str]) -> bool:
+    def _matches(entries: list[str], triggers: list[str]) -> bool:
         """Case-insensitive substring match ("complete heart block" matches "Heart Block").
 
         Still an incomplete illustrative matcher: free text that names a condition
@@ -349,13 +355,13 @@ class SmartNOAController:
         normalized = [entry.casefold().strip() for entry in entries]
         return any(trigger.casefold() in entry for trigger in triggers for entry in normalized)
 
-    def check_contraindication(self, drug: str) -> Tuple[bool, str]:
+    def check_contraindication(self, drug: str) -> tuple[bool, str]:
         """
         Verifies if a specific drug is allowed by the safety logic.
-        
+
         Args:
             drug: Drug name to check
-            
+
         Returns:
             Tuple of (is_allowed, reason_message)
         """
@@ -363,7 +369,7 @@ class SmartNOAController:
         if drug not in supported:
             return False, "UNASSESSED: no simulation rule for this drug"
         if drug in self.hard_lockouts:
-            reason = { 
+            reason = {
                 "Dexmedetomidine": "Configured cardiac-condition example; incomplete clinical assessment",
                 "Ketorolac": "Configured renal-threshold or allergy example; incomplete clinical assessment"
             }.get(drug, "Profile-specific contraindication")
@@ -376,10 +382,10 @@ class SmartNOAController:
 
         return True, "No configured lockout triggered; clinical safety is unassessed"
 
-    def generate_starting_rates(self) -> Dict[str, float]:
+    def generate_starting_rates(self) -> dict[str, float]:
         """
         Phase 2: Returns illustrative simulation rates, not clinical doses.
-        
+
         Returns:
             Dictionary of drug names to starting infusion rates
         """
@@ -387,9 +393,9 @@ class SmartNOAController:
         dex_config = self.config.get('drug_dosing', 'dexmedetomidine')
         keto_config = self.config.get('drug_dosing', 'ketamine')
         lido_config = self.config.get('drug_dosing', 'lidocaine')
-        
+
         # Standard starting rates (mcg/kg/h or mg/kg/h)
-        rates: Dict[str, float] = {
+        rates: dict[str, float] = {
             "Lidocaine": lido_config['standard_dose'],
             "Ketamine": keto_config['standard_dose'],
             "Dexmedetomidine": dex_config['standard_dose']
@@ -409,7 +415,7 @@ class SmartNOAController:
         rates["Ketorolac Adjunct"] = ketorolac_status  # type: ignore
 
         if self.hold_latched:
-            rates.update({drug: 0.0 for drug in self.infusions})
+            rates.update(dict.fromkeys(self.infusions, 0.0))
         self.infusions = {k: v for k, v in rates.items() if isinstance(v, (int, float))}
         return rates
 
@@ -418,10 +424,10 @@ class SmartNOAController:
     def _rate_to_mcg_per_min(self, drug: str) -> float:
         """
         Helper to convert infusion rate (mcg/kg/h) to PK model input (mcg/min).
-        
+
         Args:
             drug: Drug name
-            
+
         Returns:
             Infusion rate in mcg/min
         """
@@ -449,21 +455,23 @@ class SmartNOAController:
             if drug in self.hard_lockouts or (self.hold_latched and drug in self.held_drugs):
                 self.infusions[drug] = 0.0
 
-    def _rate_faults(self) -> List[str]:
+    def _rate_faults(self) -> list[str]:
         faults = []
         for drug, rate in self.infusions.items():
             ceiling = self.config.get('simulation_rate_ceilings', drug)
             valid = not isinstance(rate, bool) and isinstance(rate, (int, float)) and math.isfinite(rate) and rate >= 0
-            if not valid or ceiling is None or rate > ceiling:
+            if not valid or ceiling is None or rate > ceiling + RATE_CEILING_TOLERANCE:
                 faults.append(drug)
         return faults
 
     def monitor_and_control(self, duration_sec: int = 30, vitals=None,
                             sleep_sec: float = 1.0, log_every: int = 1) -> None:
         """
-        Phase 3: Simulates the closed-loop feedback system.
+        Phase 3: Runs the rule-checking loop over synthetic values (educational; not a controller).
         Reads synthetic values, updates an unvalidated model, and changes in-memory values.
-        
+        A missing or malformed reading (not an (hr, map) pair) fails safe: all simulated values are
+        set to zero and the hold latches, exactly as for an unusable number.
+
         Args:
             duration_sec: Duration of monitoring simulation in seconds
             vitals: Optional iterable of (hr, map) pairs, one per simulated second, used instead of
@@ -480,24 +488,30 @@ class SmartNOAController:
         readings = iter(vitals) if vitals is not None else None
         print("\n=== Smart NOA educational simulation (unvalidated model) ===")
         print("Monitoring Dexmedetomidine Concentration and Hemodynamics.")
-        
+
         # Load thresholds from config
         hr_threshold = self.config.get('hemodynamic_thresholds', 'hr_critical_low')
         map_threshold = self.config.get('hemodynamic_thresholds', 'map_critical_low')
         # Alerts do not depend on an unvalidated concentration threshold.
-        
+
         time_step_min = 1/60.0  # Each loop iteration represents 1 second (1/60th of a minute)
-        
+
         for t in range(duration_sec):
             # 1. Simulate data feed from vital signs monitor (educational simulation)
             if readings is None:
-                hr = random.randint(40, 95)
-                map_val = random.randint(50, 105)
+                hr = random.randint(40, 95)  # nosec B311 - fictional demo reading, not security-relevant
+                map_val = random.randint(50, 105)  # nosec B311 - fictional demo reading, not security-relevant
             else:
                 try:
-                    hr, map_val = next(readings)
+                    reading = next(readings)
                 except StopIteration:
                     raise ValueError("Scripted vitals ended before duration_sec") from None
+                # A malformed scripted reading (None, a 1-tuple, a string, ...) is treated as an
+                # unusable reading below, so it fails safe instead of raising out of the loop.
+                try:
+                    hr, map_val = reading
+                except (TypeError, ValueError):
+                    hr = map_val = None
 
             # 1a. Enforce configured lockouts and any latched hold before every model update,
             #     so a rate written directly into self.infusions cannot bypass them.
@@ -522,23 +536,23 @@ class SmartNOAController:
             # 2. Update PK Model (How much drug is hitting the effect site?)
             dex_rate_mcg_min = self._rate_to_mcg_per_min("Dexmedetomidine")
             self.dex_pk.update_concentration(dex_rate_mcg_min, time_delta_min=time_step_min)
-            
+
             dex_ce = self.dex_pk.Ce
-            
+
             # 3. Dynamic Safety Interlocks (Educational Simulation Logic)
-            
+
             # Example rule A: low simulated heart rate, independent of model concentration
             if hr < hr_threshold:
                 self._latch_hold(["Dexmedetomidine"])
                 self.status = "RED"
                 print(f"T+{t:2d}s | HR {hr} | Ce: {dex_ce:.2f} → SIMULATED LOW HR → DEX VALUE SET TO ZERO")
-            
+
             # Interlock B: Critical Hypotension
             if map_val < map_threshold:
                 self._latch_hold(["Dexmedetomidine", "Lidocaine"])
                 self.status = "RED"
                 print(f"T+{t:2d}s | MAP {map_val} | Ce: {dex_ce:.2f} → HYPOTENSION → PAUSING KEY INFUSIONS")
-            
+
             # A latched hold persists; there is no automatic restart policy.
             elif self.hold_latched and hr >= hr_threshold and not rate_fault:
                 self.status = "HOLD"

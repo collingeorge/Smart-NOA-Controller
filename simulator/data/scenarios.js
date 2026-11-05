@@ -191,7 +191,7 @@ export function buildPlan(template, patient, library = null) {
     if (!rec.available) { skipped.push({ drugId: s.drugId, reason: rec.warnings.join('; ') }); continue; }
     const src = { regimenKey: s.regimenKey, sources: rec.sources };
     if (s.kind === 'bolus' && rec.dose) {
-      steps.push({ ...base, ...src, id: `s${++order}`, order, kind: 'bolus', amount: rec.dose.value, amountUnit: rec.dose.unit, overSec: rec.route && rec.route !== 'IV' ? null : overSecFromTiming(rec.timing), ...(rec.route && rec.route !== 'IV' ? { route: rec.route } : {}) });
+      steps.push({ ...base, ...src, id: `s${++order}`, order, kind: 'bolus', amount: rec.dose.value, amountUnit: rec.dose.unit, overSec: rec.route && rec.route !== 'IV' ? null : overSecFromTiming(rec.timing), ...(rec.route ? { route: rec.route } : {}) });
     } else if (s.kind === 'infusion' && rec.rate) {
       if (rec.loading && rec.loading.value) steps.push({ ...base, ...src, id: `s${++order}`, order, kind: 'bolus', amount: rec.loading.value, amountUnit: rec.loading.unit, overSec: rec.loading.overSec || null, loading: true });
       steps.push({ ...base, ...src, id: `s${++order}`, order, kind: 'infusion', rate: rec.rate.value, rateUnit: rec.rate.unit });
@@ -211,10 +211,10 @@ export function buildPlan(template, patient, library = null) {
   return { plan: { mode: template.mode, sedationTarget: template.sedationTarget, steps }, skipped };
 }
 
-/** "give over 30–60 s" / "over 10 min" -> seconds (upper bound) if ≥ 60 s, else null (instant). */
+/** "give over 30–60 s" / "over 10 min" / "over at least 2 minutes" -> seconds (upper bound) if ≥ 60 s, else null (instant). */
 export function overSecFromTiming(timing) {
   if (typeof timing !== 'string') return null;
-  const m = /over\s+(?:about\s+)?(\d+(?:\.\d+)?)(?:\s*[–-]\s*(\d+(?:\.\d+)?))?\s*(min|minutes|s|sec|seconds)\b/i.exec(timing);
+  const m = /over\s+(?:about\s+|at\s+least\s+|no\s+less\s+than\s+)?(\d+(?:\.\d+)?)(?:\s*[–-]\s*(\d+(?:\.\d+)?))?\s*(min|minutes|s|sec|seconds)\b/i.exec(timing);
   if (!m) return null;
   const v = Number(m[2] || m[1]); const sec = /^m/i.test(m[3]) ? v * 60 : v;
   return sec >= 60 ? sec : null;

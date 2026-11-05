@@ -1,0 +1,22 @@
+# Static-analysis configuration for the Smart NOA educational simulation (Python part).
+# Reproduce: ruff check . ; pyflakes *.py ; mypy --ignore-missing-imports *.py ; bandit -c pyproject.toml -r .
+
+[tool.ruff]
+line-length = 120
+target-version = "py39"
+extend-exclude = ["simulator", "venv", ".venv"]
+
+[tool.ruff.lint]
+select = ["E", "W", "F", "B", "UP", "I", "SIM", "C4", "S"]
+
+[tool.ruff.lint.per-file-ignores]
+# S101: plain `assert` is the idiom of unittest-style test modules; tests are not shipped code.
+"test_*.py" = ["S101"]
+# S311: the controller's optional unscripted demo draws fictional HR/MAP values with `random`.
+# They are synthetic demonstration readings, not used for any security or cryptographic purpose.
+"smart_noa_controller.py" = ["S311"]
+
+[tool.bandit]
+exclude_dirs = ["simulator", "venv", ".venv", "__pycache__", ".mypy_cache"]
+# No tests are skipped globally. The two `random.randint` calls in the optional unscripted demo of
+# smart_noa_controller.py carry an inline `# nosec B311` with the same justification as S311 above.

@@ -1152,7 +1152,7 @@ export const DRUGS = [
         sources: ['S18'],
       },
     },
-    ceiling: { value: 200, unit: 'mcg', scope: 'cumulative boluses', basis: 'label maximum (total bolus dosage; conservative reading)', infusion: { value: 200, unit: 'mcg/min' }, sources: ['S18'],
+    ceiling: { value: 200, unit: 'mcg', scope: 'cumulative boluses', basis: 'label maximum', infusion: { value: 200, unit: 'mcg/min' }, sources: ['S18'],
       note: 'The FDA-hosted 2019 Biorphen label reads "not to exceed a total dosage of 200 mcg" for IV boluses; some later label copies read "additional boluses up to 200 mcg". The simulator applies the conservative reading: all phenylephrine boluses in the session together may not exceed 200 mcg. The infusion limit (200 mcg/min) is separate.' },
     contraindications: [],
     timing: NOT_STATED('Label: onset of BP increase after IV bolus is rapid, typically within minutes (no number).'),

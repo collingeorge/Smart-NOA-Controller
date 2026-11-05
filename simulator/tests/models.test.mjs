@@ -81,7 +81,7 @@ if (REAL) {
   });
 
   // ---------------------------------------------------------------- epinephrine
-  test('epinephrine: label regimens, route, ceilings; no IV push dose', () => {
+  test('epinephrine: label IM regimen, guideline IV rescue regimen (50 mcg), route-specific ceilings', () => {
     const epi = REAL.DRUGS.find((d) => d.id === 'epinephrine');
     assert.ok(epi);
     assert.deepEqual(epi.regimens.rescue.fixed, { default: 0.3, min: 0.3, max: 0.5, unit: 'mg' });
@@ -89,13 +89,19 @@ if (REAL) {
     assert.deepEqual([epi.regimens.maintenance.rate.min, epi.regimens.maintenance.rate.max, epi.regimens.maintenance.rate.unit], [0.05, 2, 'mcg/kg/min']);
     assert.equal(epi.regimens.maintenance.scalar, 'IBW');
     assert.equal(epi.ceiling.value, 0.5); assert.equal(epi.ceiling.scope, 'per bolus');
-    assert.ok(!epi.bolusRoutes.includes('IV'));
+    assert.equal(epi.bolusRoutes[0], 'IM', 'a bolus without a route is IM');
+    assert.deepEqual(epi.regimens.rescue_iv.fixed, { default: 0.05, min: 0.05, max: 0.05, unit: 'mg' });
+    assert.equal(epi.regimens.rescue_iv.route, 'IV');
+    assert.deepEqual(epi.regimens.rescue_iv.sources, ['S44', 'S45']);
     const p = derivePatient(basePatient(), { library: REAL });
     const rec = recommend(p, 'rescue', 'epinephrine', REAL);
-    assert.equal(rec.route, 'IM'); assert.equal(rec.dose.value, 0.3);
+    assert.equal(rec.route, 'IM'); assert.equal(rec.dose.value, 0.3, 'IV per-bolus stop does not cap the IM dose');
+    const riv = recommend(p, 'rescue_iv', 'epinephrine', REAL);
+    assert.equal(riv.route, 'IV'); assert.equal(riv.dose.value, 0.05);
     const sim = createSimulation({ patient: p, library: REAL });
     const iv = sim.administer({ drugId: 'epinephrine', kind: 'bolus', amount: 0.3, amountUnit: 'mg', route: 'IV' });
-    assert.ok(iv.blocked && /push-dose/i.test(iv.reasons[0]));
+    assert.ok(iv.blocked && /per IV bolus/i.test(iv.reasons[0]), iv.reasons.join());
+    assert.ok(sim.administer({ drugId: 'epinephrine', kind: 'bolus', amount: 0.05, amountUnit: 'mg', route: 'IV' }).ok);
     assert.ok(sim.administer({ drugId: 'epinephrine', kind: 'bolus', amount: 0.6, amountUnit: 'mg' }).blocked, 'above 0.5 mg per injection');
     assert.ok(sim.administer({ drugId: 'epinephrine', kind: 'infusion', rate: 2.5, rateUnit: 'mcg/kg/min' }).blocked, 'above 2 mcg/kg/min');
     const cad = derivePatient(basePatient({ conditions: ['cad'] }), { library: REAL });

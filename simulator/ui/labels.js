@@ -40,7 +40,7 @@ export const PHASE_LABELS_MAC = { ...PHASE_LABELS, emergence: 'End of procedure 
 
 export const REGIMEN_LABELS = {
   premed: 'premedication', sedation_minimal: 'minimal sedation', sedation_moderate: 'moderate sedation', sedation_deep: 'deep sedation',
-  induction: 'induction', maintenance: 'maintenance', emergence: 'emergence', rescue: 'rescue / as needed',
+  induction: 'induction', maintenance: 'maintenance', emergence: 'emergence', rescue: 'rescue / as needed', rescue_iv: 'rescue IV bolus (guideline)',
 };
 
 export const KIND_LABELS = { bolus: 'Bolus', infusion: 'Infusion', inhaled: 'Inhaled (dial %)', stop: 'Stop' };

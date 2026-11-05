@@ -4,7 +4,9 @@ import io
 import json
 from pathlib import Path
 from unittest.mock import patch
+
 from smart_noa_controller import Patient, SmartNOAController
+
 CONFIG = str(Path(__file__).with_name('config.yaml'))
 
 def scenario(label, sex, height_cm, age, weight_kg, egfr, conditions):

@@ -9,9 +9,9 @@ import { createPkModel, isInhaled, isNitrous, referenceRegimen, ROUTE_KA_ILLUSTR
 import { combineEffects, patientModifiers, tofFromTwitches, SEDATION_RANK, PROFILES, PATIENT_MODS } from './pd.js';
 import { Physiology } from './physiology.js';
 import { buildParameterInventory } from './inventory.js';
-import { InterlockCore, pythonLockouts, CONTROLLED, PY_TO_SIM_ID, SIM_TO_PY_ID, PY_RATE_UNITS, NOA_CONFIG } from './interlocks.js';
+import { InterlockCore, pythonLockouts, CONTROLLED, PY_TO_SIM_ID, SIM_TO_PY_ID, PY_RATE_UNITS, NOA_CONFIG, aboveCeiling } from './interlocks.js';
 import { AlarmManager } from './alarms.js';
-import { convertAmount, rateToAmountPerMin, isFiniteNumber, roundSig, parseRateUnit } from './units.js';
+import { convertAmount, rateToAmountPerMin, isFiniteNumber, roundSig } from './units.js';
 import { getScenario } from '../data/scenarios.js';
 import { createRng as createRngLocal } from './rng.js';
 
@@ -61,14 +61,28 @@ export const STIMULUS = Object.freeze({
 });
 export const EXTUBATION_CRITERIA = Object.freeze({ DEPTH_AWAKE: 80, RR_MIN: 8, CAPABILITY_MIN: 0.6, SPO2_MIN: 94, MAP_MIN: 65, MAP_MAX: 110, HR_MIN: 50, HR_MAX: 110 });
 
-export function createSimulation({ patient, plan = null, seed = 1, interlocks = true, library = null } = {}) {
-  return new Simulation({ patient, plan, seed, interlocks, library });
-}
-
+/**
+ * Normalise a plan. Raw step fields are copied first and the validated fields are written after,
+ * so a present-but-bad value never overrides the checks (2026-11 audit, finding 5):
+ *  - id: a non-empty string, unique in the plan (else `step<n>`, suffixed if duplicated);
+ *  - order: a finite number (else the list index);
+ *  - atSec: must be a finite number ≥ 0 when present (absent → 0). A step with any other value
+ *    (e.g. the string '30', NaN, undefined given explicitly) is marked `invalid` and never runs.
+ */
 function normalizePlan(plan) {
-  const p = plan || { mode: 'GA', sedationTarget: null, steps: [] };
-  const steps = (p.steps || []).map((s, i) => ({ id: s.id || `step${i + 1}`, order: isFiniteNumber(s.order) ? s.order : i, atSec: isFiniteNumber(s.atSec) ? s.atSec : 0, ...s }));
-  return { mode: p.mode === 'MAC' ? 'MAC' : 'GA', sedationTarget: p.sedationTarget || null, steps };
+  const p = plan && typeof plan === 'object' ? plan : { mode: 'GA', sedationTarget: null, steps: [] };
+  const seen = new Set();
+  const steps = (Array.isArray(p.steps) ? p.steps : []).map((raw, i) => {
+    const s0 = raw && typeof raw === 'object' ? raw : {};
+    let id = typeof s0.id === 'string' && s0.id ? s0.id : `step${i + 1}`;
+    while (seen.has(id)) id = `${id}_${i + 1}`;
+    seen.add(id);
+    const hasAt = Object.prototype.hasOwnProperty.call(s0, 'atSec');
+    const atOk = !hasAt || (isFiniteNumber(s0.atSec) && s0.atSec >= 0);
+    const invalid = !raw || typeof raw !== 'object' ? 'step is not an object' : !atOk ? `atSec must be a finite number ≥ 0 (got ${JSON.stringify(s0.atSec) ?? String(s0.atSec)})` : null;
+    return { ...s0, id, order: isFiniteNumber(s0.order) ? s0.order : i, atSec: atOk && hasAt ? s0.atSec : 0, ...(invalid ? { invalid } : {}) };
+  });
+  return { mode: p.mode === 'MAC' ? 'MAC' : 'GA', sedationTarget: typeof p.sedationTarget === 'string' ? p.sedationTarget : null, steps };
 }
 
 class Simulation {
@@ -100,7 +114,7 @@ class Simulation {
     this.maskVentSec = 0;
     this.depots = [];
     this.fluid = { retainedMl: 0, pendingMl: 0, sepsisNoteLogged: false };
-    this.sgxShownWarn = false; this.sgxExcess = 0; this.lastRocBolus = null;
+    this.sgxShownWarn = false; this.sgxExcess = 0; this.lastRocBolus = null; this.bolusGiven = {};
     this.lastEffects = null;
     this.recCache = new Map();
     this.ceilings = {};
@@ -147,6 +161,7 @@ class Simulation {
       log: [],
     };
     this._log('phase', 'Simulation created (premed). Educational simulation — fictional patient.');
+    for (const st of this.plan.steps) if (st.invalid) this._log('dose', `Plan step ${st.id} (${String(st.drugId)}) is invalid and will not run: ${st.invalid}`);
     for (const [id, r] of Object.entries(lockouts)) this._log('interlock', `Lockout: ${getDrug(this.lib, id).name} — ${r.join('; ')}`);
   }
 
@@ -163,14 +178,14 @@ class Simulation {
       const volumeWeightKg = rr && rr.reg.scalar ? scalarWeight(this.patient, rr.reg.scalar).weightKg : this.patient.weightKg;
       const concomitantOpioid = drug.pkModel === 'eleveld' ? this._concomitantForEleveld() : false;
       this.models[drugId] = createPkModel(drug, this.patient, { k10Mult, volumeWeightKg, concomitantOpioid });
-      if (this.models[drugId].type === 'eleveld') this._log('event', `${drug.name} PK: Eleveld 2018 published model (arterial), concomitant opioid/local-anaesthetic covariate ${concomitantOpioid ? 'ON' : 'OFF'} (fixed for the case). Illustrative depth/haemodynamic effects.`);
+      if (this.models[drugId].type === 'eleveld') this._log('event', `${drug.name} PK: Eleveld 2018 published model (arterial), concomitant-opioid covariate ${concomitantOpioid ? 'ON' : 'OFF'} (fixed for the case). Illustrative depth/haemodynamic effects.`);
     }
     return this.models[drugId];
   }
 
-  /** Eleveld covariate: opioid or IV local anaesthetic in the plan (any phase) or already given. */
+  /** Eleveld covariate (published: presence of opioids): an opioid in the plan (any phase) or already given. */
   _concomitantForEleveld() {
-    const isCo = (id) => { const d = getDrug(this.lib, id); return !!d && (d.cls === 'opioid' || d.cls === 'local'); };
+    const isCo = (id) => { const d = getDrug(this.lib, id); return !!d && d.cls === 'opioid'; };
     return this.plan.steps.some((s) => s.kind !== 'stop' && isCo(s.drugId)) || Object.keys(this.models).some(isCo);
   }
 
@@ -216,6 +231,10 @@ class Simulation {
         if (m.type === 'volatile' && cmd.rate - cur > 0.5 * m.macAgeAdjusted) out.push(`${r.message}${r.sources && r.sources.length ? ` [${r.sources.join(', ')}]` : ''}`);
       }
     }
+    // Surgery-timing rules (e.g. ketorolac): 'before' = surgery/procedure not yet started; 'during' = started, not ended.
+    const sx = this.stim;
+    const surgNow = sx.surgeryStartAt === null ? 'before' : sx.surgeryEndAt === null ? 'during' : 'after';
+    for (const r of rules) if (r.surgery && r.surgery === surgNow && this.state.phase !== 'emergence') out.push(`${r.message}${r.sources && r.sources.length ? ` [${r.sources.join(', ')}]` : ''}`);
     for (const r of rules) {
       if (r.id !== 'dose_vs_block_depth' || !cmd || !isFiniteNumber(cmd.amount)) continue;
       const w = this.sugammadexTier(drug, cmd.amount);
@@ -282,10 +301,16 @@ class Simulation {
       if (!routes.includes(route)) return res(false, true, [`${drug.name}: no sourced ${route} bolus dose; sourced bolus route(s): ${routes.join(', ')}${drug.id === 'epinephrine' ? ' (push-dose IV epinephrine not included: no label/guideline dose verified)' : ''}`], []);
       let amt;
       try { amt = convertAmount(cmd.amount, cmd.amountUnit || drug.amountUnit, drug.amountUnit); } catch (e) { return res(false, true, [e.message], []); }
+      if (!isFiniteNumber(amt) || amt <= 0) return res(false, true, [`Bolus amount is not a usable number after unit conversion (${String(cmd.amountUnit)})`], []);
+      // "Give over" (IV only): blank/0 = push; ≥ 60 s = timed infusion of the bolus; anything else is rejected.
+      const hasOver = cmd.overSec !== undefined && cmd.overSec !== null && cmd.overSec !== 0;
+      if (hasOver && route === 'IV' && (!isFiniteNumber(cmd.overSec) || cmd.overSec < 60)) return res(false, true, [`"Give over" must be blank/0 (push) or at least 1 min (got ${String(cmd.overSec)} s); shorter timed injections are not modelled`], []);
       const pendingTimed = this.timed.filter((x) => x.drugId === drug.id).reduce((a, x) => a + x.remaining, 0);
       for (const L of limits) {
+        if (L.route && L.route !== route) continue;
         if (L.type === 'bolus' && amt > L.absolute + 1e-9) return res(false, true, [`Single dose above ${L.label}`], warnings);
-        if (L.type === 'cumulative' && ds.cumulative + pendingTimed + amt > L.absolute + 1e-9) return res(false, true, [`Cumulative dose would exceed ${L.label}${L.daily ? ' (daily limit applied to this session)' : ''}`], warnings);
+        if (L.type === 'cumulative' && L.bolusOnly && (this.bolusGiven[drug.id] || 0) + amt > L.absolute + 1e-9) return res(false, true, [`Total bolus dose would exceed ${L.label} (already given ${roundSig(this.bolusGiven[drug.id] || 0)} ${drug.amountUnit})`], warnings);
+        if (L.type === 'cumulative' && !L.bolusOnly && ds.cumulative + pendingTimed + amt > L.absolute + 1e-9) return res(false, true, [`Cumulative dose would exceed ${L.label}${L.daily ? ' (daily limit applied to this session)' : ''}`], warnings);
       }
       const rtw = this._runtimeWarnings(drug, { amount: amt });
       warnings.push(...rtw);
@@ -294,6 +319,7 @@ class Simulation {
       if (rc) { warnings.push(rc.message); this.alarmMgr.pulse(this.state.tSec, 'dose_range', rc.priority, rc.message); }
       const model = this._model(drug.id);
       const overSec = route === 'IV' && isFiniteNumber(cmd.overSec) && cmd.overSec >= 60 ? cmd.overSec : null;
+      this.bolusGiven[drug.id] = (this.bolusGiven[drug.id] || 0) + amt;
       if (route !== 'IV') { this.depots.push({ drugId: drug.id, remaining: amt, ka: ROUTE_KA_ILLUSTRATIVE[route] ?? ROUTE_KA_ILLUSTRATIVE.IM, route }); ds.cumulative += amt; }
       else if (overSec) this.timed.push({ drugId: drug.id, perMin: amt / (overSec / 60), remaining: amt });
       else { model.model.bolus(amt); ds.cumulative += amt; }
@@ -321,19 +347,21 @@ class Simulation {
           if (this.state.airway.fio2 > maxO2 + 1e-9) { this.state.airway.fio2 = Math.round(maxO2 * 100) / 100; warnings.push(`FiO2 reduced to ${this.state.airway.fio2} to make room for N2O ${rate}%`); }
         }
       } else {
-        try { rateToAmountPerMin(rate, unit, drug.amountUnit, this.rateWeight[drug.id]); } catch (e) { return res(false, true, [e.message], []); }
+        let perMin;
+        try { perMin = rateToAmountPerMin(rate, unit, drug.amountUnit, this.rateWeight[drug.id]); } catch (e) { return res(false, true, [e.message], []); }
+        if (!isFiniteNumber(perMin)) return res(false, true, [`Rate is not a usable number after unit conversion (${String(unit)})`], []);
         for (const L of limits) {
           if (L.type !== 'rate') continue;
           const cap = convertRateSafe(L.value, L.rateUnit, unit, L.weightKg ?? this.rateWeight[drug.id]);
           if (cap !== null && rate > cap + 1e-9) return res(false, true, [`Rate above ${L.label}`], warnings);
         }
-        for (const L of limits) if (L.type === 'cumulative' && rate > 0 && ds.cumulative >= L.absolute - 1e-9) return res(false, true, [`Cumulative ceiling already reached (${L.label})`], warnings);
+        for (const L of limits) if (L.type === 'cumulative' && !L.bolusOnly && rate > 0 && ds.cumulative >= L.absolute - 1e-9) return res(false, true, [`Cumulative ceiling already reached (${L.label})`], warnings);
         const py = SIM_TO_PY_ID[drug.id];
         if (this.state.interlocks.enabled && py && CONTROLLED.includes(py)) {
           if (this.core.holdLatched && this.core.heldDrugs.has(py) && rate > 0) return res(false, true, [`${drug.name} is held by a latched interlock; use resume_hold first`], warnings);
           const pyRate = convertRateSafe(rate, unit, PY_RATE_UNITS[py], this.rateWeight[drug.id]);
           const ceil = NOA_CONFIG.simulation_rate_ceilings[py];
-          if (pyRate === null || pyRate > ceil + 1e-12) return res(false, true, [`Rate above the Python simulation ceiling ${ceil} ${PY_RATE_UNITS[py]} (config.yaml simulation_rate_ceilings; applies while interlocks are on)`], warnings);
+          if (pyRate === null || aboveCeiling(pyRate, ceil)) return res(false, true, [`Rate above the Python simulation ceiling ${ceil} ${PY_RATE_UNITS[py]} (config.yaml simulation_rate_ceilings; applies while interlocks are on)`], warnings);
         }
       }
       const rc = this._rangeCheck(drug, kind, rate, unit);
@@ -467,7 +495,7 @@ class Simulation {
     const p = e.def.perturbation; const dt = t - e.startSec;
     let I = p.rampSec > 0 ? clamp(dt / p.rampSec, 0, 1) : 1;
     const holdEnd = p.holdSec === null || p.holdSec === undefined ? Infinity : (p.rampSec || 0) + p.holdSec;
-    let endAt = e.resolved ? e.resolvedAt - e.startSec : holdEnd;
+    const endAt = e.resolved ? e.resolvedAt - e.startSec : holdEnd;
     if (dt > endAt) I *= p.resolveSec > 0 ? clamp(1 - (dt - endAt) / p.resolveSec, 0, 1) : 0;
     return I;
   }
@@ -487,7 +515,7 @@ class Simulation {
     const t = S.tSec; const dtMin = h / 60;
 
     // 1. plan scheduler (phase-relative atSec, then order)
-    const due = this.plan.steps.filter((s) => !this.executed.has(s.id) && this.phaseStart[s.phase] !== undefined && t >= this.phaseStart[s.phase] + s.atSec - 1e-9)
+    const due = this.plan.steps.filter((s) => !s.invalid && !this.executed.has(s.id) && this.phaseStart[s.phase] !== undefined && t >= this.phaseStart[s.phase] + s.atSec - 1e-9)
       .sort((a, b) => (this.phaseStart[a.phase] + a.atSec) - (this.phaseStart[b.phase] + b.atSec) || a.order - b.order);
     for (const s of due) {
       const r = this.administer({ drugId: s.drugId, kind: s.kind, amount: s.amount, amountUnit: s.amountUnit, rate: s.rate, rateUnit: s.rateUnit, overSec: s.overSec, route: s.route }, { source: 'plan' });
@@ -562,13 +590,14 @@ class Simulation {
         if (ds && this.core.infusions[py] === 0 && ds.infusionRate !== 0) { this._setRate(getDrug(lib, id), 0, ds.rateUnit); this._log('interlock', `${getDrug(lib, id).name} set to zero by interlock`); }
       }
       const newHeld = [...this.core.heldDrugs].filter((d) => !prevHeld.has(d));
-      // Log/record decisions without flooding: an event code is recorded once per 60 s.
+      // Log/record decisions without flooding: each event code is recorded at most once per 60 s
+      // while it persists (and immediately when a new drug is held).
       for (const e of r.events) {
         const last = this._ilLast[e.code];
         if (last === undefined || t - last >= 60 || newHeld.length) {
           this._log('interlock', e.message); this.stats.interlockEvents.push({ tSec: t, code: e.code, message: e.message });
+          this._ilLast[e.code] = t;
         }
-        this._ilLast[e.code] = t;
       }
       if (r.status !== prevStatus && (r.status !== this._ilLoggedStatus) && (t - this._ilStatusT >= 30 || newHeld.length || r.status === 'GREEN')) {
         this._log('interlock', `Interlock status ${r.status}${this.core.holdLatched ? ` (hold latched: ${[...this.core.heldDrugs].map((x) => PY_TO_SIM_ID[x]).join(', ')})` : ''}`);
@@ -607,7 +636,7 @@ class Simulation {
       if (m.type === 'volatile') { m.model.step(dtMin, veffPrev); continue; }
       const add = m.model.infusionPerMin * dtMin;
       if (add > 0) {
-        for (const L of this.ceilings[id]) if (L.type === 'cumulative' && ds.cumulative + add > L.absolute + 1e-9) {
+        for (const L of this.ceilings[id]) if (L.type === 'cumulative' && !L.bolusOnly && ds.cumulative + add > L.absolute + 1e-9) {
           this._setRate(drug, 0, ds.rateUnit); this._log('dose', `${drug.name} infusion stopped: cumulative ceiling reached (${L.label})`);
           this.alarmMgr.pulse(t, 'ceiling_reached', 'medium', `${drug.name}: cumulative ceiling reached`);
         }
@@ -751,7 +780,7 @@ class Simulation {
   }
 
   planStatus() {
-    return this.plan.steps.map((s) => ({ id: s.id, phase: s.phase, drugId: s.drugId, kind: s.kind, status: this.executed.has(s.id) ? (this.executed.get(s.id).blocked ? 'blocked' : 'done') : 'pending', result: this.executed.get(s.id) || null }));
+    return this.plan.steps.map((s) => ({ id: s.id, phase: s.phase, drugId: s.drugId, kind: s.kind, status: s.invalid ? 'invalid' : this.executed.has(s.id) ? (this.executed.get(s.id).blocked ? 'blocked' : 'done') : 'pending', result: this.executed.get(s.id) || (s.invalid ? { invalid: s.invalid } : null) }));
   }
 
   summary() {
@@ -832,3 +861,8 @@ function describe(cmd) {
 }
 
 export { Simulation };
+
+export function createSimulation({ patient, plan = null, seed = 1, interlocks = true, library = null } = {}) {
+  return new Simulation({ patient, plan, seed, interlocks, library });
+}
+
