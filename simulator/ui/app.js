@@ -14,6 +14,7 @@ import { renderDebrief } from './debrief.js';
 import { exportPlan, planIssues, stepsFromBuiltPlan } from './plan-model.js';
 import { notModeled } from './labels.js';
 import { renderModelCard, loadModelAssumptions, assumptionsList, AI_DISCLOSURE, TOOL_DESCRIPTION } from './model-card.js';
+import { pal, renderPalliative, setPalModule, stop as stopPalliative, renderEthics, palSnapshot } from './palliative.js';
 
 const lib = LIB;
 const STEPS = [
@@ -22,6 +23,7 @@ const STEPS = [
 
 const store = {
   step: 1,
+  module: 'periop',
   patientInput: defaultPatientInput(),
   patientVersion: 1,
   exampleId: null,
@@ -96,12 +98,31 @@ function go(n) {
 
 function render() {
   const main = document.getElementById('main');
+  if (store.module !== 'periop') { renderPalliative(main); main.dataset.step = `pal-${pal.step}`; return; }
   const views = { 1: renderPatient, 2: renderAssessment, 3: renderPlan, 4: renderMonitor, 5: renderDebrief };
   current = views[store.step](ctx, main) || null;
   main.dataset.step = String(store.step);
   refreshStepper();
 }
 function rerender() { if (current && current.leave) current.leave(); current = null; render(); }
+
+/** Module chooser: Perioperative (existing) | Palliative pain management | End-of-life care. */
+function setModule(m) {
+  if (!['periop', 'pain', 'eol'].includes(m)) return;
+  if (current && current.leave) current.leave();
+  current = null;
+  stopPalliative();
+  if (m !== 'periop') setPalModule(m);
+  store.module = m;
+  const palOn = m !== 'periop';
+  document.getElementById('pal-banner').hidden = !palOn;
+  document.getElementById('open-ethics').hidden = !palOn;
+  document.querySelector('.stepper').hidden = palOn;
+  for (const b of document.querySelectorAll('[data-module]')) b.setAttribute('aria-pressed', String(b.dataset.module === m));
+  render();
+  const t = document.getElementById('step-title'); if (t) t.focus();
+  announce(`Module: ${{ periop: 'Perioperative', pain: 'Palliative pain management', eol: 'End-of-life care' }[m]}.`);
+}
 
 function refreshStepper() {
   const ol = document.getElementById('stepper-list');
@@ -224,6 +245,8 @@ function init() {
   document.getElementById('loading')?.remove();
   document.getElementById('open-sources').addEventListener('click', (e) => { document.getElementById('sources-dialog').showModal(); const r = e.currentTarget; document.getElementById('sources-dialog').addEventListener('close', () => r.focus(), { once: true }); });
   document.getElementById('open-about').addEventListener('click', async (e) => { const r = e.currentTarget; await renderAbout(); const d = document.getElementById('about-dialog'); d.showModal(); d.addEventListener('close', () => r.focus(), { once: true }); });
+  document.getElementById('open-ethics').addEventListener('click', (e) => { const r = e.currentTarget; renderEthics(document.getElementById('ethics-body')); const d = document.getElementById('ethics-dialog'); d.showModal(); d.addEventListener('close', () => r.focus(), { once: true }); });
+  for (const b of document.querySelectorAll('[data-module]')) b.addEventListener('click', () => { if (store.module !== b.dataset.module) setModule(b.dataset.module); });
   document.getElementById('open-model').addEventListener('click', async (e) => { const r = e.currentTarget; await renderModel(); const d = document.getElementById('model-dialog'); d.showModal(); d.addEventListener('close', () => r.focus(), { once: true }); });
   document.addEventListener('click', (e) => { const b = e.target.closest('[data-close-dialog]'); if (b) b.closest('dialog').close(); });
   for (const d of document.querySelectorAll('dialog')) d.addEventListener('click', (e) => { if (e.target === d) d.close(); });
@@ -261,6 +284,10 @@ try {
       advance: (sec) => (store.run && typeof store.run.testAdvance === 'function' && store.run.testAdvance(sec) ? testLite() : null),
       /** Small status object (cheap to poll): time, phase, vitals, airway, readiness, runner state. */
       lite: () => testLite(),
+      /** Palliative modules: plain-data snapshot, step-driven clock, synchronous advance by `min` simulated minutes. */
+      pal: () => palSnapshot(),
+      palTestClock: (on) => { pal.testClock = !!on; return pal.testClock; },
+      palAdvance: (min) => (typeof pal.testAdvance === 'function' && pal.step === 3 ? (pal.testAdvance(min), palSnapshot()) : null),
     });
   }
 } catch { /* no test hook */ }

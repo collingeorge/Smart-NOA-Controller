@@ -559,6 +559,67 @@ test('simulator UI smoke', { skip, timeout: 900000 }, async (t) => {
       await shot(page, 'debrief-totals.png');
     });
 
+    await t.test('palliative modules: banner, ethics panel from every screen, pain cases, review gate, EOL sedation gate, phone width', async () => {
+      const PAL_BANNER = 'Palliative / end-of-life simulation — fictional patient — educational only. Not medical advice. Palliative sedation is not euthanasia or medical aid in dying; laws differ by jurisdiction.';
+      const palSnap = () => page.evaluate(() => window.__smartNoa.pal());
+      const palAdv = (min) => page.evaluate((n) => window.__smartNoa.palAdvance(n), min);
+      const ethicsOpens = async (where) => { await page.click('#open-ethics'); await page.waitForSelector('#ethics-dialog[open]'); assert.match(await page.textContent('#ethics-body'), /Proportionality/, where); assert.ok(await noHScroll(page), `ethics h-scroll ${where}`); await page.click('#ethics-dialog [data-close-dialog]'); };
+      /** Decides every pending review item (approve; rotation declined), re-querying after each click. */
+      const decideAll = async () => { for (let i = 0; i < 12; i++) { const b = page.locator('#pal-review [data-decide]').first(); if (!(await b.count())) break; const kind = await b.evaluate((el) => el.closest('[data-kind]').dataset.kind); const ack = page.locator('#pal-review input[id^="ack-"]').first(); if (await ack.count()) await ack.check(); await (kind === 'rotation' ? page.locator('#pal-review [data-decide="decline"]').first() : b).click(); } };
+      await page.evaluate(() => window.__smartNoa.palTestClock(true));
+      for (const mod of ['pain', 'eol']) {
+        await page.click(`#mod-${mod}`); await page.waitForSelector('#pal-example');
+        assert.equal((await page.textContent('#pal-banner')).trim(), PAL_BANNER); assert.ok(await page.isVisible('#pal-banner')); assert.ok(await page.isVisible('#open-ethics')); assert.ok(!(await page.isVisible('#stepper-list')));
+        const ids = await page.$$eval('#pal-example option', (o) => o.map((x) => x.value));
+        assert.equal(ids.length, mod === 'pain' ? 4 : 2);
+        for (const id of ids) {
+          await page.click('#pal-stepper-1'); await page.selectOption('#pal-example', id); await page.click('#pal-load'); await ethicsOpens(`${id} case`);
+          await page.click('#pal-continue'); await page.waitForSelector('#pal-approve'); await ethicsOpens(`${id} plan`);
+          if (await page.locator('#pal-red').count()) {
+            await page.click('#pal-approve'); await page.waitForSelector('#pal-approve-err'); // no reduction entered: blocked
+            await page.fill('#pal-red', '25'); await page.click('#pal-convert'); await page.waitForSelector('#pal-conv-result.notice:not(.notice--warn)');
+          }
+          if (await page.locator('#pal-warn-ack').count()) await page.check('#pal-warn-ack');
+          await page.click('#pal-approve'); await page.waitForSelector('#pal-play'); await ethicsOpens(`${id} run`);
+          let s = await palAdv(1440 + 30);
+          assert.equal(s.sim.tMin, 1440, `${id}: paused at the daily review`); assert.equal(s.sim.paused.reason, 'review');
+          const doseBefore = s.sim.regimen.dose;
+          s = await palAdv(60); assert.equal(s.sim.tMin, 1440, `${id}: nothing advances while the review is open`); assert.equal(s.sim.regimen.dose, doseBefore);
+          await decideAll(); s = await palSnap(); assert.equal(s.sim.pendingReview, null, `${id}: review decided`);
+          if (s.sim.paused) { for (const b of await page.locator('#pal-alarms button[data-ack]:not([disabled])').all()) await b.click(); await page.click('#pal-resume'); }
+          s = await palAdv(360); assert.ok(s.sim.tMin > 1440, `${id}: runs after the review`);
+          await page.click('#pal-debrief'); await page.waitForSelector('#pal-download'); await ethicsOpens(`${id} debrief`);
+          const [dl] = await Promise.all([page.waitForEvent('download'), page.click('#pal-download')]); assert.match(dl.suggestedFilename(), /palliative/);
+        }
+      }
+      // EOL refractory-delirium case: documentation gate, approvals, opioid-not-for-sedation, free text as text.
+      await page.click('#pal-stepper-1'); await page.selectOption('#pal-example', 'refractory_delirium'); await page.click('#pal-load');
+      await page.click('#pal-continue'); await page.click('#pal-approve'); await page.waitForSelector('#pal-sed');
+      assert.equal(await page.locator('#pal-gate-missing li').count(), 6); assert.ok(await page.isDisabled('#pal-sed-set')); assert.ok(await page.isDisabled('#pal-sed-apply'));
+      await page.selectOption('#pd-ref-symptom', 'agitation'); await page.check('#pd-tried-0'); await page.fill('#pd-ref-why', 'Persisting despite reversible-cause review');
+      await page.selectOption('#pd-goc-with', 'surrogate'); await page.fill('#pd-goc-summary', 'Comfort is the priority');
+      await page.click('#pd-save'); await page.waitForSelector('#pal-gate-missing');
+      assert.equal(await page.locator('#pal-gate-missing li').count(), 4); assert.ok(await page.isDisabled('#pal-sed-set'), 'still disabled with 4 missing');
+      await page.selectOption('#pd-consent-type', 'surrogate_consent'); await page.check('#pd-consent-depth'); await page.check('#pd-idt-specialist'); await page.fill('#pd-idt-note', 'Palliative team');
+      await page.check('#pd-prognosis'); await page.check('#pd-jurisdiction'); await page.click('#pd-save'); await page.waitForSelector('#pal-gate-ok');
+      assert.ok(await page.isEnabled('#pal-sed-set'));
+      await page.selectOption('#pal-sed-target', '-2'); await page.click('#pal-sed-set'); await page.click('#pal-sed-bolus'); await page.click('#pal-sed-apply');
+      let e = await palSnap(); assert.equal(e.sim.sedation.titrations.length, 3); assert.equal(e.sim.sedation.infusionMgH, 1);
+      await page.click('#pal-opioid-sedate'); assert.match(await page.textContent('#pal-feedback'), /not used to produce sedation/);
+      await page.fill('#pal-family', '<b>bold?</b> Daughter informed');
+      await palAdv(600); e = await palSnap(); assert.equal(e.sim.sedation.infusionMgH, 1, 'no automatic escalation'); assert.ok(e.sim.alarms.every((a) => !a.acknowledged || a.active === false), 'never auto-acknowledged');
+      await page.click('#pal-debrief'); await page.waitForSelector('#pal-db-doc');
+      assert.equal(await page.textContent('#pal-db-family'), '<b>bold?</b> Daughter informed'); assert.equal(await page.locator('#pal-db-family b').count(), 0, 'free text never rendered as HTML');
+      assert.ok(await page.locator('#pal-db-titrations tbody tr').count() >= 3);
+      // Phone width: every palliative screen without page-level horizontal scroll.
+      await page.setViewportSize({ width: 390, height: 844 });
+      for (const n of [1, 2, 3, 4]) { await page.click(`#pal-stepper-${n}`); await page.waitForSelector(`#pal-root[data-step="${n}"]`); assert.ok(await noHScroll(page), `pal step ${n} at 390 px`); await shot(page, `phone-pal-${n}.png`, false); }
+      await ethicsOpens('phone');
+      await page.setViewportSize({ width: 1280, height: 900 });
+      await page.click('#mod-periop'); await page.waitForSelector('#stepper-1'); // perioperative case resumes on the step it was on
+      assert.ok(!(await page.isVisible('#pal-banner'))); assert.ok(!(await page.isVisible('#open-ethics'))); assert.ok(await page.isVisible('#stepper-list'));
+    });
+
     await t.test('panels open', async () => {
       for (const id of ['open-sources', 'open-model', 'open-about']) {
         await page.click(`#${id}`);

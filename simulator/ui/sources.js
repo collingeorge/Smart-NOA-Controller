@@ -72,7 +72,7 @@ export function srcTags(ids) {
 /** Pull "[S7]" / "[S7, S9]" / "(S35)" references out of a free-text message for tagging. */
 export function sourcesInText(text) {
   const out = [];
-  const re = /\bS(\d{1,2})\b/g; let m;
+  const re = /\bS(\d{1,3})\b/g; let m;
   while ((m = re.exec(String(text || '')))) { const id = `S${m[1]}`; if (LIB && LIB.SOURCES[id] && !out.includes(id)) out.push(id); }
   return out;
 }
