@@ -692,6 +692,15 @@ test('simulator UI smoke', { skip, timeout: 900000 }, async (t) => {
       }
     });
 
+    await t.test('user pause banner reads cleanly (no double period)', async () => {
+      await loadCase(page, 'healthy_adult'); await toRun(page);
+      await page.click('#auto-guided'); await page.click('#auto-pause');
+      await page.waitForSelector('#auto-paused:not([hidden])', { timeout: 5000 });
+      const head = await page.textContent('#auto-paused-head');
+      assert.match(head, /^Paused — Paused by the user\. Press Resume/, head);
+      assert.ok(!/\.\./.test(head), `no double period: ${head}`);
+    });
+
     await t.test('panels open', async () => {
       for (const id of ['open-sources', 'open-model', 'open-about']) {
         await page.click(`#${id}`);

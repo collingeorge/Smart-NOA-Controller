@@ -483,7 +483,7 @@ export function renderMonitor(ctx, main) {
     autoPaused.hidden = !paused;
     if (paused) {
       const det = st.pauseDetails || [];
-      const head = det.length ? `Paused — ${det.map((d) => d.headline).join('; ')}. ${det.length === 1 ? det[0].action : 'Do each action below, then press Resume.'}` : `Paused — ${st.message}`;
+      const head = det.length ? `Paused — ${det.map((d) => String(d.headline).replace(/[.\s]+$/, '')).join('; ')}. ${det.length === 1 ? det[0].action : 'Do each action below, then press Resume.'}` : `Paused — ${st.message}`;
       setText(autoPausedHead, head);
       const psig = det.map((d) => d.headline + d.action).join('|');
       if (autoPausedList.dataset.sig !== psig) { autoPausedList.dataset.sig = psig; clear(autoPausedList).append(...(det.length > 1 ? det.map((d) => h('li', {}, h('strong', {}, d.headline), ` — ${d.action}`)) : [])); }
