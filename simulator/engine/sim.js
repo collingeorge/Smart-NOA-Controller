@@ -5,9 +5,10 @@
 import { resolveLibrary, getDrug, listDrugs, findSourceId } from './library.js';
 import { derivePatient, scalarWeight } from './patient.js';
 import { evaluateContraindications, interpretCeilings, recommend, convertRateSafe } from './dosing.js';
-import { createPkModel, isInhaled, isNitrous, referenceRegimen } from './pk.js';
+import { createPkModel, isInhaled, isNitrous, referenceRegimen, ROUTE_KA_ILLUSTRATIVE } from './pk.js';
 import { combineEffects, patientModifiers, tofFromTwitches, SEDATION_RANK, PROFILES } from './pd.js';
 import { Physiology } from './physiology.js';
+import { buildParameterInventory } from './inventory.js';
 import { InterlockCore, pythonLockouts, CONTROLLED, PY_TO_SIM_ID, SIM_TO_PY_ID, PY_RATE_UNITS, NOA_CONFIG } from './interlocks.js';
 import { AlarmManager } from './alarms.js';
 import { convertAmount, rateToAmountPerMin, isFiniteNumber, roundSig, parseRateUnit } from './units.js';
@@ -21,7 +22,41 @@ export const MIN_FIO2_WITH_N2O = 0.30;
 // engine author's knowledge — verify). Binding kinetics are instantaneous (illustrative).
 export const MW = Object.freeze({ rocuronium: 609.7, sugammadex: 2178 });
 
+// IV crystalloid bolus (non-drug action `fluid_bolus[:<mL>]`). ILLUSTRATIVE volume-restoration
+// model — every constant is an author estimate (not sourced, not validated):
+//  * the ordered volume runs in at RUN_ML_PER_MIN; the intravascularly retained volume R decays
+//    first-order with RETENTION_TAU_MIN (redistribution of crystalloid out of the circulation);
+//  * restoration r = 1 − exp(−R / RESTORE_SCALE_ML) gives diminishing returns (0 → 1);
+//  * a volume-loss event (scenario perturbation `volumeLoss: true`, i.e. hemorrhage) has its
+//    intensity multiplied by (1 − EVENT_COUNTER_MAX × r): fluids can offset at most 80 % of the
+//    loss (ongoing bleeding needs surgical control) — this is the documented cap;
+//  * a direct MAP effect + DIRECT_MAP_FRAC × r: small when euvolaemic, larger with the
+//    hypovolemia or sepsis condition.
+export const FLUID_MODEL = Object.freeze({
+  ALLOWED_ML: Object.freeze([250, 500]), DEFAULT_ML: 500,
+  RUN_ML_PER_MIN: 50, RETENTION_TAU_MIN: 40, RESTORE_SCALE_ML: 750, EVENT_COUNTER_MAX: 0.8,
+  DIRECT_MAP_FRAC: Object.freeze({ euvolaemic: 0.04, depleted: 0.10 }),
+  DEPLETED_CONDITIONS: Object.freeze(['hypovolemia', 'sepsis']),
+  SEPSIS_CONTEXT_ML_PER_KG: 30,
+});
+
 const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
+
+// Simulator alarm thresholds (SPEC §5.2 'Additional simulator alarms'; author/SPEC choices, not
+// clinical standards) and extubation-readiness criteria. TOFR 0.9 is from Thilen 2023; the
+// interlock thresholds (MAP 60, HR 48) come from config.yaml via interlocks.js.
+export const ALARM_THRESHOLDS = Object.freeze({
+  SPO2_LOW: 90, SPO2_LOW_CLEAR: 92, APNOEA_SEC: 30, MAP_LOW: 65, MAP_LOW_CLEAR: 67, MAP_HIGH: 120, MAP_HIGH_CLEAR: 118,
+  HR_HIGH: 120, HR_HIGH_CLEAR: 118, MAP_CRITICAL_CLEAR: 62, HR_CRITICAL_CLEAR: 50, TOFR_EXTUBATION: 0.9,
+});
+// Nociceptive stimulus profile and other orchestrator constants (ILLUSTRATIVE author estimates).
+export const STIMULUS = Object.freeze({
+  INCISION: 0.9, INCISION_SEC: 120, MAINTENANCE: 0.55, CLOSING: 0.3, CLOSING_SEC: 300,
+  LARYNGOSCOPY_SEC: 150, LARYNGOSCOPY_DECAY_SEC: 70, TUBE_IN_SITU: 0.25,
+  EXTUBATION: 0.6, EXTUBATION_SEC: 60, EXTUBATION_DECAY_SEC: 25,
+  SUGAMMADEX_ROC_KE0_MULT: 4, DES_RAPID_RISE_HR: 0.15, DES_RAPID_RISE_MAP: 0.1, DES_RAPID_RISE_START_MAC: 0.5,
+});
+export const EXTUBATION_CRITERIA = Object.freeze({ DEPTH_AWAKE: 80, RR_MIN: 8, CAPABILITY_MIN: 0.6, SPO2_MIN: 94, MAP_MIN: 65, MAP_MAX: 110, HR_MIN: 50, HR_MAX: 110 });
 
 export function createSimulation({ patient, plan = null, seed = 1, interlocks = true, library = null } = {}) {
   return new Simulation({ patient, plan, seed, interlocks, library });
@@ -59,6 +94,8 @@ class Simulation {
     this.executed = new Map();
     this.stats = { timeMapBelow65Sec: 0, minSpo2: Infinity, maxHr: -Infinity, minHr: Infinity, interlockEvents: [], extubation: null };
     this.maskVentSec = 0;
+    this.depots = [];
+    this.fluid = { retainedMl: 0, pendingMl: 0, sepsisNoteLogged: false };
     this.sgxShownWarn = false;
     this.lastEffects = null;
     this.recCache = new Map();
@@ -99,6 +136,7 @@ class Simulation {
       sensors: { hr: 'ok', map: 'ok', spo2: 'ok' },
       drugs,
       airway: { secured: false, ventilated: false, maskVentilation: false, fio2: 0.21, jawThrust: false },
+      fluids: { crystalloidMl: 0, infusingMl: 0, boluses: [] },
       surgery: { stimulus: 'none' },
       alarms: [],
       interlocks: { enabled: !!interlocksEnabled, status: interlocksEnabled ? 'INITIALIZING' : 'DISABLED', holdLatched: false, heldDrugs: [], lockouts },
@@ -117,9 +155,17 @@ class Simulation {
       const k10Mult = this.mods.k10Mult[drugId] || 1;
       const rr = referenceRegimen(drug);
       const volumeWeightKg = rr && rr.reg.scalar ? scalarWeight(this.patient, rr.reg.scalar).weightKg : this.patient.weightKg;
-      this.models[drugId] = createPkModel(drug, this.patient, { k10Mult, volumeWeightKg });
+      const concomitantOpioid = drug.pkModel === 'eleveld' ? this._concomitantForEleveld() : false;
+      this.models[drugId] = createPkModel(drug, this.patient, { k10Mult, volumeWeightKg, concomitantOpioid });
+      if (this.models[drugId].type === 'eleveld') this._log('event', `${drug.name} PK: Eleveld 2018 published model (arterial), concomitant opioid/local-anaesthetic covariate ${concomitantOpioid ? 'ON' : 'OFF'} (fixed for the case). Illustrative depth/haemodynamic effects.`);
     }
     return this.models[drugId];
+  }
+
+  /** Eleveld covariate: opioid or IV local anaesthetic in the plan (any phase) or already given. */
+  _concomitantForEleveld() {
+    const isCo = (id) => { const d = getDrug(this.lib, id); return !!d && (d.cls === 'opioid' || d.cls === 'local'); };
+    return this.plan.steps.some((s) => s.kind !== 'stop' && isCo(s.drugId)) || Object.keys(this.models).some(isCo);
   }
 
   _rec(drugId, key) {
@@ -197,6 +243,9 @@ class Simulation {
 
     if (kind === 'bolus') {
       if (!isFiniteNumber(cmd.amount) || cmd.amount <= 0) return res(false, true, ['Bolus amount must be a positive number'], []);
+      const routes = Array.isArray(drug.bolusRoutes) && drug.bolusRoutes.length ? drug.bolusRoutes : ['IV'];
+      const route = typeof cmd.route === 'string' && cmd.route ? cmd.route.toUpperCase() : routes[0];
+      if (!routes.includes(route)) return res(false, true, [`${drug.name}: no sourced ${route} bolus dose; sourced bolus route(s): ${routes.join(', ')}${drug.id === 'epinephrine' ? ' (push-dose IV epinephrine not included: no label/guideline dose verified)' : ''}`], []);
       let amt;
       try { amt = convertAmount(cmd.amount, cmd.amountUnit || drug.amountUnit, drug.amountUnit); } catch (e) { return res(false, true, [e.message], []); }
       const pendingTimed = this.timed.filter((x) => x.drugId === drug.id).reduce((a, x) => a + x.remaining, 0);
@@ -208,11 +257,12 @@ class Simulation {
       const rc = this._rangeCheck(drug, 'bolus', amt, drug.amountUnit);
       if (rc) { warnings.push(rc.message); this.alarmMgr.pulse(this.state.tSec, 'dose_range', rc.priority, rc.message); }
       const model = this._model(drug.id);
-      const overSec = isFiniteNumber(cmd.overSec) && cmd.overSec >= 60 ? cmd.overSec : null;
-      if (overSec) this.timed.push({ drugId: drug.id, perMin: amt / (overSec / 60), remaining: amt });
+      const overSec = route === 'IV' && isFiniteNumber(cmd.overSec) && cmd.overSec >= 60 ? cmd.overSec : null;
+      if (route !== 'IV') { this.depots.push({ drugId: drug.id, remaining: amt, ka: ROUTE_KA_ILLUSTRATIVE[route] ?? ROUTE_KA_ILLUSTRATIVE.IM, route }); ds.cumulative += amt; }
+      else if (overSec) this.timed.push({ drugId: drug.id, perMin: amt / (overSec / 60), remaining: amt });
       else { model.model.bolus(amt); ds.cumulative += amt; }
       this._onDrugGiven(drug);
-      this._log('dose', `${drug.name} ${roundSig(amt)} ${drug.amountUnit} bolus${overSec ? ` over ${Math.round(overSec / 60)} min` : ''}${meta.source === 'plan' ? ' (plan)' : ''}${warnings.length ? ` — warnings: ${warnings.join('; ')}` : ''}`);
+      this._log('dose', `${drug.name} ${roundSig(amt)} ${drug.amountUnit} ${route === 'IV' ? 'bolus' : `${route} injection (illustrative absorption)`}${overSec ? ` over ${Math.round(overSec / 60)} min` : ''}${meta.source === 'plan' ? ' (plan)' : ''}${warnings.length ? ` — warnings: ${warnings.join('; ')}` : ''}`);
       return res(true, false, [], warnings);
     }
 
@@ -300,6 +350,21 @@ class Simulation {
       if (v > 1 - n2o / 100 + 1e-9) return no(`FiO2 ${v} not possible with N2O ${n2o}% (O2 + N2O ≤ 1)`);
       a.fio2 = v; return ok(`FiO2 set to ${v}`);
     }
+    if (id === 'fluid_bolus' || id.startsWith('fluid_bolus:')) {
+      const ml = id === 'fluid_bolus' ? FLUID_MODEL.DEFAULT_ML : Number(id.slice(12));
+      if (!FLUID_MODEL.ALLOWED_ML.includes(ml)) return no(`Fluid bolus must be ${FLUID_MODEL.ALLOWED_ML.join(' or ')} mL crystalloid`);
+      const F = this.state.fluids;
+      F.crystalloidMl += ml; this.fluid.pendingMl += ml; F.infusingMl = Math.round(this.fluid.pendingMl);
+      F.boluses.push({ tSec: t, ml, kind: 'crystalloid' });
+      const perKg = F.crystalloidMl / this.patient.weightKg;
+      let msg = `Crystalloid bolus ${ml} mL started (cumulative ${F.crystalloidMl} mL, ${roundSig(perKg, 3)} mL/kg TBW; illustrative volume model)`;
+      if ((this.patient.conditions || []).includes('sepsis') && perKg >= FLUID_MODEL.SEPSIS_CONTEXT_ML_PER_KG && !this.fluid.sepsisNoteLogged) {
+        const src = (this.lib.SOURCE_IDS_ENGINE && this.lib.SOURCE_IDS_ENGINE.sepsisFluids) || null;
+        this.fluid.sepsisNoteLogged = true;
+        msg += ` — context: Surviving Sepsis Campaign 2021 suggests at least 30 mL/kg IV crystalloid within the first 3 h for sepsis-induced hypoperfusion or septic shock (weak recommendation)${src ? ` [${src}]` : ''}`;
+      }
+      return ok(msg);
+    }
     if (id.startsWith('acknowledge:')) {
       const aid = id.slice(12);
       const r = this.alarmMgr.acknowledge(aid); this.state.alarms = this.alarmMgr.list();
@@ -326,7 +391,7 @@ class Simulation {
         if (!a.secured) return no('No tracheal tube to remove');
         const r = this.extubationReadiness();
         this.stats.extubation = { tSec: t, ...r };
-        if (this.state.vitals.tofRatio < 0.9) this.alarmMgr.pulse(t, 'tofr_extubation', 'high', `Extubation with TOFR ${this.state.vitals.tofRatio.toFixed(2)} < 0.9`);
+        if (this.state.vitals.tofRatio < ALARM_THRESHOLDS.TOFR_EXTUBATION) this.alarmMgr.pulse(t, 'tofr_extubation', 'high', `Extubation with TOFR ${this.state.vitals.tofRatio.toFixed(2)} < 0.9`);
         a.secured = false; a.ventilated = false; this.stim.extubatedAt = t;
         for (const def of this.armed.splice(0)) this._startEvent(def);
         return ok(`Extubated — readiness ${r.ready ? 'met' : 'NOT met: ' + r.criteria.filter((c) => !c.met).map((c) => c.label).join(', ')}`);
@@ -388,21 +453,35 @@ class Simulation {
     const due = this.plan.steps.filter((s) => !this.executed.has(s.id) && this.phaseStart[s.phase] !== undefined && t >= this.phaseStart[s.phase] + s.atSec - 1e-9)
       .sort((a, b) => (this.phaseStart[a.phase] + a.atSec) - (this.phaseStart[b.phase] + b.atSec) || a.order - b.order);
     for (const s of due) {
-      const r = this.administer({ drugId: s.drugId, kind: s.kind, amount: s.amount, amountUnit: s.amountUnit, rate: s.rate, rateUnit: s.rateUnit, overSec: s.overSec }, { source: 'plan' });
+      const r = this.administer({ drugId: s.drugId, kind: s.kind, amount: s.amount, amountUnit: s.amountUnit, rate: s.rate, rateUnit: s.rateUnit, overSec: s.overSec, route: s.route }, { source: 'plan' });
       this.executed.set(s.id, { tSec: t, ...r });
     }
 
+    // 2a. fluids (illustrative): run-in, then first-order loss of retained intravascular volume
+    if (this.fluid.pendingMl > 0) {
+      const run = Math.min(this.fluid.pendingMl, FLUID_MODEL.RUN_ML_PER_MIN * dtMin);
+      this.fluid.pendingMl -= run; this.fluid.retainedMl += run;
+      if (this.fluid.pendingMl <= 1e-9) { this.fluid.pendingMl = 0; this._log('action', `Crystalloid bolus run-in complete (cumulative ${S.fluids.crystalloidMl} mL)`); }
+      S.fluids.infusingMl = Math.round(this.fluid.pendingMl);
+    }
+    this.fluid.retainedMl *= Math.exp(-dtMin / FLUID_MODEL.RETENTION_TAU_MIN);
+    const fluidR = 1 - Math.exp(-this.fluid.retainedMl / FLUID_MODEL.RESTORE_SCALE_ML);
+    const depleted = (this.patient.conditions || []).some((c) => FLUID_MODEL.DEPLETED_CONDITIONS.includes(c));
+
     // 2. events
-    const ev = { mapFrac: 0, hrFrac: 0, hrMult: 1, ventFactor: 1, aaAdd: 0, etco2GapAdd: 0, stimulus: 0, laryngospasm: false, sensors: new Set() };
+    const ev = { mapFrac: 0, hrFrac: 0, hrMult: 1, ventFactor: 1, aaAdd: 0, etco2GapAdd: 0, stimulus: 0, laryngospasm: false, sensors: new Set(),
+      fluidMapFrac: (depleted ? FLUID_MODEL.DIRECT_MAP_FRAC.depleted : FLUID_MODEL.DIRECT_MAP_FRAC.euvolaemic) * fluidR };
     const H0 = this.lastEffects ? this.lastEffects.H : 0;
     for (const e of this.events) {
       let I = this._eventIntensity(e, t);
       if (I <= 0) continue;
       const p = e.def.perturbation;
       for (const [k, f] of Object.entries(p.counteredBy || {})) {
-        const E = k === '_hypnosis' ? H0 : k === 'glycopyrrolate' ? (this.lastEffects ? this.lastEffects.antimuscarinic : 0) : 0;
+        const E = k === '_hypnosis' ? H0 : k === 'glycopyrrolate' ? (this.lastEffects ? this.lastEffects.antimuscarinic : 0)
+          : k === '_bronchodilation' ? (this.lastEffects ? this.lastEffects.bronchodilation || 0 : 0) : 0;
         I *= 1 - f * E;
       }
+      if (p.volumeLoss) I *= 1 - FLUID_MODEL.EVENT_COUNTER_MAX * fluidR;
       if (p.laryngospasm && this.state.airway.maskVentilation && p.resolvedBy && this.maskVentSec >= (p.resolvedBy.maskVentilationSec || Infinity) && !e.resolved) { e.resolved = true; e.resolvedAt = t; this._log('event', `${e.def.label} broken by positive-pressure mask ventilation`); }
       ev.mapFrac += (p.mapFrac || 0) * I; ev.hrFrac += (p.hrFrac || 0) * I;
       if (p.hrMult) ev.hrMult *= 1 - (1 - p.hrMult) * I;
@@ -477,6 +556,12 @@ class Simulation {
       const m = this._model(tb.drugId); m.model.bolus(amt); tb.remaining -= amt; S.drugs[tb.drugId].cumulative += amt;
     }
     this.timed = this.timed.filter((x) => x.remaining > 1e-12);
+    // non-IV bolus depots (IM/SC): first-order absorption (illustrative ka, pk.js ROUTE_KA_ILLUSTRATIVE)
+    for (const dp of this.depots) {
+      const amt = dp.remaining * (1 - Math.exp(-dp.ka * dtMin));
+      this._model(dp.drugId).model.bolus(amt); dp.remaining -= amt;
+    }
+    this.depots = this.depots.filter((x) => x.remaining > 1e-9);
     const veffPrev = this.phys.out ? this.phys.out._true.veff : 1;
     for (const [id, m] of Object.entries(this.models)) {
       const ds = S.drugs[id]; const drug = getDrug(lib, id);
@@ -490,7 +575,7 @@ class Simulation {
       }
       ds.cumulative += m.model.infusionPerMin * dtMin;
       let ke0Mult = 1;
-      if (id === 'rocuronium' && this.models.sugammadex && this.models.sugammadex.model.a1 > 1e-6) ke0Mult = 4;
+      if (id === 'rocuronium' && this.models.sugammadex && this.models.sugammadex.model.a1 > 1e-6) ke0Mult = STIMULUS.SUGAMMADEX_ROC_KE0_MULT;
       m.model.step(dtMin, { ke0Mult });
     }
     // sugammadex encapsulation of rocuronium (1:1 molar, central compartment)
@@ -527,11 +612,11 @@ class Simulation {
 
     // 8. stimulus
     let stim = 0; let label = 'none'; const st = this.stim;
-    if (st.surgeryStartAt !== null && st.surgeryEndAt === null) { const d = t - st.surgeryStartAt; if (d < 120) { stim = 0.9; label = 'incision'; } else { stim = 0.55; label = 'maintenance'; } }
-    else if (st.surgeryEndAt !== null && t - st.surgeryEndAt < 300) { stim = 0.3; label = 'closing'; }
-    if (st.laryngoscopyAt !== null && t - st.laryngoscopyAt < 150) { const s = Math.exp(-(t - st.laryngoscopyAt) / 70); if (s >= stim) { stim = Math.max(stim, s); label = 'laryngoscopy'; } }
-    if (S.airway.secured) stim = Math.max(stim, 0.25);
-    if (st.extubatedAt !== null && t - st.extubatedAt < 60) stim = Math.max(stim, 0.6 * Math.exp(-(t - st.extubatedAt) / 25));
+    if (st.surgeryStartAt !== null && st.surgeryEndAt === null) { const d = t - st.surgeryStartAt; if (d < STIMULUS.INCISION_SEC) { stim = STIMULUS.INCISION; label = 'incision'; } else { stim = STIMULUS.MAINTENANCE; label = 'maintenance'; } }
+    else if (st.surgeryEndAt !== null && t - st.surgeryEndAt < STIMULUS.CLOSING_SEC) { stim = STIMULUS.CLOSING; label = 'closing'; }
+    if (st.laryngoscopyAt !== null && t - st.laryngoscopyAt < STIMULUS.LARYNGOSCOPY_SEC) { const s = Math.exp(-(t - st.laryngoscopyAt) / STIMULUS.LARYNGOSCOPY_DECAY_SEC); if (s >= stim) { stim = Math.max(stim, s); label = 'laryngoscopy'; } }
+    if (S.airway.secured) stim = Math.max(stim, STIMULUS.TUBE_IN_SITU);
+    if (st.extubatedAt !== null && t - st.extubatedAt < STIMULUS.EXTUBATION_SEC) stim = Math.max(stim, STIMULUS.EXTUBATION * Math.exp(-(t - st.extubatedAt) / STIMULUS.EXTUBATION_DECAY_SEC));
     stim += ev.stimulus;
     S.surgery.stimulus = label;
 
@@ -539,7 +624,7 @@ class Simulation {
     for (const [id, m] of Object.entries(this.models)) {
       if (m.type !== 'volatile' || !libraryMentionsSympathetic(getDrug(lib, id))) continue;
       const rise = Math.max(0, (m.model.dial - m.model.et) / (m.macAgeAdjusted || 1));
-      ev.hrFrac += 0.15 * clamp(rise - 0.5, 0, 1); ev.mapFrac += 0.1 * clamp(rise - 0.5, 0, 1);
+      ev.hrFrac += STIMULUS.DES_RAPID_RISE_HR * clamp(rise - STIMULUS.DES_RAPID_RISE_START_MAC, 0, 1); ev.mapFrac += STIMULUS.DES_RAPID_RISE_MAP * clamp(rise - STIMULUS.DES_RAPID_RISE_START_MAC, 0, 1);
     }
 
     // 9. physiology
@@ -565,14 +650,15 @@ class Simulation {
     // Level alarms with hysteresis: once on, they stay on until the value is 2 units past the threshold.
     const hy = (id, on, stayOn) => { const a = on || (this._alarmOn.has(id) && stayOn); if (a) this._alarmOn.add(id); else this._alarmOn.delete(id); return a; };
     const target = this.plan.mode === 'MAC' ? this.plan.sedationTarget : null;
+    const A = ALARM_THRESHOLDS;
     const conds = [
-      { id: 'spo2_low', priority: 'high', message: `SpO2 ${V.spo2}% < 90%`, active: hy('spo2_low', ok(V.spo2) && V.spo2 < 90, ok(V.spo2) && V.spo2 < 92) },
-      { id: 'apnea', priority: 'high', message: `Apnoea > 30 s without ventilation (${Math.round(out._true.apnoeaSec)} s)`, active: out._true.apnoeaSec > 30 },
-      { id: 'map_critical', priority: 'high', message: `MAP ${V.map} < 60 mmHg (interlock threshold)`, active: hy('map_critical', ok(V.map) && V.map < 60, ok(V.map) && V.map < 62) },
-      { id: 'hr_critical', priority: 'high', message: `HR ${V.hr} < 48 /min (interlock threshold)`, active: hy('hr_critical', ok(V.hr) && V.hr < 48, ok(V.hr) && V.hr < 50) },
-      { id: 'map_low', priority: 'medium', message: `MAP ${V.map} < 65 mmHg`, active: hy('map_low', ok(V.map) && V.map < 65, ok(V.map) && V.map < 67) },
-      { id: 'map_high', priority: 'medium', message: `MAP ${V.map} > 120 mmHg`, active: hy('map_high', ok(V.map) && V.map > 120, ok(V.map) && V.map > 118) },
-      { id: 'hr_high', priority: 'medium', message: `HR ${V.hr} > 120 /min`, active: hy('hr_high', ok(V.hr) && V.hr > 120, ok(V.hr) && V.hr > 118) },
+      { id: 'spo2_low', priority: 'high', message: `SpO2 ${V.spo2}% < ${A.SPO2_LOW}%`, active: hy('spo2_low', ok(V.spo2) && V.spo2 < A.SPO2_LOW, ok(V.spo2) && V.spo2 < A.SPO2_LOW_CLEAR) },
+      { id: 'apnea', priority: 'high', message: `Apnoea > ${A.APNOEA_SEC} s without ventilation (${Math.round(out._true.apnoeaSec)} s)`, active: out._true.apnoeaSec > A.APNOEA_SEC },
+      { id: 'map_critical', priority: 'high', message: `MAP ${V.map} < 60 mmHg (interlock threshold)`, active: hy('map_critical', ok(V.map) && V.map < NOA_CONFIG.hemodynamic_thresholds.map_critical_low, ok(V.map) && V.map < A.MAP_CRITICAL_CLEAR) },
+      { id: 'hr_critical', priority: 'high', message: `HR ${V.hr} < 48 /min (interlock threshold)`, active: hy('hr_critical', ok(V.hr) && V.hr < NOA_CONFIG.hemodynamic_thresholds.hr_critical_low, ok(V.hr) && V.hr < A.HR_CRITICAL_CLEAR) },
+      { id: 'map_low', priority: 'medium', message: `MAP ${V.map} < 65 mmHg`, active: hy('map_low', ok(V.map) && V.map < A.MAP_LOW, ok(V.map) && V.map < A.MAP_LOW_CLEAR) },
+      { id: 'map_high', priority: 'medium', message: `MAP ${V.map} > 120 mmHg`, active: hy('map_high', ok(V.map) && V.map > A.MAP_HIGH, ok(V.map) && V.map > A.MAP_HIGH_CLEAR) },
+      { id: 'hr_high', priority: 'medium', message: `HR ${V.hr} > 120 /min`, active: hy('hr_high', ok(V.hr) && V.hr > A.HR_HIGH, ok(V.hr) && V.hr > A.HR_HIGH_CLEAR) },
       { id: 'sensor_fault_hr', priority: 'high', message: 'HR sensor fault (unusable reading)', active: S.sensors.hr === 'fault' },
       { id: 'sensor_fault_map', priority: 'high', message: 'MAP sensor fault (unusable reading)', active: S.sensors.map === 'fault' },
       { id: 'sensor_fault_spo2', priority: 'high', message: 'SpO2 probe off / sensor fault', active: S.sensors.spo2 === 'fault' },
@@ -606,12 +692,13 @@ class Simulation {
     const tofSrc = (this.lib.SOURCE_IDS_ENGINE && this.lib.SOURCE_IDS_ENGINE.tofExtubation) || findSourceId(this.lib, 'Thilen') || null;
     const sRr = tr ? tr.spontaneousRr : this.patient.baseline.rr;
     const cap = tr ? tr.spontaneousCapability : 1;
+    const X = EXTUBATION_CRITERIA;
     const criteria = [
-      { id: 'awake', label: 'Awake (depth index ≥ 80, illustrative)', met: V.depthIndex >= 80, value: V.depthIndex, source: 'illustrative' },
-      { id: 'tofr', label: 'TOF ratio ≥ 0.9', met: V.tofRatio >= 0.9, value: V.tofRatio, source: tofSrc },
-      { id: 'ventilation', label: 'Adequate spontaneous ventilation (RR ≥ 8, illustrative)', met: sRr >= 8 && cap >= 0.6, value: Math.round(sRr), source: 'illustrative' },
-      { id: 'spo2', label: 'SpO2 ≥ 94 % (illustrative)', met: isFiniteNumber(V.spo2) && V.spo2 >= 94, value: V.spo2, source: 'illustrative' },
-      { id: 'hemodynamics', label: 'Haemodynamically stable (MAP 65–110, HR 50–110; illustrative)', met: isFiniteNumber(V.map) && isFiniteNumber(V.hr) && V.map >= 65 && V.map <= 110 && V.hr >= 50 && V.hr <= 110, value: { map: V.map, hr: V.hr }, source: 'illustrative' },
+      { id: 'awake', label: 'Awake (depth index ≥ 80, illustrative)', met: V.depthIndex >= X.DEPTH_AWAKE, value: V.depthIndex, source: 'illustrative' },
+      { id: 'tofr', label: 'TOF ratio ≥ 0.9', met: V.tofRatio >= ALARM_THRESHOLDS.TOFR_EXTUBATION, value: V.tofRatio, source: tofSrc },
+      { id: 'ventilation', label: 'Adequate spontaneous ventilation (RR ≥ 8, illustrative)', met: sRr >= X.RR_MIN && cap >= X.CAPABILITY_MIN, value: Math.round(sRr), source: 'illustrative' },
+      { id: 'spo2', label: 'SpO2 ≥ 94 % (illustrative)', met: isFiniteNumber(V.spo2) && V.spo2 >= X.SPO2_MIN, value: V.spo2, source: 'illustrative' },
+      { id: 'hemodynamics', label: 'Haemodynamically stable (MAP 65–110, HR 50–110; illustrative)', met: isFiniteNumber(V.map) && isFiniteNumber(V.hr) && V.map >= X.MAP_MIN && V.map <= X.MAP_MAX && V.hr >= X.HR_MIN && V.hr <= X.HR_MAX, value: { map: V.map, hr: V.hr }, source: 'illustrative' },
     ];
     return { ready: criteria.every((c) => c.met), criteria };
   }
@@ -634,13 +721,27 @@ class Simulation {
       alarms: this.alarmMgr.history.map((a) => ({ ...a })),
       extubation: this.stats.extubation || { tSec: null, ...this.extubationReadiness(), note: 'not extubated; current readiness' },
       interlockEvents: this.stats.interlockEvents.slice(),
+      fluids: { crystalloidMl: this.state.fluids.crystalloidMl, perKg: roundSig(this.state.fluids.crystalloidMl / this.patient.weightKg, 3), perKgBasis: 'TBW', boluses: this.state.fluids.boluses.map((b) => ({ ...b })), model: 'illustrative volume-restoration model (author estimates)' },
       modelNote: 'Illustrative model output — educational simulation, fictional patient; not a medical device.',
     };
   }
 
-  /** PK model provenance per drug used so far. */
+  /**
+   * PK model provenance per drug used so far ({ [drugId]: { type, provenance, reference, parameters } }).
+   * The complete parameter inventory (every model parameter with provenance and sourceIds) is
+   * attached as the NON-ENUMERABLE property `inventory`, so Object.entries(modelInfo()) still
+   * lists drugs only (backward compatible). Same data: sim.parameterInventory().
+   */
   modelInfo() {
-    return Object.fromEntries(Object.entries(this.models).map(([id, m]) => [id, { type: m.type, provenance: m.provenance, reference: m.ref }]));
+    const inv = this.parameterInventory();
+    const out = Object.fromEntries(Object.entries(this.models).map(([id, m]) => [id, { type: m.type, provenance: m.provenance, reference: m.ref, parameters: inv.filter((x) => x.drugId === id && x.component === 'pk') }]));
+    Object.defineProperty(out, 'inventory', { value: inv, enumerable: false });
+    return out;
+  }
+
+  /** Every model parameter: { component, drugId?, name, value, unit, provenance, sourceIds, note }. */
+  parameterInventory() {
+    return buildParameterInventory({ lib: this.lib, patient: this.patient, mods: this.mods, models: this.models, fluidModel: FLUID_MODEL, mw: MW, minFio2WithN2O: MIN_FIO2_WITH_N2O, alarmThresholds: ALARM_THRESHOLDS, extubationCriteria: EXTUBATION_CRITERIA, stimulus: STIMULUS });
   }
 }
 

@@ -115,6 +115,9 @@ test('simulator UI smoke', { skip, timeout: 300000 }, async (t) => {
       assert.match(log, /Sugammadex .* bolus/);
       s = await waitSim(page, (x) => x.ready, { timeout: 90000, label: 'extubation readiness' });
       await page.click('#mon-play'); // pause
+      // Readiness can flicker with noise while playing; step until it holds at the paused time.
+      for (let i = 0; i < 60 && !(await simState(page)).ready; i++) await page.click('[data-step="10"]');
+      assert.ok((await simState(page)).ready, 'readiness met while paused');
       await page.click('#ph-extubate');
       await page.waitForSelector('#ext-confirm');
       await page.click('#ext-confirm');

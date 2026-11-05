@@ -407,6 +407,43 @@ export const SOURCES = {
     supports: 'Nitrous oxide diffuses into closed gas spaces faster than nitrogen leaves, expanding them: in dogs breathing 75% N2O, pneumothorax volume roughly doubled by 10 min and roughly tripled-to-quadrupled (about +300%) by 60 min, whereas oxygen did not change it; bowel gas also expanded. Authors concluded nitrous oxide is relatively contraindicated in intestinal obstruction or pneumothorax.',
     verifiedVia: 'WebSearch records of PubMed 14257336 (citation; no abstract listed), the Scilit record (conclusion "relatively contraindicated in intestinal obstruction or pneumothorax"), BestBets review table (dog data, +100% at 10 min, ~+300% at 60 min) and a textbook figure reproduction (75% N2O), 2026-11-05. Full text not opened; volume figures are from secondary reproductions. Animal study (pneumothorax created by air injection). Non-label source: used because no US nitrous oxide label states contraindications.',
   },
+  // S40–S43 added 2026-11-05 by the model-extension worker (epinephrine, Eleveld propofol PK, fluids).
+  S40: {
+    id: 'S40',
+    citation: 'Epinephrine injection, USP 1 mg/mL (ADRENALIN). Par Pharmaceutical / Par Health USA. FDA-approved prescribing information (DailyMed setid 3b7a4364-668d-4eb2-a20c-04adc35aabe4; FDA-hosted label files 204200s004 (2016), 204200s009/204640s009 (2019), 204640Orig1s018 (2023)).',
+    url: 'https://dailymed.nlm.nih.gov/dailymed/drugInfo.cfm?setid=3b7a4364-668d-4eb2-a20c-04adc35aabe4',
+    identifiers: 'NDA 204200 / NDA 204640 (as shown in FDA-hosted label file names; not otherwise re-verified)',
+    type: 'FDA label',
+    supports: 'Anaphylaxis, adults and children over 30 kg: 0.3 to 0.5 mg (0.3 to 0.5 mL) undiluted, intramuscularly or subcutaneously into the anterolateral aspect of the thigh, up to a maximum of 0.5 mg (0.5 mL) per injection, repeated every 5 to 10 minutes as necessary; monitor clinically for reaction severity and cardiac effects. Do not inject into buttock, digits, hands or feet. Hypotension associated with septic shock: dilute 1 mg in 1000 mL of 5% dextrose (or 5% dextrose and sodium chloride) to 1 mcg/mL; infuse into a large vein; 0.05 to 2 mcg/kg/min titrated to the desired mean arterial pressure. Contraindications: None. Contains sodium bisulfite; presence of sulfite should not deter use for anaphylaxis. Epinephrine may induce cardiac arrhythmias and myocardial ischemia, especially in patients with coronary artery disease or cardiomyopathy.',
+    verifiedVia: 'WebSearch records (2026-11-05) of the DailyMed Adrenalin listings (setids 3b7a4364-…, 7663c49d-…, b293ad8e-…), drugs.com/pro/adrenalin-injection, the FFF Enterprises-hosted Adrenalin PI PDF, guidelinecentral.com (setid 3b7a4364-…) and FDA-hosted Adrenalin labels 204200s004/204200s009/204640s018: anaphylaxis 0.3–0.5 mg IM/SC anterolateral thigh, max 0.5 mg per injection, every 5–10 min; septic-shock 0.05–2 mcg/kg/min titrated to MAP and 1 mcg/mL dilution; contraindications "None"; injection-site wording; sulfite "should not deter use for anaphylaxis (5.4)" (2016 highlights); arrhythmia/ischaemia wording. The weight boundary was seen as "over 30 kg" (children "30 kg or less"); wording may differ between label versions. Full label text not opened (DailyMed and accessdata.fda.gov not reachable from the build environment).',
+  },
+  S41: {
+    id: 'S41',
+    citation: 'Epinephrine injection (generic 1 mg/mL vial; NDA 215425). FDA-approved prescribing information, 2025 (accessdata.fda.gov label 215425s000lbl.pdf); and other generic epinephrine injection labels (NDA 205029, 2021–2025 revisions; Pfizer/Hospira labeling).',
+    url: 'https://www.accessdata.fda.gov/drugsatfda_docs/label/2025/215425s000lbl.pdf',
+    identifiers: 'NDA 215425; NDA 205029 (as shown in FDA-hosted label file names)',
+    type: 'FDA label',
+    supports: 'Hypotension associated with septic shock: suggested infusion 0.05 mcg/kg/min to 2 mcg/kg/min, titrated to achieve a desired mean arterial pressure; dosage may be adjusted periodically, e.g. every 10 to 15 minutes, in increments of 0.05 to 0.2 mcg/kg/min; after haemodynamic stabilisation wean incrementally (e.g. decreasing doses every 10 minutes). The ideal body weight (IBW) should be used as the weight parameter for dosing epinephrine in adult patients with septic-shock-associated hypotension (215425 label). Presence of sulfite should not deter use for hypotension associated with septic shock.',
+    verifiedVia: 'WebSearch records (2026-11-05) of FDA-hosted labels 215425s000 (2025; IBW sentence quoted verbatim in the record), 205029Orig1s009 (2023) and 205029Orig1s015 (2025), DailyMed generic epinephrine listings and a Pfizer labeling highlights page ("0.05 mcg/kg/min to 2 mcg/kg/min, titrated to achieve desired mean arterial pressure (2.2) • Wean gradually"). Titration increments and the weaning sentence were seen in search excerpts attributed to these labels; the exact label each excerpt came from was not pinned down. Full label text not opened.',
+  },
+  S42: {
+    id: 'S42',
+    citation: 'Eleveld DJ, Colin P, Absalom AR, Struys MMRF. Pharmacokinetic-pharmacodynamic model for propofol for broad application in anaesthesia and sedation. Br J Anaesth. 2018;120(5):942-959. Corrigendum: Br J Anaesth. 2018;121(2):519.',
+    url: 'https://www.bjanaesthesia.org/article/S0007-0912(18)30051-5/fulltext',
+    identifiers: 'doi:10.1016/j.bja.2018.01.018; PMID 29661412',
+    type: 'published population PK-PD model',
+    supports: 'Three-compartment propofol PK with covariates age, weight, height, sex (Al-Sallami fat-free mass for V3), post-menstrual age maturation, and presence/absence of concomitant anaesthetic drugs (opioids/local anaesthetics; lowers CL and V3 with age); reference individual 35 y, 70 kg, 170 cm male. Table 2 fixed effects Θ1–Θ18 (V1ref 6.28 L, V2ref 25.5 L, V3ref 273 L, CL 1.79 (male) / 2.10 (female) L/min, Q2ref 1.75 L/min (1.83 at the reference individual after the Θ16 term, per the corrigendum), Q3ref 1.11 L/min, …). Table 3: ke0 0.146 min⁻¹ (arterial) / 1.24 min⁻¹ (venous) × (WGT/70)^−0.25; Ce50 3.08 mcg/mL × exp(−0.00635 × (age − 35)); BIS0 93.0; γ 1.47 above / 1.89 below Ce50.',
+    verifiedVia: 'Citation, DOI and corrigendum from WebSearch records (bvsalud mdl-29661412, mardi4nfdi, BJA landing page). PK fixed effects and equations taken from four sources that agree to printed precision: CRAN package tci 0.2.1 R/poppk_mods.R (github.com/cran/tci, cloned 2026-11-05); PyPI python-anesthesia-simulator 1.0.0 pk_models.py (full-precision thetas); github.com/vitaldb/tivatci tivatci/__init__.py; and the stanpumpR paper digest papers/digests/PMID_29661412.md (github.com/StevenLShafer/stanpumpR), a reading of the paper PDF quoting Table 2/3 values with 99% CIs and page numbers (itself an AI-assisted digest; secondary). PD/ke0 values (0.146, 1.24, 3.08, −0.00635, 93.0, 1.47/1.89) also seen in a WebSearch record of the BJA table. The PK theta values themselves were NOT displayed in any publisher or PubMed search record; the primary PDF and supplementary NONMEM code could not be opened (bjanaesthesia.org, PMC, doi.org unreachable).',
+  },
+  S43: {
+    id: 'S43',
+    citation: 'Evans L, Rhodes A, Alhazzani W, et al. Surviving Sepsis Campaign: international guidelines for management of sepsis and septic shock 2021. Crit Care Med. 2021 (published simultaneously in Intensive Care Med. 2021).',
+    url: 'https://sccm.org/sepsisguidelines',
+    identifiers: 'none confirmed (volume, pages, DOI and PMID not re-verified)',
+    type: 'guideline',
+    supports: 'For adults with sepsis-induced hypoperfusion or septic shock, the guideline suggests that at least 30 mL/kg of IV crystalloid fluid be given within the first 3 hours of resuscitation (weak recommendation, low quality of evidence; downgraded from strong in 2016).',
+    verifiedVia: 'WebSearch records (2026-11-05) of sccm.org/sepsisguidelines, an AMiner executive-summary record, emDocs and Red Cross guideline summaries and a CME PDF reproducing the recommendation wording and its weak/low-quality grading. Used only as context text for sepsis fluid boluses; no simulator dose, threshold or effect size is derived from it.',
+  },
 };
 
 // ---------------------------------------------------------------------------------------------
@@ -545,8 +582,13 @@ export const DRUGS = [
       { when: 'allergy:egg_soy', severity: 'lock', message: 'Contraindicated: known hypersensitivity to propofol, egg or soybean (current label CONTRAINDICATIONS; older labels: anaphylaxis to eggs, egg products, soybeans or soy products).', sources: ['S11'] },
     ],
     timing: { onsetMin: 0.67, peakMin: null, durationMin: null, basis: 'label statement: hypnosis usually within 40 seconds from the start of injection (one arm-brain circulation)', defaultBolus: '2 mg/kg', sources: ['S11'] },
-    pkModel: 'calibrated',
-    pkNote: 'Marsh 1991 adult parameters could not be verified in this session; calibrated model used (see SOURCES.md).',
+    pkModel: 'eleveld',
+    pkModelFallback: 'calibrated',
+    pkModelInfo: {
+      model: 'eleveld', form: 'arterial', sources: ['S42'],
+      note: 'Published Eleveld 2018 population PK with ke0 (arterial). Covariates from the simulated patient (age, total body weight, height, sex) plus the concomitant-drug switch (opioid or IV local anaesthetic in the plan or already given). The simulated depth index still uses the illustrative PD in engine/pd.js, not the Eleveld BIS model. Set pkModel to the fallback \'calibrated\' to use the illustrative 2-compartment model fitted to label timing.',
+    },
+    pkNote: 'Eleveld 2018 PK (S42) verified against four agreeing open-source implementations/readings; Marsh 1991 parameters remain unverified against the paper (see SOURCES.md "Propofol PK model").',
   },
   {
     id: 'etomidate', name: 'Etomidate', cls: 'hypnotic',
@@ -1101,6 +1143,41 @@ export const DRUGS = [
     timing: NOT_STATED(),
     pkModel: 'calibrated',
   },
+  {
+    // Added 2026-11-05 (model-extension worker). No IV push-dose ("bolus") regimen: no label or
+    // guideline dose was verified, so a bolus of epinephrine in the simulator is intramuscular.
+    id: 'epinephrine', name: 'Epinephrine', cls: 'vasopressor',
+    concentration: { value: 1, unit: 'mg/mL' },
+    amountUnit: 'mg',
+    bolusRoutes: ['IM', 'SC'],
+    pkReferenceRegimen: 'maintenance',
+    regimens: {
+      rescue: {
+        kind: 'bolus', route: 'IM',
+        fixed: { default: 0.3, min: 0.3, max: 0.5, unit: 'mg' },
+        scalar: null, scalarBasis: null,
+        timing: 'Anaphylaxis: undiluted, intramuscularly (or subcutaneously) into the anterolateral aspect of the thigh; repeat every 5 to 10 minutes as necessary; up to 0.5 mg per injection. Do not inject into buttock, digits, hands or feet.',
+        sources: ['S40'],
+        note: 'Label dose for anaphylaxis in adults and children over 30 kg (the simulator models adults only). Default = label lower bound. Monitor clinically for reaction severity and cardiac effects. Contains sodium bisulfite; presence of sulfite should not deter use for anaphylaxis. The simulator models the IM route with an illustrative absorption constant; IV push-dose epinephrine is not included (no label/guideline dose verified).',
+      },
+      maintenance: {
+        kind: 'infusion',
+        rate: { default: 0.05, min: 0.05, max: 2, unit: 'mcg/kg/min' },
+        scalar: 'IBW', scalarBasis: 'label',
+        timing: 'Dilute 1 mg in 1000 mL 5% dextrose (1 mcg/mL); infuse into a large vein. Titrate to the desired MAP; adjust e.g. every 10 to 15 minutes in increments of 0.05 to 0.2 mcg/kg/min; wean gradually after stabilisation.',
+        sources: ['S40', 'S41'],
+        note: 'Labelled indication: hypotension associated with septic shock (the simulator lets it be used for any hypotension for teaching; outside septic shock that is not the labelled indication). Weight = ideal body weight per the 215425 label (S41). Default = label lower bound.',
+      },
+    },
+    ceiling: { value: 0.5, unit: 'mg', scope: 'per bolus', basis: 'label maximum', infusion: { value: 2, unit: 'mcg/kg/min', scalar: 'IBW' }, sources: ['S40', 'S41'],
+      note: '0.5 mg per injection is a stated label maximum (anaphylaxis). The 2 mcg/kg/min infusion stop is the top of the labelled septic-shock range, which the label does not call a maximum.' },
+    contraindications: [
+      { when: 'condition:cad', severity: 'warn', message: 'Label WARNINGS: epinephrine may induce cardiac arrhythmias and myocardial ischemia in patients, especially patients suffering from coronary artery disease, or cardiomyopathy. (Label contraindications: none.)', sources: ['S40'] },
+      { when: 'condition:hf_reduced_ef', severity: 'warn', message: 'Label WARNINGS: epinephrine may induce cardiac arrhythmias and myocardial ischemia, especially in patients with coronary artery disease or cardiomyopathy. (The simulator maps cardiomyopathy to heart failure with reduced EF as policy; label contraindications: none.)', sources: ['S40'] },
+    ],
+    timing: NOT_STATED('No label onset/peak/duration statement verified. Engine uses illustrative author-estimate constants (engine/pk.js ILLUSTRATIVE_PK.epinephrine; IM absorption ROUTE_KA_ILLUSTRATIVE).'),
+    pkModel: 'calibrated',
+  },
 
   // ---------------- Opioid antagonist ----------------
   {
@@ -1178,6 +1255,7 @@ export const DRUGS = [
 export const SOURCE_IDS_USED = Object.freeze([
   'S1', 'S2', 'S3', 'S5', 'S6', 'S7', 'S8', 'S9', 'S10', 'S11', 'S12', 'S13', 'S14', 'S15', 'S16',
   'S17', 'S18', 'S19', 'S23', 'S24', 'S25', 'S26', 'S27', 'S28', 'S29', 'S30', 'S35', 'S36', 'S37', 'S38', 'S39',
+  'S40', 'S41', 'S42',
 ]);
 
 // S-ids present for the engine/UI (scores, weight scalars, monitoring, sedation definitions) but
@@ -1186,4 +1264,5 @@ export const SOURCE_IDS_ENGINE = Object.freeze({
   apfel: 'S4', stopBang: 'S20', stopBangRisk: 'S21', monitoring: 'S22',
   sedationContinuum: 'S31', moderateSedationGuideline: 'S32', ibwDevine: 'S33', lbwJanmahasatian: 'S34',
   tofExtubation: 'S5', pythonConfig: 'S35',
+  propofolPk: 'S42', sepsisFluids: 'S43',
 });

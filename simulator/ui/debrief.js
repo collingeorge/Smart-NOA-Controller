@@ -5,6 +5,7 @@ import { PRIORITY_LABELS, PRIORITY_SHAPES } from './labels.js';
 import { getDrugById } from './plan-model.js';
 import { readinessItem } from './monitor.js';
 import { exportPlan } from './plan-model.js';
+import { loadModelAssumptions, assumptionsList } from './model-card.js';
 
 export function renderDebrief(ctx, main) {
   const { store, lib } = ctx;
@@ -20,6 +21,8 @@ export function renderDebrief(ctx, main) {
   const planStatus = sim.planStatus();
   const modelInfo = sim.modelInfo();
 
+  const assumptionsHost = h('div', {}, h('h4', {}, 'Model assumptions (from SOURCES.md)'), h('p', { class: 'hint' }, 'Loading…'));
+  loadModelAssumptions().then((a) => { assumptionsHost.lastChild.replaceWith(assumptionsList(a)); });
   const dl = h('button', { type: 'button', class: 'btn btn--primary', id: 'db-download' }, 'Download session (JSON)');
   dl.addEventListener('click', () => {
     const data = {
@@ -72,9 +75,10 @@ export function renderDebrief(ctx, main) {
     h('section', { class: 'card card--muted' }, h('h3', {}, 'Model limits — read before drawing conclusions'),
       h('ul', { class: 'list' },
         h('li', {}, 'This is an educational simulation with a fictional patient. It is not a medical device, not clinical decision support and not validated.'),
-        h('li', {}, 'Physiology and PK/PD are illustrative; constants are fitted to label timing statements or are engine assumptions (see SOURCES.md, “Model assumptions”).'),
+        h('li', {}, 'Physiology and PK/PD are illustrative except where the Model card records an implemented published model; other constants are fitted to label timing statements or are engine assumptions.'),
         h('li', {}, 'The depth number is a simulated depth index (0–100, illustrative; not BIS).'),
         h('li', {}, 'Doses are label/guideline values chosen as defaults by a simulator convention; they are not recommendations.')),
+      assumptionsHost,
       Object.keys(modelInfo).length ? h('details', {}, h('summary', {}, 'Model provenance for drugs used'), h('ul', { class: 'list list--tight' },
         Object.entries(modelInfo).map(([id, m]) => h('li', {}, h('strong', {}, getDrugById(lib, id)?.name || id), `: ${m.type} — ${m.provenance}`)))) : null),
     h('div', { class: 'actions' },

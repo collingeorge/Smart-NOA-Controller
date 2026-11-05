@@ -119,6 +119,7 @@ export function recommend(patient, regimenKey, drugId, library = null) {
     drugId, regimenKey, kind: reg ? reg.kind : null, scalar: null, weightUsedKg: null,
     dose: null, rate: null, loading: null, sources: [], notes: [], warnings: cis.filter((c) => c.severity === 'warn').map((c) => c.message),
     locked: locks.length > 0, lockReasons: locks.map((c) => c.message), available: !!reg, timing: reg ? reg.timing || null : null,
+    route: reg && reg.kind === 'bolus' ? (reg.route || (Array.isArray(drug.bolusRoutes) && drug.bolusRoutes[0]) || 'IV') : (reg ? 'IV' : null),
     adjustmentsApplied: [],
     contraindications: cis,
   };
@@ -201,7 +202,7 @@ export function recommend(patient, regimenKey, drugId, library = null) {
   return result;
 }
 
-const KNOWN_REGIMEN_KEYS = new Set(['defaultRule', 'kind', 'perKg', 'fixed', 'rate', 'unit', 'scalar', 'scalarBasis', 'adjust', 'timing', 'sources', 'note', 'loading', 'notes']);
+const KNOWN_REGIMEN_KEYS = new Set(['defaultRule', 'kind', 'perKg', 'fixed', 'rate', 'unit', 'scalar', 'scalarBasis', 'adjust', 'timing', 'sources', 'note', 'loading', 'notes', 'route']);
 const KNOWN_CEILING_KEYS = new Set(['value', 'unit', 'basis', 'sources', 'note', 'scope', 'infusion', 'adjusted', 'perKg', 'rule', 'appliesTo', 'scalar']);
 const DEV_WARNED = new Set();
 function devWarn(msg) { if (!DEV_WARNED.has(msg)) DEV_WARNED.add(msg); }
@@ -266,7 +267,7 @@ export function interpretCeilings(drug, patient) {
       if (P) out.push(P);
     }
     if (c.infusion && typeof c.infusion === 'object') {
-      const I = limitFrom(drug, patient, c.infusion.value, c.infusion.unit, { ...meta, label: `infusion ${c.infusion.value} ${c.infusion.unit} (${meta.basis})` });
+      const I = limitFrom(drug, patient, c.infusion.value, c.infusion.unit, { ...meta, scalar: c.infusion.scalar || null, label: `infusion ${c.infusion.value} ${c.infusion.unit}${c.infusion.scalar ? ` ${c.infusion.scalar}` : ''} (${meta.basis})` });
       if (I) out.push(I);
     }
   }

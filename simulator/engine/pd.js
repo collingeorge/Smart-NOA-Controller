@@ -45,24 +45,33 @@ export function profileFor(drug) {
   return drug._profile || PROFILES[drug.id] || CLASS_FALLBACK[drug.cls] || {};
 }
 
+// Patient modifier constants (ILLUSTRATIVE author estimates; listed in sim.modelInfo().inventory).
+export const PATIENT_MODS = Object.freeze({
+  ELDERLY_SENS: 1.3, ASA3_SENS: 1.15, DEPLETION_HYPO_AMP: 1.5, HYPO_AMP_MAX: 3, RESP_SENS_OBESE_OSA: 1.3,
+  BETA_BLOCKER_HR_RISE: 0.4, FRC_MORBID_OBESE: 0.35, FRC_OBESE: 0.5, FRC_ELDERLY: 0.85, FRC_COPD: 0.8,
+  OBSTRUCTION_OSA: 1.6, OBSTRUCTION_OBESE: 1.3, K10_SEVERE_CKD_ROCURONIUM: 0.6, K10_LIVER_LIDO_MIDAZ: 0.6,
+  OPIOID_HYPNOTIC_SYNERGY: 0.5, NALOXONE_OPIOID_DISPLACEMENT: 10, NEOSTIGMINE_EC50_SHIFT_MAX: 0.6,
+});
+
 /** Patient sensitivity modifiers (illustrative). */
 export function patientModifiers(p) {
+  const K = PATIENT_MODS;
   const has = (id) => (p.conditions || []).includes(id);
   const flags = p.flags || [];
-  let hypSens = 1; if (flags.includes('elderly')) hypSens *= 1.3; if (p.asa >= 3) hypSens *= 1.15;
-  let hypoAmp = 1; if (flags.includes('elderly')) hypoAmp *= 1.3; if (p.asa >= 3) hypoAmp *= 1.15;
-  for (const c of ['hypovolemia', 'sepsis', 'hf_reduced_ef', 'aortic_stenosis_severe']) if (has(c)) hypoAmp *= 1.5;
-  const respSens = (flags.includes('obese') || has('osa') || flags.includes('osaRisk')) ? 1.3 : 1;
-  const hrRiseBlunt = (p.medications || []).includes('beta_blocker') ? 0.4 : 1;
+  let hypSens = 1; if (flags.includes('elderly')) hypSens *= K.ELDERLY_SENS; if (p.asa >= 3) hypSens *= K.ASA3_SENS;
+  let hypoAmp = 1; if (flags.includes('elderly')) hypoAmp *= K.ELDERLY_SENS; if (p.asa >= 3) hypoAmp *= K.ASA3_SENS;
+  for (const c of ['hypovolemia', 'sepsis', 'hf_reduced_ef', 'aortic_stenosis_severe']) if (has(c)) hypoAmp *= K.DEPLETION_HYPO_AMP;
+  const respSens = (flags.includes('obese') || has('osa') || flags.includes('osaRisk')) ? K.RESP_SENS_OBESE_OSA : 1;
+  const hrRiseBlunt = (p.medications || []).includes('beta_blocker') ? K.BETA_BLOCKER_HR_RISE : 1;
   let frcFactor = 1;
-  if (flags.includes('morbidObese')) frcFactor = 0.35; else if (flags.includes('obese')) frcFactor = 0.5;
-  if (flags.includes('elderly')) frcFactor *= 0.85;
-  if (has('copd')) frcFactor *= 0.8;
-  const obstruction = (has('osa') || flags.includes('osaRisk')) ? 1.6 : flags.includes('obese') ? 1.3 : 1;
+  if (flags.includes('morbidObese')) frcFactor = K.FRC_MORBID_OBESE; else if (flags.includes('obese')) frcFactor = K.FRC_OBESE;
+  if (flags.includes('elderly')) frcFactor *= K.FRC_ELDERLY;
+  if (has('copd')) frcFactor *= K.FRC_COPD;
+  const obstruction = (has('osa') || flags.includes('osaRisk')) ? K.OBSTRUCTION_OSA : flags.includes('obese') ? K.OBSTRUCTION_OBESE : 1;
   const k10Mult = {};
-  if (flags.includes('severeCkd')) k10Mult.rocuronium = 0.6;
-  if (has('liver_disease') || has('severe_hepatic_impairment')) { k10Mult.lidocaine = 0.6; k10Mult.midazolam = 0.6; }
-  return { hypSens, hypoAmp: Math.min(hypoAmp, 3), respSens, hrRiseBlunt, frcFactor, obstruction, k10Mult };
+  if (flags.includes('severeCkd')) k10Mult.rocuronium = K.K10_SEVERE_CKD_ROCURONIUM;
+  if (has('liver_disease') || has('severe_hepatic_impairment')) { k10Mult.lidocaine = K.K10_LIVER_LIDO_MIDAZ; k10Mult.midazolam = K.K10_LIVER_LIDO_MIDAZ; }
+  return { hypSens, hypoAmp: Math.min(hypoAmp, K.HYPO_AMP_MAX), respSens, hrRiseBlunt, frcFactor, obstruction, k10Mult };
 }
 
 const eff = (spec, u) => (spec ? spec[0] * sigmoid(u, spec[1], spec[2]) : 0);
@@ -87,7 +96,7 @@ export function combineEffects(entries, mods) {
   for (const { drug, u: u0, cpU } of entries) {
     const pr = profileFor(drug);
     let u = u0;
-    if (pr.opioid) u = u0 / (1 + 10 * antag);
+    if (pr.opioid) u = u0 / (1 + PATIENT_MODS.NALOXONE_OPIOID_DISPLACEMENT * antag);
     const uh = u * mods.hypSens;
     notH *= 1 - eff(pr.hyp, uh);
     const a = eff(pr.ana, u);
@@ -108,11 +117,11 @@ export function combineEffects(entries, mods) {
   }
   const Hraw = 1 - notH;
   const Aop = 1 - notAop;
-  const H = Math.min(1, Hraw + 0.5 * Aop * Hraw * (1 - Hraw));
+  const H = Math.min(1, Hraw + PATIENT_MODS.OPIOID_HYPNOTIC_SYNERGY * Aop * Hraw * (1 - Hraw));
   // Neuromuscular junction (illustrative): T1..T4 twitch heights; fade only for non-depolarising block.
   // Neostigmine (anticholinesterase) shifts EC50 up by ≤ 60 % — a ceiling effect, so it cannot reverse deep block.
   const ndProf = PROFILES.rocuronium.nmb, dpProf = PROFILES.succinylcholine.nmb;
-  const shift = 1 + 0.6 * achE;
+  const shift = 1 + PATIENT_MODS.NEOSTIGMINE_EC50_SHIFT_MAX * achE;
   const twitch = (k) => 1 - sigmoid(nd, ndProf.ec50 * shift * [1, 0.92, 0.84, 0.76][k], ndProf.gamma);
   const depT = 1 - sigmoid(dep, dpProf.ec50, dpProf.gamma);
   const T = [0, 1, 2, 3].map((k) => twitch(k) * depT);

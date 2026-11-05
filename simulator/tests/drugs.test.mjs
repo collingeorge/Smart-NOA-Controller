@@ -89,7 +89,8 @@ test('every drug has id/name/cls/amountUnit and unique id', () => {
     assert.ok(d.name, `${d.id}.name`);
     assert.ok(CLASSES.has(d.cls), `${d.id}.cls ${d.cls}`);
     assert.ok(AMOUNT_UNITS.has(d.amountUnit), `${d.id}.amountUnit ${d.amountUnit}`);
-    assert.ok(['marsh', 'calibrated'].includes(d.pkModel), `${d.id}.pkModel`);
+    assert.ok(['marsh', 'eleveld', 'calibrated'].includes(d.pkModel), `${d.id}.pkModel`);
+    if (d.pkModelFallback !== undefined) assert.equal(d.pkModelFallback, 'calibrated', `${d.id}.pkModelFallback`);
     if (d.concentration !== null && d.concentration !== undefined) {
       assert.ok(d.concentration.value > 0 && d.concentration.unit, `${d.id}.concentration`);
     }
