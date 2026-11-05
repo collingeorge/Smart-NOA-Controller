@@ -458,16 +458,26 @@ class SmartNOAController:
                 faults.append(drug)
         return faults
 
-    def monitor_and_control(self, duration_sec: int = 30) -> None:
+    def monitor_and_control(self, duration_sec: int = 30, vitals=None,
+                            sleep_sec: float = 1.0, log_every: int = 1) -> None:
         """
         Phase 3: Simulates the closed-loop feedback system.
         Reads synthetic values, updates an unvalidated model, and changes in-memory values.
         
         Args:
             duration_sec: Duration of monitoring simulation in seconds
+            vitals: Optional iterable of (hr, map) pairs, one per simulated second, used instead of
+                random values (scripted, reproducible demonstrations). Defaults to random values.
+            sleep_sec: Real-time pause per simulated second (default 1.0; 0 runs instantly).
+            log_every: Print routine GREEN/HOLD lines every N seconds (alerts always print).
         """
         if isinstance(duration_sec, bool) or not isinstance(duration_sec, int) or duration_sec < 0:
             raise ValueError("Simulation duration must be a nonnegative integer")
+        if isinstance(sleep_sec, bool) or not isinstance(sleep_sec, (int, float)) or not math.isfinite(sleep_sec) or sleep_sec < 0:
+            raise ValueError("sleep_sec must be finite and nonnegative")
+        if isinstance(log_every, bool) or not isinstance(log_every, int) or log_every < 1:
+            raise ValueError("log_every must be a positive integer")
+        readings = iter(vitals) if vitals is not None else None
         print("\n=== Smart NOA educational simulation (unvalidated model) ===")
         print("Monitoring Dexmedetomidine Concentration and Hemodynamics.")
         
@@ -480,8 +490,14 @@ class SmartNOAController:
         
         for t in range(duration_sec):
             # 1. Simulate data feed from vital signs monitor (educational simulation)
-            hr = random.randint(40, 95)
-            map_val = random.randint(50, 105)
+            if readings is None:
+                hr = random.randint(40, 95)
+                map_val = random.randint(50, 105)
+            else:
+                try:
+                    hr, map_val = next(readings)
+                except StopIteration:
+                    raise ValueError("Scripted vitals ended before duration_sec") from None
 
             # 1a. Enforce configured lockouts and any latched hold before every model update,
             #     so a rate written directly into self.infusions cannot bypass them.
@@ -493,7 +509,7 @@ class SmartNOAController:
                 self._latch_hold(self.infusions.keys())
                 self.status = "RED"
                 print(f"T+{t:2d}s | INVALID SENSOR READING (HR={hr!r}, MAP={map_val!r}) → ALL SIMULATED VALUES SET TO ZERO")
-                time.sleep(1)
+                time.sleep(sleep_sec)
                 continue
 
             # 1c. Reject out-of-range rates (negative, non-finite, or above the configured ceiling).
@@ -526,70 +542,70 @@ class SmartNOAController:
             # A latched hold persists; there is no automatic restart policy.
             elif self.hold_latched and hr >= hr_threshold and not rate_fault:
                 self.status = "HOLD"
-                print(f"T+{t:2d}s | SIMULATION HOLD remains latched; no automatic restart.")
+                if t % log_every == 0:
+                    print(f"T+{t:2d}s | SIMULATION HOLD remains latched; no automatic restart.")
             elif not self.hold_latched and not rate_fault:
                 self.status = "GREEN"
-                print(f"T+{t:2d}s | HR {hr} | MAP {map_val} | Model Ce: {dex_ce:.2f} | No configured alert.")
+                if t % log_every == 0:
+                    print(f"T+{t:2d}s | HR {hr} | MAP {map_val} | Model Ce: {dex_ce:.2f} | No configured alert.")
 
-            time.sleep(1)
+            time.sleep(sleep_sec)
 
 
 # ============================== DEMO EXECUTION ==============================
+# Scripted, reproducible scenarios: every vital sign below is a fictional, hand-written
+# value (no randomness), so each run shows the same story. Educational simulation only.
+
+def _steady(seconds, hr, map_val):
+    """Fictional stable readings with a small deterministic wobble (±2)."""
+    return [(hr + (t % 5) - 2, map_val + ((t * 3) % 5) - 2) for t in range(seconds)]
+
+
+def _ramp(seconds, hr_from, hr_to, map_from, map_to):
+    """Fictional readings that drift linearly from one value to another."""
+    return [(round(hr_from + (hr_to - hr_from) * t / max(seconds - 1, 1)),
+             round(map_from + (map_to - map_from) * t / max(seconds - 1, 1))) for t in range(seconds)]
+
+
 if __name__ == "__main__":
-    # ----------------------------------------------------
-    # Scenario 1: High-Risk Geriatric Profile (78yo, Renal + Heart Block)
-    # The system should LOCK OUT Dexmedetomidine and Ketorolac instantly.
-    # ----------------------------------------------------
-    print("\n--- RUNNING SCENARIO 1: HIGH-RISK GERIATRIC PROFILE ---")
-    patient_a = Patient(
-        age=78, 
-        weight_kg=72, 
-        asa_class=3, 
-        egfr=24,
-        allergies=[], 
-        comorbidities=["Heart Block", "History of Renal Failure"]
-    )
-
-    controller_a = SmartNOAController(patient_a)
-
-    # Check simulated pre-operative constraints
-    allowed_dex, msg_dex = controller_a.check_contraindication("Dexmedetomidine")
-    allowed_keto, msg_keto = controller_a.check_contraindication("Ketorolac")
-    print(f"Dex Check: {msg_dex}")
-    print(f"Keto Check: {msg_keto}")
-
-    # Display Calculated Protocol
-    print("\nCalculated Starting Protocol:")
-    print(controller_a.generate_starting_rates())
-    
-    # Run the simulation loop (it will try to run without Dex)
-    print("\n--- Starting Simulation for Scenario 1 (No Dex running) ---")
-    controller_a.monitor_and_control(duration_sec=15)
+    import sys
+    fast = "--realtime" not in sys.argv      # default: run instantly; pass --realtime for 1 s per step
+    pause = 0.0 if fast else 1.0
 
     # ----------------------------------------------------
-    # Scenario 2: Healthy Young Adult Profile (30yo)
-    # The system should allow full protocol rates and respond dynamically.
+    # Scenario 1: High-risk geriatric profile (78 y, heart block, eGFR 24).
+    # Expected: dexmedetomidine and ketorolac hard-locked at start; stable readings stay GREEN;
+    # a gradual fall in MAP below 60 pauses lidocaine and latches a hold; recovery does NOT restart.
     # ----------------------------------------------------
-    print("\n\n--- RUNNING SCENARIO 2: HEALTHY YOUNG ADULT PROFILE ---")
-    patient_b = Patient(
-        age=30, 
-        weight_kg=85, 
-        asa_class=2, 
-        egfr=95,
-        allergies=[], 
-        comorbidities=[]
-    )
-    
-    controller_b = SmartNOAController(patient_b)
-    
-    # Display Calculated Protocol (full rate for Dex)
-    print("\nCalculated Starting Protocol:")
-    rates_b = controller_b.generate_starting_rates()
-    print(rates_b)
-    
-    # Set the Dex infusion rate for the dynamic loop
-    controller_b.infusions["Dexmedetomidine"] = rates_b.get("Dexmedetomidine", 0.0)
+    print("\n--- SCENARIO 1: HIGH-RISK GERIATRIC PROFILE (scripted) ---")
+    controller_a = SmartNOAController(Patient(age=78, weight_kg=72, asa_class=3, egfr=24, allergies=[],
+                                              comorbidities=["Heart Block", "History of Renal Failure"]))
+    print("Dex check: ", controller_a.check_contraindication("Dexmedetomidine")[1])
+    print("Keto check:", controller_a.check_contraindication("Ketorolac")[1])
+    print("Starting values:", controller_a.generate_starting_rates())
+    vitals_a = _steady(60, 72, 82) + _ramp(30, 72, 70, 82, 57) + _steady(30, 74, 80)
+    controller_a.monitor_and_control(len(vitals_a), vitals=vitals_a, sleep_sec=pause, log_every=15)
+    print("Final:", controller_a.status, controller_a.infusions)
 
-    # Run the simulation loop
-    print("\n--- Starting Simulation for Scenario 2 (Full Dex rate running) ---")
-    controller_b.monitor_and_control(duration_sec=20)
+    # ----------------------------------------------------
+    # Scenario 2: Healthy young adult (30 y, 85 kg).
+    # Expected: dexmedetomidine runs and the model concentration rises over 10 minutes of stable
+    # readings; a gradual vagal-type fall in HR below 48 stops dexmedetomidine and latches a hold.
+    # ----------------------------------------------------
+    print("\n--- SCENARIO 2: HEALTHY ADULT, DEXMEDETOMIDINE RUNNING (scripted) ---")
+    controller_b = SmartNOAController(Patient(age=30, weight_kg=85, asa_class=2, egfr=95, allergies=[], comorbidities=[]))
+    print("Starting values:", controller_b.generate_starting_rates())
+    vitals_b = _steady(600, 70, 85) + _ramp(60, 70, 44, 85, 78) + _steady(60, 62, 80)
+    controller_b.monitor_and_control(len(vitals_b), vitals=vitals_b, sleep_sec=pause, log_every=120)
+    print("Final:", controller_b.status, controller_b.infusions)
+
+    # ----------------------------------------------------
+    # Scenario 3: Sensor fault (heart-rate lead off, value missing).
+    # Expected: the unusable reading fails safe — all simulated values set to zero and the hold latches.
+    # ----------------------------------------------------
+    print("\n--- SCENARIO 3: HEART-RATE SENSOR FAULT (scripted) ---")
+    controller_c = SmartNOAController(Patient(age=45, weight_kg=70, asa_class=2, egfr=90, allergies=[], comorbidities=[]))
+    controller_c.generate_starting_rates()
+    vitals_c = _steady(30, 76, 84) + [(None, 84)] + _steady(29, 76, 84)
+    controller_c.monitor_and_control(len(vitals_c), vitals=vitals_c, sleep_sec=pause, log_every=15)
+    print("Final:", controller_c.status, controller_c.infusions)

@@ -1,0 +1,7 @@
+{
+  "name": "smart-noa-web-simulator",
+  "private": true,
+  "type": "module",
+  "description": "Educational browser simulation (fictional patients). Not a medical device.",
+  "scripts": { "test": "node --test tests/" }
+}

@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; connect-src 'self'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+  <meta name="description" content="Smart NOA web simulator: an educational anaesthesia simulation with fictional patients. Not a medical device. Not medical advice.">
+  <title>Smart NOA Simulator</title>
+  <link rel="stylesheet" href="css/simulator.css">
+  <script type="module" src="ui/app.js"></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to main content</a>
+  <header class="site-top">
+    <div class="site-top__inner">
+      <a class="site-top__home" href="../index.html">&larr; Collin B. George &middot; Portfolio</a>
+      <a class="site-top__docs" href="../projects/smart-noa/index.html">Sources &amp; documentation</a>
+    </div>
+  </header>
+
+  <div class="sim-banner" role="note" aria-label="Simulation notice">
+    <strong>SIMULATION — fictional patient — educational use only. Not a medical device. Not medical advice.</strong>
+  </div>
+
+  <div class="app-head">
+    <div class="app-head__inner">
+      <div class="app-title">
+        <h1>Smart NOA Simulator</h1>
+        <p class="app-sub">Educational, label-calibrated anesthesia pharmacology simulator &middot; fictional patients</p>
+      </div>
+      <div class="app-panels">
+        <button type="button" class="btn btn--ghost" id="open-sources" aria-haspopup="dialog">Sources</button>
+        <button type="button" class="btn btn--ghost" id="open-model" aria-haspopup="dialog">Model card</button>
+        <button type="button" class="btn btn--ghost" id="open-about" aria-haspopup="dialog">About &amp; limitations</button>
+      </div>
+    </div>
+    <nav class="stepper" aria-label="Simulator steps">
+      <ol id="stepper-list"></ol>
+    </nav>
+  </div>
+
+  <main id="main" tabindex="-1">
+    <noscript><p class="notice notice--warn">This simulator needs JavaScript (ES modules). It makes no network requests.</p></noscript>
+    <p class="loading" id="loading">Loading simulator…</p>
+  </main>
+
+  <div class="sr-only" aria-live="assertive" aria-atomic="true" id="live-assertive"></div>
+  <div class="sr-only" aria-live="polite" aria-atomic="true" id="live-polite"></div>
+
+  <dialog id="sources-dialog" class="panel-dialog" aria-labelledby="sources-title">
+    <div class="panel-dialog__head">
+      <h2 id="sources-title">Sources</h2>
+      <button type="button" class="btn btn--ghost" data-close-dialog>Close</button>
+    </div>
+    <div class="panel-dialog__body" id="sources-body"></div>
+  </dialog>
+
+  <dialog id="about-dialog" class="panel-dialog" aria-labelledby="about-title">
+    <div class="panel-dialog__head">
+      <h2 id="about-title">About &amp; limitations</h2>
+      <button type="button" class="btn btn--ghost" data-close-dialog>Close</button>
+    </div>
+    <div class="panel-dialog__body" id="about-body"></div>
+  </dialog>
+
+  <dialog id="model-dialog" class="panel-dialog" aria-labelledby="model-title">
+    <div class="panel-dialog__head">
+      <h2 id="model-title">Model card</h2>
+      <button type="button" class="btn btn--ghost" data-close-dialog>Close</button>
+    </div>
+    <div class="panel-dialog__body" id="model-body"></div>
+  </dialog>
+
+  <dialog id="extubate-dialog" class="panel-dialog panel-dialog--narrow" aria-labelledby="extubate-title">
+    <div class="panel-dialog__head">
+      <h2 id="extubate-title">Extubation readiness</h2>
+      <button type="button" class="btn btn--ghost" data-close-dialog>Cancel</button>
+    </div>
+    <div class="panel-dialog__body" id="extubate-body"></div>
+  </dialog>
+
+  <footer class="site-foot">
+    <p>Smart NOA web simulator &middot; educational simulation with fictional patients &middot; not a medical device, not clinical decision support, not medical advice. No data leaves this page.</p>
+  </footer>
+</body>
+</html>
