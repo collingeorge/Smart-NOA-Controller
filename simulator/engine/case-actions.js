@@ -10,6 +10,11 @@ const phase = (sim, ph, message) => { const r = sim.setPhase(ph); return { ok: r
 const act = (sim, id, okMessage = null) => { const r = sim.action(id); return { ok: r.ok, message: r.ok ? (okMessage || r.message) : r.message }; };
 
 export const CASE_ACTIONS = Object.freeze({
+  // ---- pre-op holding → OR (timing review): the patient leaves holding after the premedication interval
+  transfer_to_or: (sim) => act(sim, 'transfer_to_or'),
+  // ---- clinician-only checklist items (never called by the automatic runner on its own)
+  confirm_time_out: (sim) => act(sim, 'confirm_time_out'),
+  acknowledge_depth_below_band: (sim) => act(sim, 'acknowledge_depth_below_band'),
   // ---- GA phase controls
   start_induction: (sim) => phase(sim, 'induction', 'Induction started — plan induction steps run from now.'),
   secure_airway: (sim) => {

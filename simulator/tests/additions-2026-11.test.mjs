@@ -4,7 +4,7 @@
 // it does not validate the simulator.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { REAL, basePatient, runFor } from './helpers.mjs';
+import { REAL, basePatient, runFor, clinicianResolves } from './helpers.mjs';
 import { derivePatient } from '../engine/patient.js';
 import { createSimulation, FLUID_MODEL, LIDOCAINE_RULES } from '../engine/sim.js';
 import { recommend } from '../engine/dosing.js';
@@ -225,7 +225,9 @@ test('C4 redose reminder: cefazolin every 4 h during surgery (MEDIUM, clears aft
   assert.equal(evaluateWindow([], 100, REAL).ok, false);
 });
 
-test('C5 guided mode: checklist warning before Start surgery waits for the clinician; never acknowledged automatically', () => {
+// Timing review (owner requirement): in guided and automatic modes the antibiotic is a REQUIRED pre-incision
+// item — acknowledging the warning no longer lets surgery start there (manual mode keeps the alarm path, C3).
+test('C5 guided mode: antibiotic is a required pre-incision item; acknowledgement does not suffice; the clinician gives it; never automatic', () => {
   const p = EX('healthy_adult');
   const tpl = EXAMPLE_PLANS.find((x) => x.id === 'ga_healthy');
   const { plan } = buildPlan({ ...tpl, steps: tpl.steps.filter((x) => x.kind !== 'antibiotic') }, p, REAL);
@@ -236,26 +238,31 @@ test('C5 guided mode: checklist warning before Start surgery waits for the clini
   for (let i = 0; i < 9000 && !DONE.includes(r.state); i++) {
     if (r.state === 'paused') { for (const a of sim.state.alarms) if (a.priority === 'high' && !a.acknowledged) sim.action(`acknowledge:${a.id}`); if (sim.core.holdLatched) sim.action('resume_hold'); r.resume(); continue; }
     const st = r.status();
-    if (st.current && st.current.id === 'start_surgery' && st.current.checklist && !sawChecklist) {
+    if (st.current && st.current.id === 'start_surgery' && st.current.checklist && !sawChecklist && st.current.items.filter((x) => !x.met).every((x) => x.clinician || x.id === 'antibiotic')) {
       sawChecklist = true;
-      assert.ok(st.current.unmet.some((u) => /^Antibiotic checklist/.test(u)));
+      assert.ok(st.current.unmet.some((u) => /^Antibiotic prophylaxis started within its window/.test(u)), st.current.unmet.join(' | '));
       for (let k = 0; k < 400; k++) { sim.step(1); r.tick(); if (r.state === 'paused') { sim.action('resume_hold'); r.resume(); } }
-      assert.equal(sim.stim.surgeryStartAt, null, 'surgery waits for the acknowledgement');
-      assert.equal(sim.state.prophylaxis.checklistAcknowledged, null, 'never auto-acknowledged');
-      assert.ok(!actions.includes('acknowledge_checklist:antibiotic'));
+      assert.equal(sim.stim.surgeryStartAt, null, 'surgery waits for the clinician');
+      assert.equal(sim.state.prophylaxis.doses.length, 0, 'never given automatically');
       assert.ok(sim.action('acknowledge_checklist:antibiotic').ok);
+      r.clinicianAction('confirm_time_out');
+      assert.equal(r.status().current.enabled, false, 'acknowledging the warning does not open the gate');
+      assert.equal(r.approve('start_surgery').ok, false);
+      assert.ok(r.clinicianAction('give_prophylaxis').ok);
+      assert.equal(sim.state.prophylaxis.doses[0].source, 'clinician');
       continue;
     }
-    if (st.current && st.current.gate && st.current.enabled) { r.approve(st.current.id); continue; }
+    if (st.current && st.current.items && !st.current.enabled && sawChecklist) clinicianResolves(r);
+    const st2 = r.status();
+    if (st2.current && st2.current.gate && st2.current.enabled) { r.approve(st2.current.id); continue; }
     sim.step(1); r.tick();
   }
   assert.ok(sawChecklist); assert.equal(r.state, 'completed', r.message);
-  assert.ok(sim.state.prophylaxis.checklistAcknowledged);
-  assert.ok(sim.state.log.some((l) => /acknowledged the antibiotic checklist/.test(l.message)));
-  assert.ok(sim.alarmMgr.history.some((a) => a.id === 'abx_window'), 'incision still raises the window alarm');
+  assert.equal(sim.state.prophylaxis.window.ok, true, 'incision inside the window after the clinician gave prophylaxis');
+  assert.ok(!sim.alarmMgr.history.some((a) => a.id === 'abx_window'), 'no window alarm');
 });
 
-test('C6 full demonstration: an unsatisfied checklist pauses the sequence until the clinician acknowledges', () => {
+test('C6 full demonstration: missing prophylaxis pauses the sequence; acknowledging does not resume it; giving it does', () => {
   const p = EX('mh_susceptible');
   const tpl = EXAMPLE_PLANS.find((x) => x.id === 'tiva_mh');
   const { plan } = buildPlan({ ...tpl, steps: tpl.steps.filter((x) => x.kind !== 'antibiotic') }, p, REAL);
@@ -266,16 +273,22 @@ test('C6 full demonstration: an unsatisfied checklist pauses the sequence until 
     if (r.state === 'paused') {
       if (r.pauseReasons.some((x) => /Antibiotic checklist/.test(x.message))) {
         checklistPauses++;
-        if (checklistPauses === 1) { const again = r.resume(); assert.equal(again.ok, false, 'resume refused while unacknowledged'); assert.equal(sim.stim.surgeryStartAt, null); }
-        sim.action('acknowledge_checklist:antibiotic');
+        if (checklistPauses === 1) {
+          assert.equal(r.resume().ok, false, 'resume refused while missing'); assert.equal(sim.stim.surgeryStartAt, null);
+          sim.action('acknowledge_checklist:antibiotic');
+          assert.equal(r.resume().ok, false, 'acknowledgement does not satisfy the required item');
+          assert.equal(sim.state.prophylaxis.doses.length, 0, 'the runner never gives it');
+        }
       }
       for (const a of sim.state.alarms) if (a.priority === 'high' && !a.acknowledged) sim.action(`acknowledge:${a.id}`);
       if (sim.core.holdLatched) sim.action('resume_hold');
+      clinicianResolves(r);
       r.resume(); continue;
     }
     sim.step(1); r.tick();
   }
   assert.ok(checklistPauses >= 1); assert.equal(r.state, 'completed', r.message);
+  assert.equal(sim.state.prophylaxis.window.ok, true);
   // with prophylaxis in the plan (example plans) there is no checklist pause
   const { plan: p2 } = buildPlan(tpl, p, REAL);
   assert.ok(p2.steps.some((x) => x.kind === 'antibiotic') && p2.prophylaxisIndicated);
@@ -386,10 +399,23 @@ for (const t of TECHNIQUE_TEMPLATES) for (const mode of ['guided', 'full']) {
       const asUser = (fn) => { user = true; try { return fn(); } finally { user = false; } };
       assert.ok(r.start().ok);
       for (let i = 0; i < 14000 && !DONE.includes(r.state); i++) {
-        if (r.state === 'paused') { asUser(() => { for (const a of sim.state.alarms) if (a.priority === 'high' && !a.acknowledged) sim.action(`acknowledge:${a.id}`); if (sim.core.holdLatched) sim.action('resume_hold'); }); r.resume(); continue; }
-        const st = r.status();
+        if (r.state === 'paused') { asUser(() => { for (const a of sim.state.alarms) if (a.priority === 'high' && !a.acknowledged) sim.action(`acknowledge:${a.id}`); if (sim.core.holdLatched) sim.action('resume_hold'); clinicianResolves(r); }); r.resume(); continue; }
+        let st = r.status();
+        if (mode === 'guided' && st.current && st.current.items && !st.current.enabled) { asUser(() => clinicianResolves(r)); st = r.status(); }
         if (mode === 'guided' && st.current && st.current.gate && st.current.enabled) { assert.ok(r.approve(st.current.id).ok); continue; }
         sim.step(1); r.tick();
+      }
+      // Timing review: mac_propofol now starts the maintenance infusion when the label initiation ends
+      // (no loading/maintenance overlap). At the label lower-bound rate (25 mcg/kg/min, library default) the
+      // illustrative model keeps the 27-y MH example patient at minimal sedation, so the moderate target is
+      // not reached: full demonstration stops and reports it; guided mode keeps waiting (titration is the
+      // clinician's decision). No dose is changed by the runner.
+      if (t.id === 'mac_propofol' && ex.id === 'mh_susceptible' && r.state !== 'completed') {
+        const st = r.status();
+        assert.equal(st.current.id, 'start_procedure', r.message);
+        assert.ok((mode === 'full' ? r.unmetAtStop : st.current.unmet).some((u) => /sedation level minimal/i.test(u)), r.message);
+        assert.ok(sim.planStatus().filter((s) => s.phase !== 'emergence').every((s) => s.status === 'done'));
+        continue;
       }
       assert.equal(r.state, 'completed', `${ex.id}: ${r.message}`);
       const ps = sim.planStatus();

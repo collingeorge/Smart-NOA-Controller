@@ -57,7 +57,7 @@ export const TIMING_CONFIG = Object.freeze({
     'Opioid-free template: the dexmedetomidine infusion stops 15 min before the planned end of surgery so its sedative effect is waning at emergence. No label, guideline or verified trial statement gives this interval (published opioid-free protocols vary and were not confirmed in their primary sources), so it is a simulator convention.'),
   // ---------------------------------------------------------------- pre-incision verification
   GA_DEPTH_BAND: e(Object.freeze([40, 60]), 'processed-EEG depth index (BIS-style, simulated)',
-    'General-anaesthesia target band 40–60, the protocol target used in the B-Unaware [S52] and BAG-RECALL [S53] trials (neither showed the BIS protocol superior for preventing awareness). Applied to the simulated index, which is an illustrative model output, not a BIS value.',
+    'General-anaesthesia target band 40–60, the protocol target used in the B-Unaware [S52] and BAG-RECALL [S53] trials (neither showed the BIS protocol superior for preventing awareness). Applied to the simulated index, which is an illustrative model output, not a BIS value. Used for the pre-incision item (an index below 40 needs the clinician\'s acknowledgement; above 60 blocks), the tile/trend-chart band and the live timing check (time outside the band during surgery). No alarm: in this illustrative model 1 MAC of a volatile agent often reads just below 40. No sedation bands are used (none verified).',
     'trial_or_physiology_study', ['S52', 'S53']),
   NMB_SURGERY_TOF_COUNT_MAX: e(2, 'TOF count',
     'Pre-incision item when the plan includes a neuromuscular blocker: TOF count ≤ 2. No label gives a surgical-relaxation TOF target; teaching value.'),
@@ -67,8 +67,6 @@ export const TIMING_CONFIG = Object.freeze({
   ANTIBIOTIC_REQUIRED_BEFORE_INCISION: e(true, 'boolean',
     'When prophylaxis is indicated, a dose started within its guideline window before incision (Bratzler 2013: within 60 min; vancomycin 120 min [S46]) is a REQUIRED pre-incision item in guided and automatic modes (acknowledging the warning no longer suffices there; manual mode keeps the alarm).',
     'guideline', ['S46']),
-  DEPTH_BAND_ALARM_PRIORITY: e('low', 'alarm priority',
-    'GA maintenance (airway secured): LOW alarm while the simulated processed-EEG index is outside the GA band. Does not pause the automatic demonstration.'),
 });
 
 export const cfgv = (k) => TIMING_CONFIG[k].value;

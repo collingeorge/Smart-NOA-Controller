@@ -230,7 +230,8 @@ export function buildPlan(template, patient, library = null, options = {}) {
         steps.push({ ...base, ...src, id: `s${++order}`, order, kind: 'bolus', amount: rec.loading.value, amountUnit: rec.loading.unit, overSec: ov, loading: true });
         if (ov) infAt = (s.atSec || 0) + ov;
       }
-      steps.push({ ...base, ...src, atSec: infAt, id: `s${++order}`, order, kind: 'infusion', rate: rec.rate.value, rateUnit: rec.rate.unit, ...(infAt !== s.atSec ? { afterLoadingAtSec: s.atSec } : {}) });
+      // afterLoadingOf: the engine also waits for the loading dose actually given to finish (1-Hz stepping).
+      steps.push({ ...base, ...src, atSec: infAt, id: `s${++order}`, order, kind: 'infusion', rate: rec.rate.value, rateUnit: rec.rate.unit, ...(infAt !== s.atSec ? { afterLoadingOf: s.drugId } : {}) });
     } else if (s.kind === 'inhaled' && rec.rate) {
       let dial = rec.rate.value;
       if (s.dial === 'mac1') {

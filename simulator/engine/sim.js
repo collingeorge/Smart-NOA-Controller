@@ -15,7 +15,7 @@ import { AlarmManager } from './alarms.js';
 import { convertAmount, rateToAmountPerMin, isFiniteNumber, roundSig } from './units.js';
 import { getScenario } from '../data/scenarios.js';
 import { createRng as createRngLocal } from './rng.js';
-import { repeatBolusHold, TIMING_CONFIG } from './timing.js';
+import { repeatBolusHold, TIMING_CONFIG, liveTimingChecks } from './timing.js';
 
 export const PHASES = ['premed', 'sedation', 'induction', 'maintenance', 'emergence'];
 export const MIN_FIO2_WITH_N2O = 0.30;
@@ -673,6 +673,11 @@ class Simulation {
     return I;
   }
 
+  /** A premedication bolus step is pending or still running (timed bolus) at time t. */
+  _premedBolusBusy(t) {
+    return this.plan.steps.some((x) => x.phase === 'premed' && x.kind === 'bolus' && !x.invalid && (!this.executed.has(x.id) || (!this.executed.get(x.id).blocked && this.executed.get(x.id).tSec + (isFiniteNumber(x.overSec) ? x.overSec : 0) > t + 1e-9)));
+  }
+
   /** Simulated time at which a plan step becomes due, or null if it is not schedulable yet. */
   _dueAt(s) {
     const ps = this.phaseStart[s.phase];
@@ -710,7 +715,14 @@ class Simulation {
     //    State-gated repeat boluses (rocuronium top-up, repeat midazolam) wait until their label condition holds.
     const due = this.plan.steps.filter((s) => !s.invalid && !this.executed.has(s.id)).map((s) => ({ s, at: this._dueAt(s) }))
       .filter((x) => x.at !== null && t >= x.at - 1e-9).sort((a, b) => a.at - b.at || a.s.order - b.s.order).map((x) => x.s);
+    const premedBusy = (s) => ['induction', 'sedation'].includes(s.phase) && ['bolus', 'infusion', 'inhaled'].includes(s.kind) && this._premedBolusBusy(t);
     for (const s of due) {
+      if (premedBusy(s)) {
+        // Never overlap premedication with induction/sedation drugs: wait until every premed bolus has run and ended.
+        if (!this.waiting.has(s.id)) this._log('dose', `Plan step held: ${getDrug(lib, s.drugId) ? getDrug(lib, s.drugId).name : s.drugId} waits until the premedication bolus has finished (no overlap of premedication and ${s.phase})`);
+        this.waiting.set(s.id, 'waits until the premedication bolus has finished (no overlap)');
+        continue;
+      }
       if (s.kind === 'bolus') {
         const hold = repeatBolusHold(this, s.drugId);
         if (hold) {
@@ -1027,6 +1039,7 @@ class Simulation {
       interlockEvents: this.stats.interlockEvents.slice(),
       periop: { ...this.state.periop, timeOut: this.state.periop.timeOut ? { ...this.state.periop.timeOut } : null, depthAck: this.state.periop.depthAck ? { ...this.state.periop.depthAck } : null },
       depthOutOfBandSec: Math.round(this.stats.depthOutOfBandSec),
+      timingChecks: liveTimingChecks(this),
       fluids: { crystalloidMl: roundSig(this.state.fluids.crystalloidMl), perKg: roundSig(this.state.fluids.crystalloidMl / this.patient.weightKg, 3), perKgBasis: 'TBW', boluses: this.state.fluids.boluses.map((b) => ({ ...b })),
         byType: Object.fromEntries(Object.entries(this.state.fluids.byType).map(([id, v]) => [id, { name: (getFluid(this.lib, id) || {}).name || id, bolusMl: roundSig(v.bolusMl), maintenanceMl: roundSig(v.maintenanceMl), totalMl: roundSig(v.bolusMl + v.maintenanceMl) }])),
         maintenance: { ...this.state.fluids.maintenance }, model: 'illustrative volume-restoration model (author estimates); same model for every fluid type' },

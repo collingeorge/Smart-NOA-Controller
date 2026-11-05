@@ -11,6 +11,11 @@ import { CASE_ACTIONS, surgeryState } from '../engine/case-actions.js';
 import { createAutoRunner, BANNERS, MODE_LABELS } from '../engine/autorun.js';
 import { FLUID_MODEL } from '../engine/sim.js';
 import { selectProphylaxis } from '../engine/prophylaxis.js';
+import { TIMING_CONFIG, PREMED_TO_INDUCTION_MIN_SEC, premedStatus } from '../engine/timing.js';
+import { timingCheckItems } from './timing-view.js';
+
+const GA_BAND = TIMING_CONFIG.GA_DEPTH_BAND.value;
+const DEPTH_LABEL = 'Processed-EEG depth index (BIS-style, simulated)';
 
 const SPEEDS = [1, 5, 20, 60];
 const TILE_ALARMS = {
@@ -75,7 +80,7 @@ export function renderMonitor(ctx, main) {
   };
   const tileGrid = h('div', { class: 'tiles', id: 'mon-tiles' },
     tile('hr', 'HR', '/min', 'tile--hr'), tile('bp', 'BP (MAP)', 'mmHg', 'tile--bp'), tile('spo2', 'SpO2', '%', 'tile--spo2'),
-    tile('rr', 'RR', '/min'), tile('etco2', 'EtCO2', 'mmHg'), tile('depth', 'Simulated depth index', '0–100', 'tile--depth'),
+    tile('rr', 'RR', '/min'), tile('etco2', 'EtCO2', 'mmHg'), tile('depth', DEPTH_LABEL, '0–100', 'tile--depth'),
     tile('tof', 'TOF', ''), tile('mac', 'Total MAC', ''), tile('fio2', 'FiO2', ''));
 
   // ---------------- charts
@@ -83,7 +88,7 @@ export function renderMonitor(ctx, main) {
     { key: 'hr', title: 'HR (/min)', min: 30, max: 160, th: [{ v: 48, label: '48 interlock' }] },
     { key: 'map', title: 'MAP (mmHg)', min: 30, max: 140, th: [{ v: 65, label: '65' }, { v: 60, label: '60 interlock' }] },
     { key: 'spo2', title: 'SpO2 (%)', min: 50, max: 100, th: [{ v: 90, label: '90' }] },
-    { key: 'depth', title: 'Simulated depth index (illustrative; not BIS)', min: 0, max: 100, th: [{ v: 80, label: '80 awake' }] },
+    { key: 'depth', title: `${DEPTH_LABEL} — GA band ${GA_BAND[0]}–${GA_BAND[1]}`, min: 0, max: 100, th: [{ v: 80, label: '80 awake' }, { v: GA_BAND[1], label: `${GA_BAND[1]} GA band` }, { v: GA_BAND[0], label: `${GA_BAND[0]} GA band` }] },
     { key: 'ce', title: 'Total MAC / drug Ce (× reference peak, illustrative)', min: 0, max: 1.5, autoMax: true, th: [] },
   ].map((c) => {
     const canvas = h('canvas', { class: 'chart__canvas', id: `chart-${c.key}`, role: 'img', 'aria-label': c.title });
@@ -92,7 +97,8 @@ export function renderMonitor(ctx, main) {
     return { ...c, canvas, legend, el };
   });
   const chartGrid = h('div', { class: 'charts', id: 'mon-charts' }, charts.map((c) => c.el),
-    h('p', { class: 'hint hint--hmi' }, 'Last 15 simulated minutes · illustrative model output · dashed lines are alarm/interlock thresholds.'));
+    h('p', { class: 'hint hint--hmi' }, 'Last 15 simulated minutes · illustrative model output · dashed lines are alarm/interlock thresholds.'),
+    h('p', { class: 'hint hint--hmi', id: 'mon-depth-band' }, `${DEPTH_LABEL}: an illustrative model output, not a BIS value (BIS is a trademark of its owner). GA target band ${GA_BAND[0]}–${GA_BAND[1]} = the protocol target of the B-Unaware and BAG-RECALL trials `, srcTags([...TIMING_CONFIG.GA_DEPTH_BAND.sourceIds]), ' (neither showed the BIS protocol superior for preventing awareness). No sedation bands are shown: none was verified. In this model, 1 MAC of a volatile agent often reads just below 40.'));
 
   // ---------------- alarms
   const alarmList = h('ul', { class: 'alarm-list', id: 'mon-alarms' });
@@ -130,7 +136,16 @@ export function renderMonitor(ctx, main) {
   const act = (id, okMsg = null) => { const r = sim.action(id); feedback(r.ok ? (okMsg || r.message) : r.message, !r.ok); return r; };
   // Phase controls call the shared case actions (engine/case-actions.js) — the same calls the
   // guided/automatic runner makes.
-  const caseAct = (id) => { const r = CASE_ACTIONS[id](sim); feedback(r.message, !r.ok); return r; };
+  const caseAct = (id) => {
+    // Manual mode stays the clinician's choice, but starting induction/sedation inside the premedication
+    // interval is flagged (plan drugs still never overlap a running premedication bolus; engine/sim.js).
+    let warn = null;
+    if (id === 'start_induction' || id === 'start_sedation') {
+      const pm = premedStatus(sim); const min = id === 'start_induction' ? PREMED_TO_INDUCTION_MIN_SEC : PREMED_TO_INDUCTION_MIN_SEC - TIMING_CONFIG.PREOXYGENATION_SEC.value;
+      if (pm.pending || (pm.lastEndSec !== null && sim.state.tSec < pm.lastEndSec + min)) warn = `Timing warning: ${pm.pending ? 'premedication still pending' : `only ${fmtClock(sim.state.tSec - pm.lastEndSec)} after the premedication ended`} — the recommended minimum is ${min / 60} min (pre-op holding ${TIMING_CONFIG.PREMED_TO_TRANSFER_SEC.value / 60} min, OR setup${id === 'start_induction' ? ', preoxygenation' : ''}). Induction drugs wait until the premedication bolus has finished.`;
+    }
+    const r = CASE_ACTIONS[id](sim); feedback(warn && r.ok ? `${r.message} ${warn}` : r.message, !r.ok, !!warn); if (warn) announce(warn); return r;
+  };
   const phaseCtl = isGA ? [
     pbtn('induction', 'Start induction', () => caseAct('start_induction')),
     pbtn('secure', 'Secure airway', () => caseAct('secure_airway')),
@@ -336,12 +351,26 @@ export function renderMonitor(ctx, main) {
   const autoBanner = h('p', { class: 'auto-banner', id: 'auto-banner', hidden: true });
   const autoGate = h('button', { type: 'button', class: 'btn btn--hmi btn--primary auto-gate', id: 'auto-gate', hidden: true });
   const autoUnmet = h('ul', { class: 'auto-unmet', id: 'auto-unmet' });
-  // Antibiotic checklist item before "Start surgery" (guided: waits; full: pauses). Never acknowledged automatically.
-  const autoCkMsg = h('p', { class: 'checklist__msg' });
-  const autoCkAck = h('button', { type: 'button', class: 'btn btn--hmi btn--warn', id: 'auto-abx-ack' }, 'Acknowledge checklist warning');
-  autoCkAck.addEventListener('click', () => { const r = sim.action('acknowledge_checklist:antibiotic'); feedback(r.message, !r.ok); announce(r.message); render(true); });
-  const autoCk = h('div', { class: 'checklist', id: 'auto-checklist', role: 'group', 'aria-label': 'Checklist before Start surgery', hidden: true },
-    h('p', { class: 'checklist__title' }, '☐ Checklist item before Start surgery — antibiotic prophylaxis (warning; you must acknowledge it)'), autoCkMsg, autoCkAck);
+  // Countdown for time-gated transitions (pre-op holding → OR → preoxygenation → induction).
+  const autoCountdown = h('p', { class: 'auto-countdown', id: 'auto-countdown', 'aria-live': 'off', hidden: true });
+  // Pre-incision / pre-procedure verification (engine/timing.js preIncisionItems). Clinician-only items
+  // (WHO time out, an index below the GA band, missing prophylaxis) are satisfied ONLY by these buttons;
+  // they do not end guided/automatic mode and the runner never presses them.
+  const autoCkList = h('ul', { class: 'checklist__items', id: 'auto-checklist-items' });
+  const autoCkMsg = h('p', { class: 'checklist__msg', id: 'auto-checklist-msg' });
+  const clin = (id) => { const r = run.auto ? run.auto.clinicianAction(id) : { ok: false, message: 'Not running' }; feedback(r.message, !r.ok); announce(r.message); render(true); };
+  const autoTimeOut = h('button', { type: 'button', class: 'btn btn--hmi btn--primary', id: 'auto-timeout' }, 'Confirm WHO time out');
+  autoTimeOut.addEventListener('click', () => clin('confirm_time_out'));
+  const autoDepthAck = h('button', { type: 'button', class: 'btn btn--hmi btn--warn', id: 'auto-depth-ack', hidden: true }, `Acknowledge index below the GA band (${GA_BAND[0]})`);
+  autoDepthAck.addEventListener('click', () => clin('acknowledge_depth_below_band'));
+  const autoAbxGive = h('button', { type: 'button', class: 'btn btn--hmi btn--warn', id: 'auto-abx-give', hidden: true }, 'Give guideline prophylaxis now');
+  autoAbxGive.addEventListener('click', () => clin('give_prophylaxis'));
+  const autoCk = h('div', { class: 'checklist', id: 'auto-checklist', role: 'group', 'aria-label': 'Verification before Start surgery / Start procedure', hidden: true },
+    h('p', { class: 'checklist__title' }, 'Verification before incision — every item must be met; you confirm the time out ', srcTags([...TIMING_CONFIG.TIME_OUT_REQUIRED.sourceIds])), autoCkList, autoCkMsg,
+    h('div', { class: 'btn-row' }, autoTimeOut, autoDepthAck, autoAbxGive));
+  // Live timing check (engine/timing.js liveTimingChecks): warnings stay visible before each gate.
+  const autoTiming = h('ul', { class: 'tchecks', id: 'auto-timing' });
+  const autoTimingBox = h('details', { class: 'auto-timing', id: 'auto-timing-box', open: true }, h('summary', {}, 'Timing check (live)'), autoTiming);
   const autoSeq = h('ol', { class: 'auto-seq', id: 'auto-seq' });
   const autoPause = h('button', { type: 'button', class: 'btn btn--hmi', id: 'auto-pause' }, 'Pause');
   const autoResume = h('button', { type: 'button', class: 'btn btn--hmi', id: 'auto-resume' }, 'Resume');
@@ -353,7 +382,7 @@ export function renderMonitor(ctx, main) {
   const autoPanel = h('section', { class: 'hmi-panel auto-panel', id: 'auto-panel', 'aria-labelledby': 'auto-h', 'data-auto-safe': 'auto-panel' },
     h('h3', { id: 'auto-h' }, 'Guided & automatic modes'), autoBanner,
     h('p', { class: 'hint hint--hmi', id: 'auto-intro' }, `Use the patient and plan already entered (doses are not changed) and start the case from 00:00. Guided mode runs each phase from your plan and waits for you at every transition; the full demonstration walks the same sequence on fixed timings. Both pause for an interlock hold or a HIGH-priority alarm (never clearing or acknowledging it), never extubate unless the readiness checklist is met, and end as soon as you use any manual control. Every step is logged (log kind "auto").`),
-    autoStartRow, autoStatus, autoGate, autoCk, autoUnmet, autoCtlRow, autoSeq);
+    autoStartRow, autoStatus, autoCountdown, autoGate, autoCk, autoUnmet, autoCtlRow, autoTimingBox, autoSeq);
   const startAuto = (mode) => {
     if (sim.state.tSec > 0 || sim.state.phase !== 'premed') { ctx.restartSim(); store.run.autoStart = mode; ctx.rerender(); return; }
     beginAuto(mode);
@@ -386,11 +415,11 @@ export function renderMonitor(ctx, main) {
   autoGate.addEventListener('click', () => {
     if (gateBusy || autoGate.disabled || !run.auto) return;
     const shownId = autoGate.dataset.gate; if (!shownId) return;
-    gateBusy = true; autoGate.disabled = true;
+    gateBusy = true; autoGate.disabled = true; autoGate.dataset.busy = '1';
     let r;
     try { r = run.auto.approve(shownId); } finally {
       if (gateTimer) clearTimeout(gateTimer);
-      gateTimer = setTimeout(() => { gateBusy = false; gateTimer = null; if (alive) render(true); }, GATE_COOLDOWN_MS);
+      gateTimer = setTimeout(() => { gateBusy = false; gateTimer = null; delete autoGate.dataset.busy; if (alive) render(true); }, GATE_COOLDOWN_MS);
     }
     feedback(r.message, !r.ok);
     if (r.ok && run.auto.state === 'running' && !run.playing) setPlaying(true, true);
@@ -416,8 +445,27 @@ export function renderMonitor(ctx, main) {
     autoGate.hidden = !showGate;
     if (showGate) { setText(autoGate, c.gateLabel); autoGate.disabled = !c.enabled || gateBusy; autoGate.dataset.gate = c.id; }
     else delete autoGate.dataset.gate;
-    const ckText = active && c && c.checklist ? c.checklist : null;
-    autoCk.hidden = !ckText; if (ckText) setText(autoCkMsg, ckText);
+    const cd = active && c && c.countdownSec > 0 ? c.countdownSec : null;
+    autoCountdown.hidden = cd === null;
+    if (cd !== null) setText(autoCountdown, `⏱ ${c.gateLabel || c.label}: available in ${fmtClock(cd)} — ${(c.unmet[0] || '').replace(/ — \d+ s to go.*$/, '')}`);
+    const items = active && c && c.items ? c.items : null;
+    autoCk.hidden = !items;
+    if (items) {
+      const isig = items.map((x) => `${x.id}${x.met}${x.detail}`).join('|');
+      if (autoCkList.dataset.sig !== isig) {
+        autoCkList.dataset.sig = isig;
+        clear(autoCkList).append(...items.map((x) => h('li', { class: x.met ? 'ready--met' : 'ready--no', dataset: { item: x.id, met: String(x.met) } }, h('span', { class: 'ready__mark', 'aria-hidden': 'true' }, x.met ? '✓' : '✗'),
+          h('span', {}, h('span', { class: 'sr-only' }, x.met ? 'Met: ' : 'Not met: '), x.label, ` — ${x.detail} `, x.sources.length ? srcTags(x.sources) : h('span', { class: 'badge badge--illustrative' }, 'convention')))));
+      }
+      const need = (id) => items.some((x) => x.id === id && !x.met && (x.clinician || id === 'antibiotic'));
+      autoTimeOut.hidden = !items.some((x) => x.id === 'time_out' && !x.met); autoDepthAck.hidden = !need('depth'); autoAbxGive.hidden = !need('antibiotic');
+      setText(autoCkMsg, c.checklist ? `Antibiotic: ${c.checklist}` : '');
+    }
+    if (active && run.auto) {
+      const tc = run.auto.timingChecks(); const tsig = tc.map((x) => `${x.id}${x.status}${x.message}`).join('|');
+      if (autoTiming.dataset.sig !== tsig) { autoTiming.dataset.sig = tsig; clear(autoTiming).append(...(tc.length ? timingCheckItems(tc) : [h('li', { class: 'hint' }, 'No timing events yet.')])); }
+    }
+    autoTimingBox.hidden = !active;
     const unmet = st.state === 'stopped' ? st.unmetAtStop : active && c && !c.conditionsMet ? c.unmet : [];
     const usig = unmet.join('|') + st.state;
     if (autoUnmet.dataset.sig !== usig) {
@@ -502,7 +550,7 @@ export function renderMonitor(ctx, main) {
   function frame(ts) {
     raf = null;
     if (!alive || !run.playing) return;
-    if (lastTs !== null) {
+    if (lastTs !== null && !run.testClock) {
       acc += Math.min(0.25, (ts - lastTs) / 1000) * run.speed;
       const n = Math.min(240, Math.floor(acc)); acc -= n;
       if (n > 0) advance(n);
@@ -541,7 +589,7 @@ export function renderMonitor(ctx, main) {
     setTile('rr', String(V.rr), noBreaths ? 'APNOEA — no breaths' : A.secured && A.ventilated ? 'ventilator' : A.maskVentilation ? 'bag-mask' : 'spontaneous');
     const noEt = noBreaths || !isNum(V.etco2); // engine reports null without exhaled gas (no capnography signal)
     setTile('etco2', noEt ? '—' : String(V.etco2), noEt ? '(no breaths)' : 'illustrative');
-    setTile('depth', String(V.depthIndex), `${V.sedationLevel} · illustrative; not BIS`);
+    setTile('depth', String(V.depthIndex), `${V.sedationLevel} · GA band ${GA_BAND[0]}–${GA_BAND[1]}: ${V.depthIndex < GA_BAND[0] ? 'below band' : V.depthIndex > GA_BAND[1] ? 'above band' : 'in band'} · simulated`);
     setTile('tof', `${V.tofCount}/4`, V.tofCount === 4 ? `TOFR ${V.tofRatio.toFixed(2)} · ${tofDepthText(V.tofCount, V.tofRatio)}` : `TOFR n/a · ${tofDepthText(V.tofCount, V.tofRatio)}`);
     let mac = 0; const agents = [];
     for (const d of lib.DRUGS) if (isInhaledDrug(d)) { const ds = S.drugs[d.id]; if (ds && (ds.unitConc > 0.005 || ds.infusionRate > 0)) { mac += ds.unitConc; agents.push(`${d.name} Et ${fmtNum(ds.cp, 1)} % (${fmtNum(ds.unitConc, 2)})`); } }
@@ -700,6 +748,10 @@ export function renderMonitor(ctx, main) {
   if (ro) for (const c of charts) ro.observe(c.canvas);
 
   if (!run.hist.t.length) sample();
+  // Test hook (only used by app.js when the page URL has ?test=1): advance simulated time
+  // synchronously (with the guided/automatic runner ticking) and re-render. With run.testClock on,
+  // the requestAnimationFrame loop never advances time, so browser tests are step-driven.
+  run.testAdvance = (sec) => { if (!alive) return false; advance(Math.max(0, Math.round(sec))); render(true); return true; };
   render(true);
   if (run.autoStart) { const m = run.autoStart; run.autoStart = null; beginAuto(m); }
   else if (run.playing) setPlaying(true);

@@ -8,6 +8,7 @@ import { MIN_FIO2_WITH_N2O, FLUID_MODEL, LIDOCAINE_RULES } from '../engine/sim.j
 import { selectProphylaxis } from '../engine/prophylaxis.js';
 import { overSecFromTiming } from '../data/scenarios.js';
 import { roundSig } from '../engine/units.js';
+import { loadingPairs } from '../engine/timing.js';
 
 export const isNum = (v) => typeof v === 'number' && Number.isFinite(v);
 
@@ -89,8 +90,18 @@ export function makeSteps({ lib, patient, interlocks, patientVersion }, drugId, 
   if (rec.kind === 'bolus' && rec.dose) {
     out.push({ ...base, uid: newUid(), kind: 'bolus', amount: rec.dose.value, amountUnit: rec.dose.unit, overSec: rec.route && rec.route !== 'IV' ? null : overSecFromTiming(rec.timing), route: rec.route || null });
   } else if (rec.kind === 'infusion' && rec.rate) {
-    if (rec.loading && isNum(rec.loading.value)) out.push({ ...base, uid: newUid(), kind: 'bolus', loading: true, amount: rec.loading.value, amountUnit: rec.loading.unit, overSec: rec.loading.overSec || null });
-    const st = { ...base, uid: newUid(), kind: 'infusion', rate: rec.rate.value, rateUnit: rec.rate.unit, labelDefault: rec.rate.value };
+    // Loading dose, then the maintenance infusion when the loading ends (label sequence; engine/timing.js).
+    let infAt = atSec;
+    if (rec.loading && isNum(rec.loading.value)) {
+      const ov = rec.loading.overSec || null;
+      out.push({ ...base, uid: newUid(), kind: 'bolus', loading: true, amount: rec.loading.value, amountUnit: rec.loading.unit, overSec: ov });
+      if (ov) infAt = atSec + ov;
+    }
+    const st = { ...base, atSec: infAt, uid: newUid(), kind: 'infusion', rate: rec.rate.value, rateUnit: rec.rate.unit, labelDefault: rec.rate.value };
+    if (infAt !== atSec) {
+      const why = { text: `Loading over ${Math.round((infAt - atSec) / 6) / 10} min, then maintenance: the infusion starts when the loading dose ends (label sequence).`, provenance: 'label', sources: [...(rec.sources || [])] };
+      out[out.length - 1].timingRationale = why; st.timingRationale = why; st.afterLoadingOf = drugId;
+    }
     const ic = interlockCeiling(drug, rec.rate.unit, patient);
     if (interlocks && ic && exceedsInterlockCeiling(drug, rec.rate.value, rec.rate.unit, patient)) { st.rate = ic.value; st.prefillNote = interlockNote(rec, ic); }
     out.push(st);
@@ -132,7 +143,8 @@ export function refillStep(c, step) {
 /** Convert an engine plan (from buildPlan) into editor steps. */
 export function stepsFromBuiltPlan(c, plan) {
   return plan.steps.map((s) => {
-    const st = { uid: newUid(), phase: s.phase, atSec: s.atSec || 0, drugId: s.drugId, regimenKey: s.regimenKey || null, kind: s.kind, filledFor: c.patientVersion, addWarnings: [] };
+    const st = { uid: newUid(), phase: s.phase, atSec: s.atSec || 0, drugId: s.drugId, regimenKey: s.regimenKey || null, kind: s.kind, filledFor: c.patientVersion, addWarnings: [],
+      ...(s.timingRationale ? { timingRationale: s.timingRationale } : {}), ...(isNum(s.beforeEndSec) ? { beforeEndSec: s.beforeEndSec } : {}), ...(s.afterLoadingOf ? { afterLoadingOf: s.afterLoadingOf } : {}) };
     if (s.kind === 'fluid') return { ...st, fluidId: s.fluidId, rate: s.rate, rateUnit: 'mL/h' };
     if (s.kind === 'fluid_bolus') return { ...st, fluidId: s.fluidId, amount: s.amount, amountUnit: 'mL' };
     if (s.kind === 'antibiotic') return { ...st, amount: s.amount, amountUnit: s.amountUnit, addWarnings: recommend(c.patient, 'prophylaxis', s.drugId, c.lib).warnings.slice() };
@@ -176,6 +188,8 @@ export function checkStep(c, step, allSteps) {
   if (step.kind === 'stop') {
     const started = allSteps.some((s) => s.drugId === step.drugId && (s.kind === 'infusion' || s.kind === 'inhaled'));
     if (!started) warnings.push(`No ${drug.name} infusion or dial setting earlier in the plan; this stop does nothing.`);
+    if (step.beforeEndSec !== null && step.beforeEndSec !== undefined && (!isNum(step.beforeEndSec) || step.beforeEndSec < 0)) errors.push({ text: '“Before end of surgery” must be a number of minutes ≥ 0 (blank = not anchored).' });
+    else if (isNum(step.beforeEndSec) && step.phase !== 'maintenance') errors.push({ text: '“Before end of surgery” applies only to a stop in the maintenance phase.' });
     return { errors, warnings, rec: null };
   }
   const rec = recommend(c.patient, step.regimenKey, step.drugId, c.lib);
@@ -186,6 +200,7 @@ export function checkStep(c, step, allSteps) {
   // Surgery-timing runtime rules (e.g. ketorolac) shown at plan time for the phases they concern.
   for (const r of drug.runtimeRules || []) if (Array.isArray(r.planPhases) && r.planPhases.includes(step.phase)) warnings.push(r.message);
   if (step.drugId === 'lidocaine') { const w = lidocaineOverlapWarning(c, allSteps); if (w) warnings.push(w); }
+  if (step.kind === 'infusion') { const w = loadingOverlapWarning(step, allSteps, drug); if (w) warnings.push(w); }
   if (step.kind === 'bolus') {
     if (!isNum(step.amount) || step.amount <= 0) errors.push({ text: 'Dose must be a positive number.' });
     else {
@@ -248,13 +263,28 @@ export function lidocaineOverlapWarning(c, allSteps) {
   return `Lidocaine pretreatment and an IV lidocaine analgesic regimen are both planned (within ${LIDOCAINE_RULES.OVERLAP_WINDOW_SEC / 3600} h): every dose counts toward the cumulative lidocaine total (Foo 2021: loading ≤ 1.5 mg/kg IBW, infusion ≤ 1.5 mg/kg/h IBW, ≤ 120 mg/h) [S1]. Planned lidocaine boluses ${roundSig(bol)} mg${lim !== null ? `${bol > lim + 1e-9 ? ' EXCEED' : ' vs'} the loading limit ${lim} mg for this patient` : ''}. Consider omitting the pretreatment.`;
 }
 
+/**
+ * Loading → maintenance overlap (timing review): a maintenance infusion scheduled before its loading
+ * dose ends (same phase), or in a later phase without the "after loading" anchor.
+ */
+export function loadingOverlapWarning(step, allSteps, drug) {
+  const p = loadingPairs(allSteps).find((x) => x.infusion === step);
+  if (!p) return null;
+  const end = (p.loading.atSec || 0) + (p.loading.overSec || 0);
+  const mmss = (v) => `${Math.floor(v / 60)}:${String(Math.round(v % 60)).padStart(2, '0')}`;
+  if (p.samePhase && p.overlapSec > 0) return `Timing: the ${drug.name} maintenance infusion (+${mmss(step.atSec || 0)}) overlaps its loading dose, which runs until +${mmss(end)}. Label sequence: loading dose, then maintenance — set the infusion to +${mmss(end)}.`;
+  if (!p.samePhase && !p.anchored) return `Timing: the ${drug.name} loading dose is in another phase; this infusion may start before the loading dose ends.`;
+  return null;
+}
+
 /** Engine plan (SPEC §5) from the editor model. */
 export function exportPlan(plan) {
   const phases = phasesFor(plan.mode);
   const steps = []; let order = 0;
   for (const ph of phases) {
     for (const s of plan.steps.filter((x) => x.phase === ph)) {
-      const o = { id: s.uid, phase: s.phase, atSec: s.atSec || 0, order: order++, drugId: s.drugId, kind: s.kind, regimenKey: s.regimenKey };
+      const o = { id: s.uid, phase: s.phase, atSec: s.atSec || 0, order: order++, drugId: s.drugId, kind: s.kind, regimenKey: s.regimenKey,
+        ...(s.timingRationale ? { timingRationale: s.timingRationale } : {}), ...(s.kind === 'stop' && isNum(s.beforeEndSec) ? { beforeEndSec: s.beforeEndSec } : {}), ...(s.afterLoadingOf ? { afterLoadingOf: s.afterLoadingOf } : {}) };
       if (s.kind === 'bolus') Object.assign(o, { amount: s.amount, amountUnit: s.amountUnit, overSec: isNum(s.overSec) && s.overSec > 0 ? s.overSec : null, loading: !!s.loading, ...(s.route ? { route: s.route } : {}) });
       if (s.kind === 'infusion' || s.kind === 'inhaled') Object.assign(o, { rate: s.rate, rateUnit: s.rateUnit });
       if (s.kind === 'fluid') Object.assign(o, { fluidId: s.fluidId, rate: s.rate, rateUnit: 'mL/h' });

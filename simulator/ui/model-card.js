@@ -129,7 +129,7 @@ export function renderModelCard(container, { lib, patient, sim, assumptions }) {
     h('h3', {}, 'Parts that cannot be validated with available sources'),
     h('ul', { class: 'list list--tight' },
       h('li', {}, 'Fitted compartment constants: labels give only onset/peak/duration statements, not concentration–time data.'),
-      h('li', {}, 'Effect-model shapes, drug interactions (synergy), haemodynamic and respiratory gains, and the simulated depth index (not BIS).'),
+      h('li', {}, 'Effect-model shapes, drug interactions (synergy), haemodynamic and respiratory gains, and the processed-EEG depth index (BIS-style, simulated; not a BIS value — BIS is a trademark of its owner).'),
       h('li', {}, 'Patient modifiers (age, obesity, OSA, organ dysfunction) and complication magnitudes.')),
     h('h3', {}, 'Intended use'), h('p', {}, 'Education only; not for clinical decisions or dosing. Fictional patients only.'));
 }

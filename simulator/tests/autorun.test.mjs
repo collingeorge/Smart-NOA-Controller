@@ -2,7 +2,7 @@
 // EDUCATIONAL SIMULATION — fictional patients — not a medical device.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { REAL } from './helpers.mjs';
+import { REAL, clinicianResolves } from './helpers.mjs';
 import { derivePatient } from '../engine/patient.js';
 import { createSimulation, ALARM_THRESHOLDS } from '../engine/sim.js';
 import { NOA_CONFIG } from '../engine/interlocks.js';
@@ -32,9 +32,12 @@ function setup(planId, { seed = 1, mode = 'full', editPlan = null } = {}) {
   const userResolves = () => asUser(() => {
     for (const a of sim.state.alarms) if (a.priority === 'high' && !a.acknowledged) sim.action(`acknowledge:${a.id}`);
     if (sim.core.holdLatched) sim.action('resume_hold');
+    clinicianResolves(runner); // clinician-only items (time out, index below band, missing prophylaxis)
     return runner.resume();
   });
-  return { tpl, patient, plan, before, sim, runner, calls, asUser, userResolves };
+  /** Guided: the clinician confirms clinician-only items at the pre-incision / pre-procedure gate. */
+  const clinician = () => asUser(() => clinicianResolves(runner));
+  return { tpl, patient, plan, before, sim, runner, calls, asUser, userResolves, clinician };
 }
 
 function driveFull(c, maxSec = 12000) {
@@ -55,7 +58,8 @@ function driveGuided(c, maxSec = 12000, { onGate = null } = {}) {
     if (st.current && st.current.gate) {
       if (gates[gates.length - 1] !== st.current.id) gates.push(st.current.id);
       if (onGate) onGate(st, c);
-      if (st.current.enabled) { const r = runner.approve(st.current.id); assert.ok(r.ok, r.message); continue; }
+      if (st.current.items && !st.current.enabled) c.clinician();
+      if (runner.status().current.enabled) { const r = runner.approve(st.current.id); assert.ok(r.ok, r.message); continue; }
     }
     sim.step(1); runner.tick();
   }
@@ -81,8 +85,9 @@ function assertNoRunnerOverrides(c) {
   assert.ok(!c.sim.state.log.some((e) => /despite unmet readiness/.test(e.message)));
 }
 
-const GA_GATES = ['start_induction', 'secure_airway', 'start_maintenance', 'end_surgery', 'begin_emergence', 'extubate'];
-const MAC_GATES = ['start_sedation', 'end_procedure'];
+const GA_GATES = ['transfer_to_or', 'start_induction', 'secure_airway', 'start_maintenance', 'start_surgery', 'end_surgery', 'begin_emergence', 'extubate'];
+const MAC_GATES = ['transfer_to_or', 'start_sedation', 'start_procedure', 'end_procedure'];
+const CLINICIAN_CASE_ACTIONS = ['confirm_time_out', 'acknowledge_depth_below_band'];
 
 // ---------------------------------------------------------------- config block
 test('autorun config: one frozen block; every entry has value, unit, rationale and provenance; sourceIds exist', () => {
@@ -151,9 +156,11 @@ if (REAL) {
         assert.ok(['minimal', 'awake'].includes(c.sim.state.vitals.sedationLevel));
       }
       // the sequence used the same shared case actions as the manual buttons
-      const expect = tpl.mode === 'GA' ? ['set_fio2', 'mask_ventilate', 'start_induction', 'secure_airway', 'start_maintenance', 'start_surgery', 'end_surgery', 'begin_emergence', 'extubate']
-        : ['set_fio2', 'start_sedation', 'start_procedure', 'end_procedure', 'end_sedation'];
-      assert.deepEqual(c.calls.caseActions, expect);
+      const expect = tpl.mode === 'GA' ? ['transfer_to_or', 'set_fio2', 'mask_ventilate', 'start_induction', 'secure_airway', 'start_maintenance', 'start_surgery', 'end_surgery', 'begin_emergence', 'extubate']
+        : ['transfer_to_or', 'set_fio2', 'start_sedation', 'start_procedure', 'end_procedure', 'end_sedation'];
+      assert.deepEqual(c.calls.caseActions.filter((a) => !CLINICIAN_CASE_ACTIONS.includes(a)), expect);
+      // the WHO time out was confirmed by the user (clinician), never by the runner
+      assert.ok(c.calls.user.includes('confirm_time_out') && !c.calls.runner.includes('confirm_time_out'));
     });
   }
 
@@ -173,8 +180,8 @@ if (REAL) {
       const c = setup(tpl.id, { mode: 'guided' });
       const { sim, runner } = c;
       runner.start();
-      // nothing advances without the first gate
-      for (let i = 0; i < 300; i++) { sim.step(1); runner.tick(); }
+      // nothing advances without the first gate (Transfer to OR: enabled 5 min after the premedication ended)
+      for (let i = 0; i < 600; i++) { sim.step(1); runner.tick(); }
       assert.equal(sim.state.phase, 'premed'); assert.equal(runner.idx, 0);
       assert.ok(runner.status().current.enabled);
       let sawIntubateDisabled = false, sawExtubateDisabled = false, idleChecked = false;
@@ -205,9 +212,9 @@ if (REAL) {
         assert.ok(sawExtubateDisabled, 'Extubate was disabled before readiness');
         assert.equal(c.sim.summary().extubation.ready, true);
         const surg = runner.history.find((h) => h.id === 'start_surgery');
-        assert.equal(surg.by, 'auto', 'surgery started automatically inside the approved maintenance phase');
+        assert.equal(surg.by, 'clinician', 'surgery starts only through the pre-incision verification gate (no time-based start)');
       } else {
-        assert.equal(runner.history.find((h) => h.id === 'start_procedure').by, 'auto');
+        assert.equal(runner.history.find((h) => h.id === 'start_procedure').by, 'clinician');
       }
       for (const h of runner.history) assert.equal(h.by, buildSequence(tpl.mode).find((s) => s.id === h.id).gate ? 'clinician' : 'auto');
       assertUnchangedPlan(c); assertNoRunnerOverrides(c); assertAutoLogged(c);
@@ -240,7 +247,8 @@ if (REAL) {
     runner.start();
     for (let i = 0; i < 12000 && runner.current && runner.current.id !== 'extubate'; i++) {
       if (runner.state === 'paused') { c.userResolves(); continue; }
-      const st = runner.status(); if (st.current.enabled) { runner.approve(st.current.id); continue; }
+      let st = runner.status(); if (st.current.items && !st.current.enabled) { c.clinician(); st = runner.status(); }
+      if (st.current.enabled) { runner.approve(st.current.id); continue; }
       sim.step(1); runner.tick();
     }
     assert.equal(runner.current.id, 'extubate');

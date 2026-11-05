@@ -9,6 +9,9 @@ import { TECHNIQUE_TEMPLATES, buildTemplatePlan, templateOptions, getTemplate } 
 import { selectProphylaxis } from '../engine/prophylaxis.js';
 import { FLUID_MODEL } from '../engine/sim.js';
 import { NOA_CONFIG } from '../engine/interlocks.js';
+import { validatePlanTiming } from '../engine/timing.js';
+import { timingCheckItems, rationaleLine, rationaleText } from './timing-view.js';
+import { exportPlan } from './plan-model.js';
 
 export const SEDATION_TARGETS = [
   { id: 'minimal', label: 'Minimal sedation', def: 'Normal response to verbal stimulation.' },
@@ -156,6 +159,15 @@ export function renderPlan(ctx, main) {
     h('span', { class: 'hint block' }, `When ticked, starting surgery without a dose started within the guideline window raises a MEDIUM alarm, and guided mode asks you to acknowledge a checklist warning first. Guideline agent for this patient: ${abxSel.drugId ? getDrugById(lib, abxSel.drugId).name : 'none available'} — ${abxSel.reason} `, srcTags(abxSel.sources))));
 
   const phasesWrap = h('div', { class: 'phases', id: 'pl-phases' });
+  const timingList = h('ul', { class: 'tchecks tchecks--light', id: 'pl-timing-list' });
+  const timingCard = h('section', { class: 'card', id: 'pl-timing', 'aria-labelledby': 'pl-timing-h' }, h('h3', { id: 'pl-timing-h' }, 'Timing check'),
+    h('p', { class: 'hint' }, 'Checks the whole plan against the timing rules (premedication → induction, loading → maintenance, opioid → hypnotic, pretreatment, neuromuscular blocker, antibiotic window, PONV, reversal, repeat boluses, stop-before-end). Each rule shows its source or “simulator convention”. Warnings do not block the run.'),
+    timingList);
+  function renderTiming() {
+    const checks = validatePlanTiming(exportPlan(plan), lib);
+    clear(timingList).append(...timingCheckItems(checks));
+    timingCard.dataset.warnings = String(checks.filter((x) => x.status === 'warn').length);
+  }
   const timeline = h('section', { class: 'card', 'aria-labelledby': 'pl-tl-title' });
   const summary = h('div', { class: 'plan-summary', id: 'pl-summary' });
   const notice = h('div', { id: 'pl-notice' });
@@ -205,6 +217,11 @@ export function renderPlan(ctx, main) {
       fields.append(
         h('div', { class: 'field field--sm' }, h('label', { class: 'label', for: fid('a') }, s.loading ? 'Loading dose' : 'Dose', h('span', { class: 'unit' }, ` (${s.amountUnit})`)), amt),
         h('div', { class: 'field field--sm' }, h('label', { class: 'label', for: fid('o') }, 'Give over', h('span', { class: 'unit' }, ' (min)')), over, h('p', { class: 'hint' }, 'blank = push; ≥ 1 min runs as a timed infusion')));
+    } else if (s.kind === 'stop' && s.phase === 'maintenance') {
+      const be = h('input', { type: 'number', step: 'any', min: 0, id: fid('be'), class: 'input input--num', value: isNum(s.beforeEndSec) ? Math.round(s.beforeEndSec / 6) / 10 : '', placeholder: 'not anchored', 'aria-describedby': fid('be-hint') });
+      be.addEventListener('change', () => { if (be.value === '') delete s.beforeEndSec; else s.beforeEndSec = Number(be.value) * 60; update(); });
+      fields.append(h('div', { class: 'field field--sm' }, h('label', { class: 'label', for: fid('be') }, 'Before end of surgery', h('span', { class: 'unit' }, ' (min)')), be,
+        h('p', { class: 'hint', id: fid('be-hint') }, 'blank = at the time offset; a value = that many minutes before the planned end of surgery')));
     } else if (s.kind === 'infusion' || s.kind === 'inhaled') {
       const rate = h('input', { type: 'number', step: 'any', min: 0, id: fid('r'), class: 'input input--num', value: s.rate });
       rate.addEventListener('change', () => { s.rate = rate.value === '' ? NaN : Number(rate.value); delete s.prefillNote; update(); });
@@ -223,8 +240,14 @@ export function renderPlan(ctx, main) {
           s.regimenKey ? h('span', { class: 'hint' }, ` ${REGIMEN_LABELS[s.regimenKey] || s.regimenKey} regimen`) : null),
         h('div', { class: 'step-card__actions' }, up, down, del)),
       fields, info);
+    const whyHost = h('div', { class: 'step-card__why' });
+    card.insertBefore(whyHost, info);
 
     function update() {
+      clear(whyHost);
+      const anchor = s.kind === 'stop' && isNum(s.beforeEndSec) ? h('p', { class: 'hint' }, h('strong', {}, 'Anchored: '), `runs ${Math.round(s.beforeEndSec / 6) / 10} min before the planned end of surgery (automatic demonstration: planned end − ${Math.round(s.beforeEndSec / 6) / 10} min; guided/manual: when End surgery is pressed, if not earlier).`) : null;
+      const after = s.afterLoadingOf ? h('p', { class: 'hint' }, h('strong', {}, 'Anchored: '), `starts only when the ${getDrugById(lib, s.afterLoadingOf).name} loading dose has finished.`) : null;
+      whyHost.append(...[rationaleLine(s.timingRationale, { id: fid('why') }), anchor, after].filter(Boolean));
       const r = checkStep(c(), s, plan.steps);
       clear(info);
       const rec = r.rec;
@@ -399,6 +422,7 @@ export function renderPlan(ctx, main) {
   }
 
   function renderTimeline() {
+    renderTiming();
     clear(timeline);
     timeline.append(h('h3', { id: 'pl-tl-title' }, 'Phase timeline preview'));
     const L = phaseLabels();
@@ -413,7 +437,7 @@ export function renderPlan(ctx, main) {
       }
       steps.forEach((s, i) => {
         const left = ((s.atSec || 0) / maxT) * 100;
-        const m = h('span', { class: `tl-mark tl-mark--${s.kind}` }, String(i + 1));
+        const m = h('span', { class: `tl-mark tl-mark--${s.kind}`, title: rationaleText(s.timingRationale) || null }, String(i + 1));
         m.style.left = `${Math.min(left, 97)}%`;
         if (s.kind === 'infusion' || s.kind === 'inhaled' || (s.kind === 'fluid' && s.rate > 0)) { const bar = h('span', { class: 'tl-bar' }); bar.style.left = `${left}%`; bar.style.right = '0'; track.append(bar); }
         if (s.kind === 'bolus' && isNum(s.overSec) && s.overSec >= 60) { const bar = h('span', { class: 'tl-bar tl-bar--timed' }); bar.style.left = `${left}%`; bar.style.width = `${(s.overSec / maxT) * 100}%`; track.append(bar); }
@@ -422,7 +446,9 @@ export function renderPlan(ctx, main) {
       const legend = h('ol', { class: 'tl-legend' }, steps.map((s) => {
         const d = getDrugById(lib, s.drugId);
         const what = s.kind === 'bolus' || s.kind === 'antibiotic' || s.kind === 'fluid_bolus' ? `${s.amount} ${s.amountUnit}${s.kind === 'fluid_bolus' ? ' bolus' : s.kind === 'antibiotic' ? ' (prophylaxis)' : ''}${isNum(s.overSec) && s.overSec >= 60 ? ` over ${Math.round(s.overSec / 60)} min` : ''}` : s.kind === 'stop' ? 'stop' : s.kind === 'fluid' ? `${s.rate} mL/h maintenance` : `${s.rate} ${s.rateUnit}`;
-        return h('li', {}, h('span', { class: 'mono' }, fmtClock(s.atSec)), ` ${d.name} ${what}`);
+        const at = s.kind === 'stop' && isNum(s.beforeEndSec) ? `end − ${fmtClock(s.beforeEndSec)}` : fmtClock(s.atSec);
+        return h('li', { title: rationaleText(s.timingRationale) || null }, h('span', { class: 'mono' }, at), ` ${d.name} ${what}`,
+          s.timingRationale ? h('span', { class: 'tl-why hint' }, ` — ${s.timingRationale.text} (${s.timingRationale.provenance})`) : null);
       }));
       timeline.append(h('div', { class: 'tl-row' }, h('div', { class: 'tl-label' }, L[ph]), track, steps.length ? legend : h('p', { class: 'hint' }, 'No steps')));
     }
@@ -482,6 +508,7 @@ export function renderPlan(ctx, main) {
         h('div', { class: 'field field--sm' }, h('label', { class: 'label', for: 'pl-seed' }, 'Random seed'), seedIn, h('p', { class: 'hint' }, 'Same seed = same (illustrative) physiological noise.')),
         h('div', { class: 'inline-form' }, h('label', { class: 'label', for: 'pl-example' }, 'Example plan'), exSel, exBtn))),
     phasesWrap,
+    timingCard,
     timeline,
     h('div', { class: 'actions actions--sticky' }, summary,
       h('div', { class: 'actions__btns' },

@@ -3,8 +3,8 @@
 //
 // TIMING ONLY: antibiotic pharmacology is not modelled (no PK/PD, no infection outcome). Every dose
 // and timing value comes from the drug library (data/drugs.js ANTIBIOTICS, Bratzler 2013 = S46);
-// this module only compares times. The checklist rule (a warning the clinician must acknowledge
-// before surgery starts) is a simulator convention; it never acknowledges itself.
+// this module only compares times. The checklist rule (manual: a warning the clinician must acknowledge;
+// guided/automatic: a required pre-incision item) is a simulator convention; it never acknowledges itself.
 
 import { listAntibiotics, getAntibiotic, resolveLibrary } from './library.js';
 import { evaluateContraindications } from './dosing.js';
@@ -16,7 +16,7 @@ const e = (value, unit, rationale, provenance = CONVENTION, sourceIds = []) => O
 export const PROPHYLAXIS_CONFIG = Object.freeze({
   WINDOW_ALARM_PRIORITY: e('medium', 'alarm priority', 'Alarm "Surgery started without antibiotic prophylaxis in the recommended window" (owner-approved additions spec). Latched until acknowledged.'),
   REDOSE_ALARM_PRIORITY: e('medium', 'alarm priority', 'Alarm "Prophylaxis redose due" once the guideline redosing interval has elapsed since the start of the last dose, while surgery is in progress.'),
-  CHECKLIST_REQUIRES_ACK: e(true, 'boolean', 'Guided mode: before "Start surgery", an antibiotic checklist item that is not satisfied (no dose started within the window) is shown as a warning that the clinician must acknowledge; the full demonstration pauses for it. Neither mode ever acknowledges it.'),
+  CHECKLIST_REQUIRES_ACK: e(true, 'boolean', 'Manual mode: an antibiotic checklist warning before "Start surgery" can be acknowledged (the window alarm still sounds at incision). Guided and automatic modes (2026-11 timing review): a dose started within the window is a REQUIRED pre-incision item — acknowledgement does not satisfy it; the clinician gives prophylaxis (guided: the gate waits; full demonstration: it pauses). Neither mode ever acknowledges or gives it on its own.'),
   INDICATED_DEFAULT_GA: e(true, 'boolean', 'Plan screen: "Surgical antibiotic prophylaxis indicated" is ticked by default for GA plans and unticked for MAC plans (the simulator does not know the procedure). In the engine a plan without the flag counts as indicated only if it contains an antibiotic step.'),
 });
 

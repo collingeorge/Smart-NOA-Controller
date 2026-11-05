@@ -59,7 +59,7 @@ function restartSim() {
   const p = getPatient();
   store.sim = createSimulation({ patient: p, plan: exportPlan(store.plan), seed: store.seed, interlocks: store.interlocks, library: lib });
   store.simKey = simKey();
-  store.run = newRunState();
+  store.run = { ...newRunState(), testClock: !!(store.run && store.run.testClock) };
   return store.sim;
 }
 function ensureSim() { if (!store.sim || store.simKey !== simKey()) restartSim(); return store.sim; }
@@ -199,7 +199,7 @@ async function renderAbout() {
     h('h3', {}, 'Model limits'),
     h('ul', { class: 'list' },
       h('li', {}, 'Every displayed physiological value is illustrative model output; the simulator as a whole is not validated.'),
-      h('li', {}, 'The depth number is a simulated depth index (0–100, illustrative; not BIS).'),
+      h('li', {}, 'The depth number is a processed-EEG depth index (BIS-style, simulated; 0–100, illustrative). It is not a BIS value; BIS is a trademark of its owner.'),
       h('li', {}, 'Doses are label/guideline values; the auto-filled default within a range is a simulator convention, not a recommendation.')),
     h('h4', {}, 'Model assumptions recorded in SOURCES.md'), assumptionsList(assumptions),
     h('h4', {}, 'Engine model records for drugs used in the current case'),
@@ -242,10 +242,27 @@ function testSnapshot() {
       fluids: sim.state.fluids, prophylaxis: sim.state.prophylaxis, checklist: sim.prophylaxisChecklist(), alarms: sim.state.alarms, drugs: { lidocaine: sim.state.drugs.lidocaine } } : null,
     plan: { mode: store.plan.mode, sedationTarget: store.plan.sedationTarget, template: store.plan.template || null, steps: store.plan.steps.map((x) => ({ drugId: x.drugId, kind: x.kind, phase: x.phase, regimenKey: x.regimenKey, amount: x.amount, rate: x.rate, atSec: x.atSec })) },
     auto: a ? { ...a.status(), idx: a.idx, history: a.history } : null,
+    periop: sim ? sim.state.periop : null, planStatus: sim ? sim.planStatus().map((x) => ({ id: x.id, phase: x.phase, drugId: x.drugId, kind: x.kind, status: x.status, waiting: x.waiting || null })) : null,
   });
 }
+function testLite() {
+  const sim = store.sim; const a = store.run.auto; const st = a ? a.status() : null;
+  return JSON.parse(JSON.stringify({ t: sim ? sim.state.tSec : null, phase: sim ? sim.state.phase : null, v: sim ? sim.state.vitals : null, airway: sim ? sim.state.airway : null,
+    ready: sim ? sim.extubationReadiness().ready : null, playing: store.run.playing,
+    auto: st ? { state: st.state, message: st.message, current: st.current, historyIds: a.history.map((x) => x.id) } : null }));
+}
 try {
-  if (new URLSearchParams(window.location.search).get('test') === '1') window.__smartNoa = Object.freeze({ snapshot: testSnapshot });
+  if (new URLSearchParams(window.location.search).get('test') === '1') {
+    window.__smartNoa = Object.freeze({
+      snapshot: testSnapshot,
+      /** Step-driven tests: true = the wall clock never advances simulated time (only advance() does). */
+      testClock: (on) => { store.run.testClock = !!on; return store.run.testClock; },
+      /** Advance simulated time synchronously by `sec` seconds on the Run screen (runner ticks each second). */
+      advance: (sec) => (store.run && typeof store.run.testAdvance === 'function' && store.run.testAdvance(sec) ? testLite() : null),
+      /** Small status object (cheap to poll): time, phase, vitals, airway, readiness, runner state. */
+      lite: () => testLite(),
+    });
+  }
 } catch { /* no test hook */ }
 
 init();

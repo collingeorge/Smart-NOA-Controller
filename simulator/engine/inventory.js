@@ -11,7 +11,11 @@
 //   'project_config'                Smart NOA config.yaml (software setting, not clinical evidence)
 //   'author_estimate_unvalidated'   engine author's illustrative choice; not sourced, not validated
 //   'simulator_convention'          teaching-sequence choice of the guided/automatic modes
-//                                   (engine/autorun-config.js); not sourced, not a model parameter
+//                                   (engine/autorun-config.js) or a timing choice (engine/timing.js,
+//                                   template offsets); not sourced, not a model parameter (sourceIds,
+//                                   if any, are the label statement a convention is anchored to)
+//   'clinical_practice_convention_owner'  practice stated by the project owner (timing review: premedication
+//                                   in pre-op holding ~5 min before transfer); not a published source
 // sourceIds are ids in the drug library SOURCES. A non-author entry whose citation is not in
 // SOURCES carries citationRegistered:false and names the work in `note`.
 // Implementation checks against published reference values are VERIFICATION of the code, not
@@ -28,8 +32,9 @@ import { NOA_CONFIG } from './interlocks.js';
 import { SCENARIOS } from '../data/scenarios.js';
 import { TECHNIQUE_TEMPLATES } from '../data/templates.js';
 import { AUTORUN_CONFIG, CONVENTION } from './autorun-config.js';
+import { TIMING_CONFIG } from './timing.js';
 
-export const PROVENANCE = Object.freeze(['fda_label', 'published_model', 'guideline', 'trial_or_physiology_study', 'project_config', 'author_estimate_unvalidated', 'simulator_convention']);
+export const PROVENANCE = Object.freeze(['fda_label', 'published_model', 'guideline', 'trial_or_physiology_study', 'project_config', 'author_estimate_unvalidated', 'simulator_convention', 'clinical_practice_convention_owner']);
 const AUTHOR = 'author_estimate_unvalidated';
 
 export function buildParameterInventory({ lib, models = {}, fluidModel, mw, minFio2WithN2O, alarmThresholds, extubationCriteria, stimulus, lidocaineRules = null, prophylaxisConfig = null }) {
@@ -158,7 +163,18 @@ export function buildParameterInventory({ lib, models = {}, fluidModel, mw, minF
     add('pretreatment', 'lidocaine pretreatment / IV lidocaine overlap window', lidocaineRules.OVERLAP_WINDOW_SEC, 's', 'guideline', s1, 'Foo 2021 ~4 h separation between local-anaesthetic interventions and IV lidocaine, applied to pretreatment (simulator mapping).', { drugId: 'lidocaine' });
     add('pretreatment', 'overlap alarm priority', lidocaineRules.OVERLAP_ALARM_PRIORITY, 'alarm priority', 'simulator_convention', [], 'LOW alarm + log warning when pretreatment and IV lidocaine analgesic dosing overlap.');
   }
-  for (const t of TECHNIQUE_TEMPLATES) add('template', `${t.id} steps`, t.steps.length, 'steps', 'simulator_convention', [], `Template "${t.label}": drug/regimen/phase/offset choices only — every dose is filled at runtime by recommend() from the drug library. Offsets are simulator conventions.`);
+  for (const t of TECHNIQUE_TEMPLATES) add('template', `${t.id} steps`, t.steps.length, 'steps', 'simulator_convention', [], `Template "${t.label}": drug/regimen/phase/offset choices only — every dose is filled at runtime by recommend() from the drug library. Each step's timing rationale (source or convention) is listed under component template_timing.`);
+
+  // ---------------------------------------------------------------- timing review: rules and template step timing
+  for (const [k, x] of Object.entries(TIMING_CONFIG)) add('timing', k, Array.isArray(x.value) ? x.value.join('–') : x.value, x.unit, x.provenance, [...x.sourceIds], x.rationale);
+  const TP = { label: 'fda_label', consensus: 'guideline', guideline: 'guideline', trial: 'trial_or_physiology_study', 'simulator convention': 'simulator_convention', 'clinical practice convention (owner)': 'clinical_practice_convention_owner' };
+  const mmss = (v) => `${Math.floor(v / 60)}:${String(v % 60).padStart(2, '0')}`;
+  for (const t of TECHNIQUE_TEMPLATES) for (const st of t.steps) {
+    const r = st.timingRationale; if (!r) continue;
+    const what = st.kind === 'fluid' ? st.fluidId : st.kind === 'antibiotic' ? 'antibiotic prophylaxis' : st.drugId;
+    const when = typeof st.beforeEndSec === 'number' ? `end of surgery − ${mmss(st.beforeEndSec)}` : `${st.phase} +${mmss(st.atSec)}${st.afterLoadingOf ? ' (after the loading dose ends)' : ''}`;
+    add('template_timing', `${t.id}: ${what} ${st.kind}${st.optional ? ' (optional)' : ''}`, typeof st.beforeEndSec === 'number' ? -st.beforeEndSec : st.atSec, 's', TP[r.provenance] || 'simulator_convention', [...r.sources], `${when} — ${r.text}`);
+  }
 
   // ---------------------------------------------------------------- scenarios
   for (const sc of SCENARIOS) {

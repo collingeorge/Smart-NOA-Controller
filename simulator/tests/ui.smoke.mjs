@@ -2,7 +2,12 @@
 // Not part of `npm test` (only *.test.mjs files are loaded there). Run it with `npm run test:ui`.
 // It starts its own static file server (Node http, no dependencies) on a free port, serving the
 // repository root, and opens /simulator/index.html?test=1 (the ?test=1 flag enables the
-// read-only window.__smartNoa.snapshot() hook).
+// window.__smartNoa test hook: snapshot(), lite(), testClock(on) and advance(sec)).
+// DETERMINISTIC (2026-11 timing review): the suite switches the test clock on, so simulated time
+// moves ONLY through advance(sec) (synchronous; the guided/automatic runner ticks every second) or
+// the explicit +1 s / +10 s / +1 min step buttons. Every wait is a condition on simulated state or
+// the DOM; no step depends on wall-clock speed. (One test turns the clock off to check that the
+// extubation dialog pauses a playing clock, waiting on explicit DOM/state conditions.)
 // Playwright is required: if it cannot be loaded the test FAILS, unless SMOKE_SKIP=1 is set.
 // Env:  SIM_URL (use an already running server instead), SHOTS_DIR (optional screenshot folder),
 //       SMOKE_SKIP=1 (skip when Playwright is unavailable), PLAYWRIGHT_BROWSERS_PATH / NODE_PATH as needed.
@@ -44,14 +49,19 @@ let server = null;
 
 const shot = async (page, name, full = true) => { if (SHOTS) await page.screenshot({ path: join(SHOTS, name), fullPage: full }); };
 const snap = (page) => page.evaluate(() => window.__smartNoa.snapshot());
+const lite = (page) => page.evaluate(() => window.__smartNoa.lite());
 const simState = async (page) => (await snap(page)).sim;
-async function waitSim(page, pred, { timeout = 60000, label = 'condition' } = {}) {
-  const t0 = Date.now();
+/** Advances simulated time synchronously (test hook); returns the lite status. */
+const adv = (page, sec) => page.evaluate((n) => window.__smartNoa.advance(n), sec);
+/** Advances in `chunk`-second steps until pred(lite) holds (simulated-time limit `maxSec`). */
+async function advanceUntil(page, pred, { maxSec = 3600, chunk = 5, label = 'condition', resolvePauses = false } = {}) {
+  let s = await lite(page); const t0 = s.t;
   for (;;) {
-    const s = await simState(page);
-    if (s && pred(s)) return s;
-    if (Date.now() - t0 > timeout) throw new Error(`Timed out waiting for ${label}; last state ${JSON.stringify(s)}`);
-    await page.waitForTimeout(150);
+    if (pred(s)) return s;
+    if (s.auto && ['stopped', 'manual'].includes(s.auto.state)) throw new Error(`${label}: runner ${s.auto.state} — ${s.auto.message}`);
+    if (resolvePauses && s.auto && s.auto.state === 'paused') { await userResolvesPause(page); s = await lite(page); continue; }
+    if (s.t - t0 > maxSec) throw new Error(`Timed out (simulated ${maxSec} s) waiting for ${label}; last ${JSON.stringify({ t: s.t, phase: s.phase, v: s.v, auto: s.auto && { state: s.auto.state, cur: s.auto.current && s.auto.current.id, msg: s.auto.message } })}`);
+    s = await adv(page, chunk);
   }
 }
 async function noHScroll(page) {
@@ -74,38 +84,41 @@ async function toRun(page) {
 // ---- guided / automatic modes
 const autoStatus = async (page) => { const x = await snap(page); return x.auto ? { ...x.auto, t: x.sim.t, phase: x.sim.phase, v: x.sim.v, ready: x.sim.ready } : null; };
 const simLog = async (page) => (await snap(page)).sim.log;
-/** Acts as the user when the runner pauses: acknowledge HIGH alarms, release a latched hold, press Resume. */
+/** Waits (wall clock, no simulated time) until the gate button is not in its post-click cooldown. */
+const gateIdle = (page) => page.waitForFunction(() => { const b = document.getElementById('auto-gate'); return !b || !b.dataset.busy; });
+/** Clicks a button if it is visible and enabled; returns whether it was clicked. */
+async function clickIf(page, sel) { const l = page.locator(sel); if (await l.count() && await l.isVisible() && await l.isEnabled()) { await l.click(); return true; } return false; }
+/** The clinician's checklist buttons (WHO time out, index below band, missing prophylaxis). */
+async function clinicianItems(page) {
+  let n = 0;
+  for (const sel of ['#auto-timeout', '#auto-depth-ack', '#auto-abx-give']) if (await clickIf(page, sel)) n++;
+  return n;
+}
+/** Acts as the user when the runner pauses: acknowledge HIGH alarms, release a latched hold, clinician items, press Resume. */
 async function userResolvesPause(page) {
   for (const b of await page.locator('#mon-alarms button[data-ack]:not([disabled])').all()) await b.click();
   if (await page.isEnabled('#mon-resume')) await page.click('#mon-resume');
+  await clinicianItems(page);
   if (await page.isEnabled('#auto-resume')) await page.click('#auto-resume');
 }
-async function waitAuto(page, pred, { timeout = 240000, label = 'auto condition', resolvePauses = true } = {}) {
-  const t0 = Date.now();
-  for (;;) {
-    const s = await autoStatus(page);
-    if (s && pred(s)) return s;
-    if (s && ['stopped', 'manual'].includes(s.state)) throw new Error(`${label}: runner ${s.state} — ${s.message}`);
-    if (s && s.state === 'paused' && resolvePauses) await userResolvesPause(page);
-    if (Date.now() - t0 > timeout) throw new Error(`Timed out waiting for ${label}; last ${JSON.stringify(s && { state: s.state, cur: s.current, t: s.t, msg: s.message })}`);
-    await page.waitForTimeout(150);
-  }
+async function waitAuto(page, pred, { maxSec = 14000, label = 'auto condition', resolvePauses = true } = {}) {
+  return advanceUntil(page, (s) => !!s.auto && pred({ ...s.auto, t: s.t, phase: s.phase, v: s.v, ready: s.ready }), { maxSec, chunk: 10, label, resolvePauses });
 }
-/** Waits until the gate button on the page shows `label` and is enabled (resolving pauses as a user), then clicks it. */
-async function gate(page, label, { timeout = 240000 } = {}) {
-  const t0 = Date.now();
+/**
+ * Guided gate: advance simulated time until the gate button shows `label` and is enabled (resolving
+ * pauses as a user; with clinician:true also pressing the clinician checklist buttons), then click it.
+ */
+async function gate(page, label, { maxSec = 5000, clinician = false, chunk = 5 } = {}) {
+  await gateIdle(page);
+  let s = await lite(page); const t0 = s.t;
   for (;;) {
     const dom = await page.evaluate(() => { const b = document.getElementById('auto-gate'); return b ? { text: b.textContent.trim(), on: !b.disabled && !b.hidden } : null; });
-    if (dom && dom.text === label && dom.on) {
-      const s = await autoStatus(page);
-      await page.click('#auto-gate');
-      return s;
-    }
-    const s = await autoStatus(page);
-    if (s && ['stopped', 'manual', 'completed'].includes(s.state)) throw new Error(`gate ${label}: runner ${s.state} — ${s.message}`);
-    if (s && s.state === 'paused') await userResolvesPause(page);
-    if (Date.now() - t0 > timeout) throw new Error(`Timed out waiting for gate ${label}; DOM ${JSON.stringify(dom)}`);
-    await page.waitForTimeout(100);
+    if (dom && dom.text === label && dom.on) { await page.click('#auto-gate'); await gateIdle(page); return s; }
+    if (s.auto && ['stopped', 'manual', 'completed'].includes(s.auto.state)) throw new Error(`gate ${label}: runner ${s.auto.state} — ${s.auto.message}`);
+    if (s.auto && s.auto.state === 'paused') { await userResolvesPause(page); s = await lite(page); continue; }
+    if (clinician && dom && dom.text === label && await clinicianItems(page)) { s = await lite(page); continue; }
+    if (s.t - t0 > maxSec) throw new Error(`Timed out (simulated ${maxSec} s) waiting for gate ${label}; DOM ${JSON.stringify(dom)}; ${JSON.stringify(s.auto && s.auto.current && s.auto.current.unmet)}`);
+    s = await adv(page, chunk);
   }
 }
 const GUIDED_BANNER = 'Guided mode: each phase runs from your approved plan; you confirm every transition. Educational simulation — not a closed-loop controller or a clinical recommendation.';
@@ -126,6 +139,7 @@ test('simulator UI smoke', { skip, timeout: 900000 }, async (t) => {
   try {
     await page.goto(URL_);
     await page.waitForSelector('#pf-continue');
+    assert.equal(await page.evaluate(() => window.__smartNoa.testClock(true)), true, 'step-driven test clock on');
     assert.match(await page.textContent('.sim-banner'), /SIMULATION — fictional patient — educational use only\. Not a medical device\. Not medical advice\./);
 
     await t.test('validation shows inline messages', async () => {
@@ -151,7 +165,7 @@ test('simulator UI smoke', { skip, timeout: 900000 }, async (t) => {
       assert.match(as, /Sevoflurane[\s\S]*LOCKED/); assert.match(as, /Succinylcholine/);
     });
 
-    await t.test('GA case: induction → airway → maintenance → emergence → sugammadex → extubation at 60×', async () => {
+    await t.test('GA case: induction → airway → maintenance → emergence → sugammadex → extubation (step-driven)', async () => {
       await loadCase(page, 'healthy_adult');
       await shot(page, '1-patient.png');
       await page.click('#pf-continue'); await page.waitForSelector('#as-continue'); await shot(page, '2-assessment.png');
@@ -159,38 +173,42 @@ test('simulator UI smoke', { skip, timeout: 900000 }, async (t) => {
       assert.ok((await page.locator('.src-tag').count()) > 5, 'source tags on plan');
       await shot(page, '3-plan.png');
       await page.click('#pl-continue'); await page.waitForSelector('#mon-play');
-      await page.click('[data-speed="60"]');
+      await adv(page, 600); // pre-op holding: premedication, then transfer/setup/preoxygenation time (manual mode)
+      await page.selectOption('#aw-fio2', '1'); await page.click('#aw-fio2-set');
       await page.click('#ph-induction');
       await page.click('#aw-mask');
-      await page.click('#mon-play');
-      await waitSim(page, (s) => s.v.tofCount === 0 && s.v.depthIndex < 60, { label: 'paralysis + depth' });
+      await advanceUntil(page, (s) => s.v.tofCount === 0 && s.v.depthIndex < 60, { maxSec: 900, label: 'paralysis + depth' });
       await shot(page, '4-run-induction.png');
       await page.click('#ph-secure');
       await page.click('#ph-maintenance');
       await page.click('#ph-surgery');
-      let s = await waitSim(page, (x) => x.phase === 'maintenance' && x.airway.secured && x.airway.ventilated, { label: 'maintenance' });
+      let s = await lite(page);
+      assert.ok(s.phase === 'maintenance' && s.airway.secured && s.airway.ventilated, 'maintenance');
       await page.selectOption('#aw-fio2', '0.5'); await page.click('#aw-fio2-set');
-      const t0 = s.t;
-      await waitSim(page, (x) => x.t > t0 + 600, { label: '10 min maintenance' });
+      await advanceUntil(page, (x) => x.t > s.t + 600, { maxSec: 700, chunk: 60, label: '10 min maintenance' });
       assert.notEqual((await page.textContent('#tile-mac .tile__value')).trim(), '—', 'total MAC shown');
+      // processed-EEG index tile and chart show the GA band (sourced)
+      assert.match(await page.textContent('#tile-depth'), /Processed-EEG depth index \(BIS-style, simulated\)/);
+      assert.match(await page.textContent('#tile-depth .tile__sub'), /GA band 40–60: (in band|below band|above band)/);
+      assert.match(await page.textContent('#mon-charts figcaption >> nth=3'), /GA band 40–60/);
+      assert.match(await page.textContent('#mon-depth-band'), /not a BIS value \(BIS is a trademark of its owner\)/);
+      assert.ok(await page.locator('#mon-depth-band .src-tag', { hasText: 'S52' }).count());
       await shot(page, '4-run-maintenance.png');
       await page.click('#ph-endsurgery');
       await page.click('#ph-emergence');
-      s = await waitSim(page, (x) => x.v.tofRatio >= 0.9, { label: 'TOFR ≥ 0.9 after sugammadex' });
+      await advanceUntil(page, (x) => x.v.tofRatio >= 0.9, { maxSec: 900, label: 'TOFR ≥ 0.9 after sugammadex' });
       const log = (await simLog(page)).map((e) => e.message).join('\n');
       assert.match(log, /Sugammadex .* bolus/);
-      s = await waitSim(page, (x) => x.ready, { timeout: 90000, label: 'extubation readiness' });
-      await page.click('#mon-play'); // pause
-      // Readiness can flicker with noise while playing; step until it holds at the paused time.
-      for (let i = 0; i < 60 && !(await simState(page)).ready; i++) await page.click('[data-step="10"]');
-      assert.ok((await simState(page)).ready, 'readiness met while paused');
+      s = await advanceUntil(page, (x) => x.ready, { maxSec: 1800, chunk: 1, label: 'extubation readiness' });
+      assert.ok((await simState(page)).ready, 'readiness met (clock does not move between steps)');
       await page.click('#ph-extubate');
       await page.waitForSelector('#ext-confirm');
       await page.click('#ext-confirm');
-      s = await simState(page);
-      assert.equal(s.airway.secured, false);
+      assert.equal((await simState(page)).airway.secured, false);
       await page.click('#mon-debrief'); await page.waitForSelector('#db-download');
       assert.match(await page.textContent('main'), /Extubated at .* readiness met/);
+      assert.ok(await page.isVisible('#db-timing'), 'debrief timing check');
+      assert.match(await page.textContent('#db-timing'), /Opioid → hypnotic/);
       await shot(page, '5-debrief.png');
       const [dl] = await Promise.all([page.waitForEvent('download'), page.click('#db-download')]);
       assert.match(dl.suggestedFilename(), /\.json$/);
@@ -216,9 +234,8 @@ test('simulator UI smoke', { skip, timeout: 900000 }, async (t) => {
       assert.match(await page.textContent('#pl-target'), /exhaled-CO2/);
       await page.click('#pl-continue'); await page.waitForSelector('#ph-sedation');
       await page.selectOption('#aw-fio2', '0.4'); await page.click('#aw-fio2-set');
-      await page.click('[data-speed="60"]'); await page.click('#ph-sedation'); await page.click('#mon-play');
-      const s = await waitSim(page, (x) => x.t > 480, { label: 'MAC 8 min' });
-      await page.click('#mon-play');
+      await page.click('#ph-sedation');
+      const s = await advanceUntil(page, (x) => x.t > 480, { maxSec: 600, chunk: 30, label: 'MAC 8 min' });
       assert.equal(s.phase, 'sedation');
       assert.ok(['awake', 'minimal', 'moderate', 'deep', 'general'].includes(s.v.sedationLevel));
     });
@@ -238,50 +255,68 @@ test('simulator UI smoke', { skip, timeout: 900000 }, async (t) => {
       assert.match(await page.textContent('#mon-log'), /Hold released by explicit user action/);
     });
 
-    await t.test('guided mode, GA (elderly example) at 60×: gates in order, intubate/extubate only when conditions met', async () => {
+    await t.test('guided mode, GA (elderly example): gates in order, countdowns, pre-incision verification, intubate/extubate only when conditions met', async () => {
       await loadCase(page, 'elderly_cad_ckd'); await toRun(page);
-      await page.click('[data-speed="60"]');
       await page.click('#auto-guided');
       assert.equal((await page.textContent('#auto-banner')).trim(), GUIDED_BANNER);
-      assert.equal((await page.textContent('#auto-gate')).trim(), 'Approve & start induction');
-      await page.waitForTimeout(1500);
-      let s = await autoStatus(page);
-      assert.ok(s.t > 20 && s.phase === 'premed', `nothing advances without the gate (t ${s.t}, ${s.phase})`);
-      await page.click('#auto-gate');
+      assert.equal((await page.textContent('#auto-gate')).trim(), 'Transfer to OR');
+      let s = await adv(page, 30);
+      assert.ok(s.t >= 30 && s.phase === 'premed', `nothing advances without the gate (t ${s.t}, ${s.phase})`);
+      await gate(page, 'Transfer to OR');
+      // OR setup + preoxygenation: the induction gate counts down and stays disabled with the reason shown
+      s = await advanceUntil(page, (x) => x.auto.current && x.auto.current.id === 'start_induction', { maxSec: 300, label: 'induction gate' });
+      await page.waitForFunction(() => document.getElementById('auto-gate').textContent.trim() === 'Approve & start induction');
+      assert.ok(await page.isDisabled('#auto-gate'), 'induction disabled during preoxygenation');
+      assert.ok(await page.isVisible('#auto-countdown')); assert.match(await page.textContent('#auto-countdown'), /available in \d+:\d\d/);
+      assert.match(await page.textContent('#auto-unmet'), /Preoxygenation 3 min/);
+      await gate(page, 'Approve & start induction');
       s = await waitAuto(page, (x) => x.current && x.current.id === 'secure_airway', { label: 'intubate gate shown' });
       await page.waitForFunction(() => document.getElementById('auto-gate').textContent.trim() === 'Intubate (secure airway)');
       assert.ok(await page.isDisabled('#auto-gate'), 'Intubate disabled before intubating conditions');
       await shot(page, 'auto-guided-induction.png');
       s = await gate(page, 'Intubate (secure airway)');
       assert.ok(s.v.tofCount <= 1 && s.v.depthIndex <= 60, `intubating conditions when enabled: ${JSON.stringify(s.v)}`);
-      s = await waitAuto(page, (x) => x.current && x.current.id === 'start_maintenance', { label: 'maintenance gate' });
-      const t1 = s.t; await page.waitForTimeout(1000);
-      assert.equal((await autoStatus(page)).phase, 'induction', 'maintenance waits for the clinician');
-      assert.ok((await autoStatus(page)).t > t1);
+      s = await lite(page);
+      assert.equal(s.auto.current.id, 'start_maintenance');
+      s = await adv(page, 60);
+      assert.equal(s.phase, 'induction', 'maintenance waits for the clinician');
       await gate(page, 'Enter maintenance mode');
-      s = await waitAuto(page, (x) => x.current && x.current.id === 'end_surgery', { label: 'surgery started automatically' });
-      assert.ok((await simLog(page)).some((e) => e.kind === 'auto' && /^AUTO: step 4\/8 — Start surgery \(automatic within the approved phase\)/.test(e.message)), 'surgery started automatically (logged)');
+      // pre-incision verification: no time-based start; the time out is the clinician's
+      s = await advanceUntil(page, (x) => x.auto.current && x.auto.current.id === 'start_surgery', { maxSec: 60, label: 'pre-incision gate' });
+      await page.waitForSelector('#auto-checklist:not([hidden])');
+      assert.match(await page.textContent('#auto-checklist'), /WHO Surgical Safety Checklist “Time Out” confirmed by the clinician/);
+      assert.ok(await page.locator('#auto-checklist .src-tag', { hasText: 'S54' }).count());
+      s = await adv(page, 300);
+      assert.equal(s.auto.current.id, 'start_surgery', 'surgery never starts on time alone');
+      assert.ok(await page.isDisabled('#auto-gate'));
+      assert.ok(await page.isVisible('#auto-timing-box')); assert.match(await page.textContent('#auto-timing'), /Premedication|Opioid → hypnotic|Antibiotic/);
+      await shot(page, 'auto-guided-preincision.png');
+      await gate(page, 'Start surgery (incision)', { clinician: true });
+      assert.ok((await simLog(page)).some((e) => e.kind === 'auto' && /^AUTO: step 6\/10 — Start surgery \(approved by the clinician\)/.test(e.message)), 'surgery started through the gate (logged)');
+      assert.ok((await simLog(page)).some((e) => /time out confirmed by the clinician/.test(e.message)));
       await shot(page, 'auto-guided-maintenance.png');
       await gate(page, 'End surgery');
       await gate(page, 'Enter emergence / extubation mode');
       s = await waitAuto(page, (x) => x.current && x.current.id === 'extubate', { label: 'extubate gate' });
       if (!s.ready) assert.ok(await page.isDisabled('#auto-gate'), 'Extubate disabled until ready');
-      await gate(page, 'Extubate');
+      await gate(page, 'Extubate', { chunk: 1 });
       s = await waitAuto(page, (x) => x.state === 'completed', { label: 'guided GA complete' });
-      assert.equal(s.v && (await simState(page)).airway.secured, false);
+      assert.equal((await simState(page)).airway.secured, false);
       await page.click('#mon-debrief'); await page.waitForSelector('#db-auto-note');
       assert.match(await page.textContent('#db-auto-note'), /ran in guided mode/);
       assert.match(await page.textContent('main'), /Extubated at .* readiness met/);
+      assert.match(await page.textContent('#db-timing'), /Premedication → induction/);
       await shot(page, 'auto-guided-debrief.png');
     });
 
     await t.test('guided mode, MAC (obese OSA example) at 60×', async () => {
       await loadCase(page, 'obese_osa'); await toRun(page);
-      await page.click('[data-speed="60"]');
       await page.click('#auto-guided');
       assert.equal((await page.textContent('#auto-banner')).trim(), GUIDED_BANNER);
+      await gate(page, 'Transfer to OR');
       await gate(page, 'Approve & start sedation');
-      const s = await waitAuto(page, (x) => x.current && x.current.id === 'end_procedure', { label: 'procedure started automatically' });
+      await gate(page, 'Start procedure', { clinician: true });
+      const s = await waitAuto(page, (x) => x.current && x.current.id === 'end_procedure', { label: 'procedure started' });
       assert.equal(s.phase, 'sedation');
       await gate(page, 'End procedure');
       await waitAuto(page, (x) => x.state === 'completed', { label: 'guided MAC complete' });
@@ -292,12 +327,13 @@ test('simulator UI smoke', { skip, timeout: 900000 }, async (t) => {
     for (const [id, label] of [['mh_susceptible', 'GA (MH-susceptible TIVA)'], ['obese_osa', 'MAC (obese OSA)']]) {
       await t.test(`run full case automatically, ${label} at 60×`, async () => {
         await loadCase(page, id); await toRun(page);
-        await page.click('[data-speed="60"]');
         await page.click('#auto-full');
         assert.equal((await page.textContent('#auto-banner')).trim(), FULL_BANNER);
         await shot(page, `auto-full-${id}-running.png`);
         await waitAuto(page, (x) => x.state === 'completed', { label: `full ${id} complete` });
         const log = await simLog(page);
+        assert.ok(log.some((e) => /time out confirmed by the clinician/.test(e.message)), 'time out confirmed by the user, not the runner');
+        assert.ok(!log.some((e) => e.kind === 'auto' && /^AUTO: step .*time out/i.test(e.message)));
         assert.ok(log.some((e) => e.kind === 'auto' && /^AUTO: step 1\//.test(e.message)));
         assert.ok(!log.some((e) => /despite unmet readiness/.test(e.message)), 'override never used');
         await page.click('#mon-debrief'); await page.waitForSelector('#db-auto-note');
@@ -323,19 +359,12 @@ test('simulator UI smoke', { skip, timeout: 900000 }, async (t) => {
 
     await t.test('guided gate: a double-click approves only the gate that was shown', async () => {
       await loadCase(page, 'healthy_adult'); await toRun(page);
-      await page.click('[data-speed="60"]');
       await page.click('#auto-guided');
-      await gate(page, 'Approve & start induction');
-      for (let i = 0; ; i++) {
-        const dom = await page.evaluate(() => { const b = document.getElementById('auto-gate'); return { text: b.textContent.trim(), on: !b.disabled && !b.hidden }; });
-        if (dom.text === 'Intubate (secure airway)' && dom.on) break;
-        const s = await autoStatus(page);
-        if (s.state === 'paused') await userResolvesPause(page);
-        if (i > 3000) throw new Error('intubate gate never enabled');
-        await page.waitForTimeout(100);
-      }
+      await gate(page, 'Transfer to OR'); await gate(page, 'Approve & start induction');
+      await advanceUntil(page, (x) => x.auto.current && x.auto.current.id === 'secure_airway' && x.auto.current.enabled, { maxSec: 900, label: 'intubate gate enabled', resolvePauses: true });
+      await page.waitForFunction(() => { const b = document.getElementById('auto-gate'); return b.textContent.trim() === 'Intubate (secure airway)' && !b.disabled; });
       await page.dblclick('#auto-gate');
-      await page.waitForTimeout(800);
+      await gateIdle(page);
       const s = await autoStatus(page);
       const ids = s.history.map((x) => x.id);
       assert.ok(ids.includes('secure_airway'), 'the shown gate was approved');
@@ -347,24 +376,30 @@ test('simulator UI smoke', { skip, timeout: 900000 }, async (t) => {
       await loadCase(page, 'healthy_adult'); await toRun(page);
       await page.click('#ph-induction'); await page.click('[data-step="60"]'); await page.click('[data-step="60"]'); await page.click('[data-step="60"]');
       await page.click('#ph-secure');
+      // This test checks the real play loop: wall clock on, explicit state conditions only.
+      await page.evaluate(() => window.__smartNoa.testClock(false));
       await page.click('[data-speed="60"]'); await page.click('#mon-play');
-      await page.waitForTimeout(500);
+      const t0 = (await lite(page)).t;
+      await page.waitForFunction((x) => window.__smartNoa.lite().t > x, t0);
       await page.click('#ph-extubate'); await page.waitForSelector('#extubate-dialog[open]');
-      const a = await simState(page); await page.waitForTimeout(2500); const b = await simState(page);
+      const a = await simState(page);
       assert.equal(a.playing, false, 'clock paused while the dialog is open');
+      await page.waitForTimeout(1000); // paused: no simulated time may pass (any advance would be a failure)
+      const b = await simState(page);
       assert.equal(b.t, a.t, `sim time did not advance (${a.t} → ${b.t})`);
       assert.ok(await page.isVisible('#ext-override'), 'not ready: override path offered');
       await page.click('#extubate-dialog .btn:has-text("Cancel")');
-      await page.waitForTimeout(800);
+      await page.waitForFunction((x) => { const l = window.__smartNoa.lite(); return l.playing && l.t > x; }, b.t);
       const c = await simState(page);
       assert.equal(c.playing, true, 'clock resumes after the dialog closes'); assert.ok(c.t > b.t);
       assert.equal(c.airway.secured, true, 'cancel keeps the tube');
       await page.click('#mon-play'); // pause
+      await page.waitForFunction(() => !window.__smartNoa.lite().playing);
+      await page.evaluate(() => window.__smartNoa.testClock(true));
     });
 
     await t.test('reading a citation or pre-filling the form does not end automatic mode', async () => {
       await loadCase(page, 'healthy_adult'); await toRun(page);
-      await page.click('[data-speed="20"]');
       await page.click('#auto-full');
       await waitAuto(page, (x) => x.state === 'running' && x.t > 5, { label: 'auto running' });
       await page.click('#mon-ready-h ~ p .src-tag');
@@ -420,31 +455,71 @@ test('simulator UI smoke', { skip, timeout: 900000 }, async (t) => {
       await shot(page, 'dex-mac-plan.png');
     });
 
-    await t.test('antibiotic checklist in guided mode: warning before Start surgery waits for the clinician; alarm at incision', async () => {
+    await t.test('antibiotic in guided mode: a REQUIRED pre-incision item; the gate waits, nothing is given automatically; the clinician gives it', async () => {
       await toPlan('healthy_adult');
       assert.equal(await page.isChecked('#pl-abx-indicated'), true);
       const card = page.locator('.step-card', { hasText: 'Cefazolin' });
       await card.locator('[data-del]').click();
       assert.ok(!(await planSteps()).some((x) => x.kind === 'antibiotic'));
+      assert.match(await page.textContent('#pl-timing'), /Antibiotic before incision/);
+      assert.equal(await page.getAttribute('#pl-timing [data-check="antibiotic_window"]', 'data-status'), 'warn');
       await page.click('#pl-continue'); await page.waitForSelector('#mon-play');
-      await page.click('[data-speed="60"]');
       await page.click('#auto-guided');
-      await gate(page, 'Approve & start induction'); await gate(page, 'Intubate (secure airway)'); await gate(page, 'Enter maintenance mode');
-      await waitAuto(page, (s) => s.current && s.current.id === 'start_surgery' && !!s.current.checklist, { label: 'checklist shown' });
-      await page.waitForSelector('#auto-checklist:not([hidden])'); await page.waitForSelector('#abx-checklist:not([hidden])');
-      const t0 = (await simState(page)).t;
-      await waitSim(page, (s) => s.t > t0 + 240, { label: 'time passes while waiting' });
+      await gate(page, 'Transfer to OR'); await gate(page, 'Approve & start induction'); await gate(page, 'Intubate (secure airway)'); await gate(page, 'Enter maintenance mode');
+      await advanceUntil(page, (s) => s.auto.current && s.auto.current.id === 'start_surgery', { maxSec: 60, label: 'pre-incision gate' });
+      await page.waitForSelector('#auto-checklist:not([hidden])'); await page.waitForSelector('#auto-abx-give:not([hidden])');
+      assert.equal(await page.getAttribute('#auto-checklist-items [data-item="antibiotic"]', 'data-met'), 'false');
+      await clickIf(page, '#auto-timeout'); await clickIf(page, '#auto-depth-ack');
+      const s0 = await adv(page, 240);
       const s1 = await snap(page);
       assert.equal(s1.auto.current.id, 'start_surgery', 'surgery has not started');
-      assert.equal(s1.sim.prophylaxis.checklistAcknowledged, null, 'never auto-acknowledged');
+      assert.equal(s1.sim.prophylaxis.doses.length, 0, 'never given automatically');
+      assert.ok(await page.isDisabled('#auto-gate'), `gate closed while the antibiotic is missing (t ${s0.t})`);
       await elShot('#auto-panel', 'antibiotic-checklist-guided.png');
-      await page.click('#auto-abx-ack');
-      await waitAuto(page, (s) => s.current && s.current.id === 'end_surgery', { label: 'surgery started after acknowledgement' });
+      await page.click('#auto-abx-give');
+      await gate(page, 'Start surgery (incision)', { clinician: true });
       const s2 = await snap(page);
-      assert.ok(s2.sim.prophylaxis.checklistAcknowledged);
-      assert.ok(s2.sim.alarms.some((a) => a.id === 'abx_window' && a.priority === 'medium'), JSON.stringify(s2.sim.alarms));
-      assert.match(await page.textContent('#mon-alarms'), /Surgery started without antibiotic prophylaxis in the recommended window/);
-      await shot(page, 'antibiotic-alarm-guided.png');
+      assert.equal(s2.sim.prophylaxis.doses[0].source, 'clinician');
+      assert.equal(s2.sim.prophylaxis.window.ok, true);
+      assert.ok(!s2.sim.alarms.some((a) => a.id === 'abx_window'), 'no window alarm');
+      await shot(page, 'antibiotic-guided.png');
+      await page.click('#auto-takeover');
+    });
+
+    await t.test('timing: plan Timing check panel, per-step timing rationale, gate countdown in guided mode', async () => {
+      await toPlan('healthy_adult');
+      await page.selectOption('#pl-template', 'ga_opioid'); await page.click('#pl-template-apply');
+      await page.waitForSelector('#pl-timing [data-check="opioid_hypnotic"]');
+      assert.equal(await page.getAttribute('#pl-timing [data-check="opioid_hypnotic"]', 'data-status'), 'pass');
+      assert.equal(await page.getAttribute('#pl-timing', 'data-warnings'), '0');
+      const fent = page.locator('.step-card', { hasText: 'Fentanyl' }).first();
+      assert.match(await fent.locator('.timing-why').textContent(), /Why this time: Opioid given ~3 min before the hypnotic.*simulator convention/);
+      assert.match(await page.locator('.step-card', { hasText: 'Dexamethasone' }).locator('.timing-why').textContent(), /PONV prophylaxis \(consensus\)/);
+      assert.match(await page.locator('.step-card', { hasText: 'Cefazolin' }).locator('.timing-why').textContent(), /within 60 min before incision \(Bratzler\)/);
+      assert.ok(await page.locator('.tl-legend li[title*="Why this time"]').count() > 5, 'timeline tooltips');
+      // make propofol too early → the Timing check warns
+      const pro = page.locator('.step-card', { hasText: 'Propofol' }).filter({ hasText: 'Induction regimen' }).first();
+      const tIn = pro.locator('input.input--time'); await tIn.fill('00:30'); await tIn.dispatchEvent('change');
+      await page.waitForSelector('#pl-timing [data-check="opioid_hypnotic"][data-status="warn"]');
+      await elShot('#pl-timing', 'plan-timing-check.png');
+      await tIn.fill('03:00'); await tIn.dispatchEvent('change');
+      await page.waitForSelector('#pl-timing [data-check="opioid_hypnotic"][data-status="pass"]');
+      // MAC dexmedetomidine: loading 10 min, then maintenance at 10:00 (shown and checked)
+      await page.selectOption('#pl-template', 'mac_dex'); await page.click('#pl-template-apply');
+      assert.ok((await planSteps()).some((x) => x.drugId === 'dexmedetomidine' && x.kind === 'infusion' && x.atSec === 600));
+      assert.equal(await page.getAttribute('#pl-timing [data-check="loading_maintenance"]', 'data-status'), 'pass');
+      // guided countdown before Transfer to OR (opioid template has midazolam premedication)
+      await page.selectOption('#pl-template', 'ga_opioid'); await page.click('#pl-template-apply');
+      await page.click('#pl-continue'); await page.waitForSelector('#mon-play');
+      await page.click('#auto-guided');
+      await adv(page, 60);
+      await page.waitForSelector('#auto-countdown:not([hidden])');
+      assert.match(await page.textContent('#auto-countdown'), /Transfer to OR: available in \d+:\d\d/);
+      assert.ok(await page.isDisabled('#auto-gate'));
+      await elShot('#auto-panel', 'guided-countdown.png');
+      await gate(page, 'Transfer to OR');
+      const s = await lite(page);
+      assert.ok(s.t >= 420, `transfer no earlier than 5 min after the 2-min premedication (t ${s.t})`);
       await page.click('#auto-takeover');
     });
 
@@ -455,7 +530,6 @@ test('simulator UI smoke', { skip, timeout: 900000 }, async (t) => {
       await page.click('#pl-fluid-bolus-250-maintenance');
       assert.ok((await planSteps()).some((x) => x.kind === 'fluid_bolus' && x.drugId === 'sodium_chloride_0_9' && x.phase === 'maintenance'));
       await page.click('#pl-continue'); await page.waitForSelector('#mon-fluids-panel');
-      await page.click('[data-speed="60"]');
       await page.click('[data-step="60"]'); // the planned LR maintenance (premedication 00:00) starts first
       assert.equal((await simState(page)).fluids.maintenance.fluidId, 'lactated_ringers');
       await page.selectOption('#fl-type', 'sodium_chloride_0_9'); await page.click('#fl-500');
@@ -470,7 +544,7 @@ test('simulator UI smoke', { skip, timeout: 900000 }, async (t) => {
       await elShot('#mon-fluids-panel', 'fluids-panel.png');
       // run the whole template case as the automatic demonstration (restarts from 00:00 with the plan), then debrief
       await page.click('#auto-full');
-      await waitAuto(page, (s) => s.state === 'completed', { label: 'full case with fluids', timeout: 400000 });
+      await waitAuto(page, (s) => s.state === 'completed', { label: 'full case with fluids' });
       const s = await simState(page);
       assert.equal(s.fluids.byType.sodium_chloride_0_9.bolusMl, 250, 'planned 0.9% NaCl bolus ran');
       assert.ok(s.fluids.byType.lactated_ringers.maintenanceMl > 0, 'LR maintenance from the template ran across phases');

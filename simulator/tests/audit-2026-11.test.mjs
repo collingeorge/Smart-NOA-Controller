@@ -13,7 +13,7 @@ import { createAutoRunner, buildSequence } from '../engine/autorun.js';
 import { AUTORUN_CONFIG } from '../engine/autorun-config.js';
 import { EXAMPLE_PATIENTS, EXAMPLE_PLANS, buildPlan, overSecFromTiming } from '../data/scenarios.js';
 import { parseClock, fmtClock } from '../ui/dom.js';
-import { basePatient, REAL, runFor } from './helpers.mjs';
+import { basePatient, REAL, runFor, clinicianResolves } from './helpers.mjs';
 
 const ROOT = fileURLToPath(new URL('../../', import.meta.url));
 const P = (over = {}) => derivePatient(basePatient(over), { library: REAL });
@@ -294,7 +294,8 @@ test('clinical 16: the sedation target must hold for SEDATION_TARGET_HOLD_SEC be
   const sim = createSimulation({ patient: p, plan, library: REAL, seed: 1 });
   const A = createAutoRunner({ sim, mode: 'full' }); A.start();
   let started = null; const levels = [];
-  for (let i = 0; i < 2400 && A.state === 'running' && started === null; i++) {
+  for (let i = 0; i < 2400 && ['running', 'paused'].includes(A.state) && started === null; i++) {
+    if (A.state === 'paused') { clinicianResolves(A); assert.ok(A.resume().ok, A.message); A.tick(); if (A.history.some((h) => h.id === 'start_procedure')) started = sim.state.tSec; continue; } // WHO time out: clinician only
     sim.step(1); levels.push(sim.state.vitals.sedationLevel); A.tick();
     if (A.history.some((h) => h.id === 'start_procedure')) started = sim.state.tSec;
   }

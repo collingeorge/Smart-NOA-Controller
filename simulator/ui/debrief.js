@@ -4,6 +4,7 @@ import { srcTags } from './sources.js';
 import { PRIORITY_LABELS, PRIORITY_SHAPES } from './labels.js';
 import { getDrugById } from './plan-model.js';
 import { readinessItem } from './monitor.js';
+import { timingCheckItems } from './timing-view.js';
 import { exportPlan } from './plan-model.js';
 import { loadModelAssumptions, assumptionsList } from './model-card.js';
 
@@ -55,6 +56,9 @@ export function renderDebrief(ctx, main) {
       fl !== null ? stat('Crystalloid given', `${fmtNum(fl, 0)} mL`) : null),
     fluidsCard(s.fluids, p),
     prophylaxisCard(s.prophylaxis, lib),
+    h('section', { class: 'card', id: 'db-timing' }, h('h3', {}, 'Timing check'),
+      h('p', { class: 'hint' }, 'Each check compares when things happened with the timing rule and its source or simulator convention (engine/timing.js). It only compares times; it does not judge the illustrative physiology.'),
+      s.timingChecks && s.timingChecks.length ? h('ul', { class: 'tchecks tchecks--light' }, timingCheckItems(s.timingChecks)) : h('p', {}, 'No timing events.')),
     h('section', { class: 'card' }, h('h3', {}, 'Drug totals'),
       s.lidocaine && s.lidocaine.totalMg > 0 ? h('p', { id: 'db-lido' }, `Lidocaine total ${fmtNum(s.lidocaine.totalMg, 3)} mg (${fmtNum(s.lidocaine.perKgIbw, 3)} mg/kg IBW), including pretreatment ${fmtNum(s.lidocaine.pretreatmentMg, 3)} mg (${s.lidocaine.pretreatmentDoses} dose${s.lidocaine.pretreatmentDoses === 1 ? '' : 's'}).${s.lidocaine.overlapWarning ? ' Pretreatment and IV lidocaine analgesic dosing overlapped (Foo 2021 check) ' : ' '}`, s.lidocaine.overlapWarning ? srcTags(['S1']) : null) : null,
       totals.length ? h('div', { class: 'table-wrap' }, h('table', { class: 'table', id: 'db-totals' },
@@ -81,7 +85,7 @@ export function renderDebrief(ctx, main) {
       h('ul', { class: 'list' },
         h('li', {}, 'This is an educational simulation with a fictional patient. It is not a medical device, not clinical decision support and not validated.'),
         h('li', {}, 'Physiology and PK/PD are illustrative except where the Model card records an implemented published model; other constants are fitted to label timing statements or are engine assumptions.'),
-        h('li', {}, 'The depth number is a simulated depth index (0–100, illustrative; not BIS).'),
+        h('li', {}, 'The depth number is a processed-EEG depth index (BIS-style, simulated; 0–100, illustrative); it is not a BIS value (BIS is a trademark of its owner).'),
         h('li', {}, 'Doses are label/guideline values chosen as defaults by a simulator convention; they are not recommendations.')),
       assumptionsHost,
       Object.keys(modelInfo).length ? h('details', {}, h('summary', {}, 'Model provenance for drugs used'), h('ul', { class: 'list list--tight' },
