@@ -48,6 +48,7 @@ export function renderDebrief(ctx, main) {
     h('div', { class: 'step-head' }, h('h2', { id: 'step-title', tabindex: '-1' }, '5 · Debrief'),
       h('p', { class: 'muted' }, `Simulated duration ${fmtClock(s.durationSec)} · ${sim.plan.mode === 'GA' ? 'general anaesthesia' : `MAC (${sim.plan.sedationTarget})`} · interlocks ${store.interlocks ? 'on' : 'off'} · seed ${sim.seed}. ${s.modelNote}`)),
     autoCard(s.automatic),
+    advisoryDebrief(s.advisories),
     h('div', { class: 'grid grid--4 stats' },
       stat('Time MAP < 65 mmHg', fmtClock(s.timeMapBelow65Sec)),
       stat('Minimum SpO2', isNum(s.minSpo2) ? `${s.minSpo2} %` : '—'),
@@ -115,6 +116,17 @@ function autoCard(A) {
     A.steps.length ? h('ol', { class: 'list list--tight' }, A.steps.map((x) => h('li', {}, h('span', { class: 'mono' }, fmtClock(x.tSec)), ` ${x.label} — ${x.by === 'clinician' ? 'confirmed by the clinician' : 'automatic'}`))) : null,
     A.pauses.length ? h('p', {}, `Pauses: ${A.pauses.map((p) => `${fmtClock(p.tSec)} (${p.reasons.join(' ')})${p.resumedAtSec !== null ? ` → resumed ${fmtClock(p.resumedAtSec)}` : ''}`).join('; ')}`) : null,
     h('p', { class: 'hint' }, 'Automatic steps are marked “AUTO:” (log kind “auto”) in the event log and in the downloaded session JSON (automaticMode).'));
+}
+
+const ADV_STATUS = { shown: 'shown (open at the end)', accepted: 'ACCEPTED by the clinician — bolus given', accept_blocked: 'accepted, but the bolus was blocked', dismissed: 'dismissed by the clinician', withdrawn: 'withdrawn', superseded: 'superseded', expired: 'expired (MAP recovered)' };
+function advisoryDebrief(A) {
+  if (!A || !A.used) return null;
+  return h('section', { class: 'card', id: 'db-advisories' }, h('h3', {}, 'Advisory: haemodynamic rescue'),
+    h('p', {}, `Shown ${A.shown} · accepted ${A.accepted} · dismissed ${A.dismissed}. ${A.note}`),
+    A.entries.length ? h('ol', { class: 'list list--tight', id: 'db-advisory-list' }, A.entries.map((x) => h('li', { dataset: { status: x.status } },
+      h('span', { class: 'mono' }, fmtClock(x.shownAtSec)), ` ${x.id} — ${x.kind === 'hypotension' ? `MAP ${x.map}, HR ${x.hr}: suggested ${x.name} ${x.amount} ${x.unit} IV bolus ` : `MAP ${x.map}: high-MAP advice (text only, no drug) `}`,
+      x.sources.length ? srcTags(x.sources) : null,
+      ` — ${ADV_STATUS[x.status] || x.status}${x.resolvedAtSec !== null ? ` at ${fmtClock(x.resolvedAtSec)}` : ''}${x.note && x.status !== 'accepted' && x.status !== 'dismissed' ? ` (${x.note})` : ''}`))) : h('p', { class: 'hint' }, 'No advisory was shown in this case.'));
 }
 
 function fluidsCard(F, p) {

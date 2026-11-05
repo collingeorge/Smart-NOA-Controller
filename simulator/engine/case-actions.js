@@ -15,6 +15,7 @@ export const CASE_ACTIONS = Object.freeze({
   // ---- clinician-only checklist items (never called by the automatic runner on its own)
   confirm_time_out: (sim) => act(sim, 'confirm_time_out'),
   acknowledge_depth_below_band: (sim) => act(sim, 'acknowledge_depth_below_band'),
+  acknowledge_sedation_below_target: (sim) => act(sim, 'acknowledge_sedation_below_target'),
   // ---- GA phase controls
   start_induction: (sim) => phase(sim, 'induction', 'Induction started — plan induction steps run from now.'),
   secure_airway: (sim) => {

@@ -13,6 +13,8 @@ import { FLUID_MODEL } from '../engine/sim.js';
 import { selectProphylaxis } from '../engine/prophylaxis.js';
 import { TIMING_CONFIG, PREMED_TO_INDUCTION_MIN_SEC, premedStatus } from '../engine/timing.js';
 import { timingCheckItems } from './timing-view.js';
+import { createRescueAdvisor } from '../engine/rescue.js';
+import { advisoryCard } from './advisory.js';
 
 const GA_BAND = TIMING_CONFIG.GA_DEPTH_BAND.value;
 const DEPTH_LABEL = 'Processed-EEG depth index (BIS-style, simulated)';
@@ -346,9 +348,23 @@ export function renderMonitor(ctx, main) {
   const readyPanel = isGA ? h('section', { class: 'hmi-panel', 'aria-labelledby': 'mon-ready-h' }, h('h3', { id: 'mon-ready-h' }, 'Extubation readiness (live)'), readyHead, readyList,
     h('p', { class: 'hint hint--hmi' }, 'TOFR ≥ 0.9 before extubation ', srcTags([E.tofExtubation]), '. Without reversal, rocuronium recovery is slow; sugammadex dose depends on block depth.')) : null;
 
+  // ---------------- advisory haemodynamic rescue (engine/rescue.js): suggestions only; a bolus is given
+  // only when the clinician presses "Give suggested bolus" (it does not end guided/automatic mode).
+  const advisor = createRescueAdvisor(sim);
+  let autoDirty = false; let inAdvance = false; let focusResume = false; // runner-event re-render state
+  const advAccept = (id) => { const r = advisor.accept(id); feedback(r.message, !r.ok, !!(r.warnings && r.warnings.length)); announce(r.message); render(true); };
+  const advDismiss = (id) => { const r = advisor.dismiss(id); feedback(r.message, !r.ok); announce(r.message); render(true); };
+  const advRun = advisoryCard({ prefix: 'adv', live: true, onAccept: advAccept, onDismiss: advDismiss });
+  const advAuto = advisoryCard({ prefix: 'auto-adv', live: false, onAccept: advAccept, onDismiss: advDismiss });
+
   // ---------------- guided / automatic modes (engine/autorun.js; conditions in engine/autorun-config.js)
   const autoStatus = h('p', { class: 'auto-status', id: 'auto-status' });
   const autoBanner = h('p', { class: 'auto-banner', id: 'auto-banner', hidden: true });
+  // Paused banner (2026-11 fix): shown the moment the runner pauses itself, with the reason and the exact
+  // action needed; Resume is enabled while paused (it re-checks and lists anything still needed).
+  const autoPausedHead = h('p', { class: 'auto-paused__head', id: 'auto-paused-head' });
+  const autoPausedList = h('ul', { class: 'auto-paused__list', id: 'auto-paused-list' });
+  const autoPaused = h('div', { class: 'auto-paused', id: 'auto-paused', role: 'alert', hidden: true }, autoPausedHead, autoPausedList);
   const autoGate = h('button', { type: 'button', class: 'btn btn--hmi btn--primary auto-gate', id: 'auto-gate', hidden: true });
   const autoUnmet = h('ul', { class: 'auto-unmet', id: 'auto-unmet' });
   // Countdown for time-gated transitions (pre-op holding → OR → preoxygenation → induction).
@@ -365,9 +381,26 @@ export function renderMonitor(ctx, main) {
   autoDepthAck.addEventListener('click', () => clin('acknowledge_depth_below_band'));
   const autoAbxGive = h('button', { type: 'button', class: 'btn btn--hmi btn--warn', id: 'auto-abx-give', hidden: true }, 'Give guideline prophylaxis now');
   autoAbxGive.addEventListener('click', () => clin('give_prophylaxis'));
+  // Sedation below the plan target (MAC): (a) titrate within the label range (clinician-approved, logged), or
+  // (b) acknowledge and start the procedure at the current level. Never automatic.
+  const autoSedMsg = h('p', { class: 'checklist__msg auto-sed__msg', id: 'auto-sed-msg', hidden: true });
+  const autoSedTitrate = h('button', { type: 'button', class: 'btn btn--hmi btn--primary', id: 'auto-sed-titrate', hidden: true }, 'Titrate');
+  autoSedTitrate.addEventListener('click', () => clin('titrate_sedation'));
+  const autoSedAck = h('button', { type: 'button', class: 'btn btn--hmi btn--warn', id: 'auto-sed-ack', hidden: true }, 'Acknowledge and start procedure at current level');
+  autoSedAck.addEventListener('click', () => {
+    if (!run.auto) return;
+    const r = run.auto.clinicianAction('acknowledge_sedation_below_target');
+    let msg = r.message;
+    // Guided: the clinician's acknowledgement also presses "Start procedure" when every other item is met.
+    if (r.ok && run.auto.mode === 'guided' && run.auto.state === 'running') {
+      const st = run.auto.status();
+      if (st.current && st.current.id === 'start_procedure' && st.current.enabled) { const a = run.auto.approve('start_procedure'); msg = `${msg}. ${a.message}`; if (a.ok && !run.playing) setPlaying(true, true); }
+    }
+    feedback(msg, !r.ok); announce(msg); render(true);
+  });
   const autoCk = h('div', { class: 'checklist', id: 'auto-checklist', role: 'group', 'aria-label': 'Verification before Start surgery / Start procedure', hidden: true },
     h('p', { class: 'checklist__title' }, 'Verification before incision — every item must be met; you confirm the time out ', srcTags([...TIMING_CONFIG.TIME_OUT_REQUIRED.sourceIds])), autoCkList, autoCkMsg,
-    h('div', { class: 'btn-row' }, autoTimeOut, autoDepthAck, autoAbxGive));
+    autoSedMsg, h('div', { class: 'btn-row' }, autoTimeOut, autoDepthAck, autoAbxGive, autoSedTitrate, autoSedAck));
   // Live timing check (engine/timing.js liveTimingChecks): warnings stay visible before each gate.
   const autoTiming = h('ul', { class: 'tchecks', id: 'auto-timing' });
   const autoTimingBox = h('details', { class: 'auto-timing', id: 'auto-timing-box', open: true }, h('summary', {}, 'Timing check (live)'), autoTiming);
@@ -382,7 +415,7 @@ export function renderMonitor(ctx, main) {
   const autoPanel = h('section', { class: 'hmi-panel auto-panel', id: 'auto-panel', 'aria-labelledby': 'auto-h', 'data-auto-safe': 'auto-panel' },
     h('h3', { id: 'auto-h' }, 'Guided & automatic modes'), autoBanner,
     h('p', { class: 'hint hint--hmi', id: 'auto-intro' }, `Use the patient and plan already entered (doses are not changed) and start the case from 00:00. Guided mode runs each phase from your plan and waits for you at every transition; the full demonstration walks the same sequence on fixed timings. Both pause for an interlock hold or a HIGH-priority alarm (never clearing or acknowledging it), never extubate unless the readiness checklist is met, and end as soon as you use any manual control. Every step is logged (log kind "auto").`),
-    autoStartRow, autoStatus, autoCountdown, autoGate, autoCk, autoUnmet, autoCtlRow, autoTimingBox, autoSeq);
+    autoStartRow, autoStatus, autoPaused, autoCtlRow, autoCountdown, autoGate, autoCk, autoUnmet, advAuto.el, autoTimingBox, autoSeq);
   const startAuto = (mode) => {
     if (sim.state.tSec > 0 || sim.state.phase !== 'premed') { ctx.restartSim(); store.run.autoStart = mode; ctx.rerender(); return; }
     beginAuto(mode);
@@ -401,6 +434,11 @@ export function renderMonitor(ctx, main) {
     if (['paused', 'stopped', 'completed', 'still_paused'].includes(ev.type) && run.playing) setPlaying(false, true);
     feedback(ev.message, bad && ev.type !== 'timeout_warning', ev.type === 'timeout_warning');
     if (ev.type !== 'started') announce(ev.message, bad);
+    // Re-render the panel at once on every runner state change (2026-11 fix: the clock stops on a self-pause,
+    // so the animation loop no longer renders; the panel used to stay "running" with Resume disabled).
+    autoDirty = true;
+    if (!inAdvance) render(true);
+    if (ev.type === 'paused' && ev.reasons && ev.reasons.some((x) => x.kind !== 'user')) focusResume = true;
   }
   run.autoListener = run.auto ? onAutoEvent : null;
   autoGuided.addEventListener('click', () => startAuto('guided'));
@@ -436,10 +474,21 @@ export function renderMonitor(ctx, main) {
     autoBanner.hidden = !st; if (st) setText(autoBanner, st.banner);
     autoPanel.classList.toggle('auto-panel--active', active);
     autoPanel.classList.toggle('auto-panel--paused', !!st && st.state === 'paused');
-    if (!st) { setText(autoStatus, ''); autoGate.hidden = true; clear(autoUnmet); clear(autoSeq); return; }
+    if (!st) { setText(autoStatus, ''); autoGate.hidden = true; autoPaused.hidden = true; clear(autoUnmet); clear(autoSeq); return; }
     const stateText = { running: 'running', paused: 'PAUSED', completed: 'complete', stopped: 'STOPPED', manual: 'ended (manual control)' }[st.state] || st.state;
     setText(autoStatus, `${st.modeLabel} — ${stateText}. ${st.message}`);
     autoPause.disabled = st.state !== 'running'; autoResume.disabled = st.state !== 'paused';
+    autoDirty = false;
+    const paused = st.state === 'paused';
+    autoPaused.hidden = !paused;
+    if (paused) {
+      const det = st.pauseDetails || [];
+      const head = det.length ? `Paused — ${det.map((d) => d.headline).join('; ')}. ${det.length === 1 ? det[0].action : 'Do each action below, then press Resume.'}` : `Paused — ${st.message}`;
+      setText(autoPausedHead, head);
+      const psig = det.map((d) => d.headline + d.action).join('|');
+      if (autoPausedList.dataset.sig !== psig) { autoPausedList.dataset.sig = psig; clear(autoPausedList).append(...(det.length > 1 ? det.map((d) => h('li', {}, h('strong', {}, d.headline), ` — ${d.action}`)) : [])); }
+    }
+    if (focusResume && paused) { focusResume = false; if (!autoResume.disabled) autoResume.focus({ preventScroll: true }); }
     const c = st.current;
     const showGate = active && st.mode === 'guided' && c && c.gate;
     autoGate.hidden = !showGate;
@@ -459,6 +508,14 @@ export function renderMonitor(ctx, main) {
       }
       const need = (id) => items.some((x) => x.id === id && !x.met && (x.clinician || id === 'antibiotic'));
       autoTimeOut.hidden = !items.some((x) => x.id === 'time_out' && !x.met); autoDepthAck.hidden = !need('depth'); autoAbxGive.hidden = !need('antibiotic');
+      const sedIt = items.find((x) => x.id === 'sedation' && !x.met && x.clinician && x.belowTarget);
+      autoSedMsg.hidden = !sedIt; autoSedAck.hidden = !sedIt; autoSedTitrate.hidden = !sedIt;
+      if (sedIt) {
+        const tz = st.titration;
+        setText(autoSedMsg, `Sedation below the planned target (${sedIt.belowTarget.level} vs ${sedIt.belowTarget.target}). Choose: titrate within the label range, or acknowledge and start the procedure at the current level. Nothing is done automatically.`);
+        if (!tz || tz.none) { setText(autoSedTitrate, 'Titrate: no further step within the label range'); autoSedTitrate.disabled = true; }
+        else { setText(autoSedTitrate, `Titrate: ${tz.label} [${tz.sources.join(', ')}]${tz.waitSec > 0 ? ` — reassess, allowed in ${fmtClock(tz.waitSec)}` : ''}`); autoSedTitrate.disabled = tz.waitSec > 0; }
+      }
       setText(autoCkMsg, c.checklist ? `Antibiotic: ${c.checklist}` : '');
     }
     if (active && run.auto) {
@@ -483,7 +540,7 @@ export function renderMonitor(ctx, main) {
   }
 
   // ---------------- log
-  const logFilter = h('select', { id: 'log-filter', class: 'input input--hmi' }, ['all', 'dose', 'alarm', 'interlock', 'action', 'phase', 'event', 'auto'].map((k) => h('option', { value: k }, k === 'all' ? 'All entries' : k === 'auto' ? 'auto (guided / automatic steps)' : k)));
+  const logFilter = h('select', { id: 'log-filter', class: 'input input--hmi' }, ['all', 'dose', 'alarm', 'interlock', 'action', 'phase', 'event', 'auto', 'advisory'].map((k) => h('option', { value: k }, k === 'all' ? 'All entries' : k === 'auto' ? 'auto (guided / automatic steps)' : k === 'advisory' ? 'advisory (rescue suggestions)' : k)));
   const logList = h('ol', { class: 'log', id: 'mon-log', reversed: true });
   let logLen = -1;
   logFilter.addEventListener('change', () => { logLen = -1; renderLog(); });
@@ -502,7 +559,7 @@ export function renderMonitor(ctx, main) {
         h('div', { class: 'hmi-toolbar__group', role: 'group', 'aria-label': 'Playback' }, playBtn, stepBtns),
         h('div', { class: 'hmi-toolbar__group', role: 'group', 'aria-label': 'Speed' }, h('span', { class: 'label' }, 'Speed'), speedBtns),
         h('div', { class: 'hmi-toolbar__group' }, ilBadge, restartBtn)),
-      fb, autoPanel,
+      fb, autoPanel, advRun.el,
       h('div', { class: 'hmi-grid' },
         h('div', { class: 'hmi-main' }, tileGrid, chartGrid, drugPanel),
         h('div', { class: 'hmi-side' }, alarmPanel, ilPanel, abxPanel, phasePanel, readyPanel, airwayPanel, fluidPanel, intPanel)),
@@ -541,11 +598,15 @@ export function renderMonitor(ctx, main) {
     if (cut > 200) { for (const k of ['t', 'hr', 'map', 'spo2', 'depth', 'mac']) H[k].splice(0, cut); for (const k of Object.keys(H.ce)) H.ce[k].splice(0, cut); }
   }
   function advance(sec) {
-    for (let i = 0; i < sec; i++) {
-      sim.step(1); sample();
-      const A = run.auto;
-      if (A && A.state === 'running') { A.tick(); if (A.state !== 'running') break; }
-    }
+    inAdvance = true;
+    try {
+      for (let i = 0; i < sec; i++) {
+        sim.step(1); sample();
+        const A = run.auto;
+        if (A && A.state === 'running') { A.tick(); if (A.state !== 'running') break; }
+      }
+    } finally { inAdvance = false; }
+    if (autoDirty) render(true);
   }
   function frame(ts) {
     raf = null;
@@ -635,6 +696,8 @@ export function renderMonitor(ctx, main) {
       if (sig !== readyList.dataset.sig) { readyList.dataset.sig = sig; clear(readyList).append(...r.criteria.map((c) => readinessItem(c))); }
     }
     renderAuto();
+    const av = advisor.view();
+    advRun.update(av); advAuto.update(run.auto && run.auto.active ? av : null);
     renderLog();
     drawCharts();
   }

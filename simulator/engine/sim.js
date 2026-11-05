@@ -185,7 +185,7 @@ class Simulation {
       surgery: { stimulus: 'none' },
       // Pre-op holding → OR and pre-incision verification (timing review): transfer time, WHO time out
       // (clinician only), clinician acknowledgement of an index below the GA band, planned end of surgery.
-      periop: { transferAt: null, timeOut: null, depthAck: null, plannedSurgeryEndSec: null },
+      periop: { transferAt: null, timeOut: null, depthAck: null, sedationAck: null, plannedSurgeryEndSec: null },
       alarms: [],
       interlocks: { enabled: !!interlocksEnabled, status: interlocksEnabled ? 'INITIALIZING' : 'DISABLED', holdLatched: false, heldDrugs: [], lockouts },
       log: [],
@@ -575,6 +575,16 @@ class Simulation {
       if (!(v < lo)) return no(`Processed-EEG depth index ${v} is not below the GA band (${lo})`);
       this.state.periop.depthAck = { tSec: t, index: v };
       return ok(`Clinician acknowledged a processed-EEG depth index of ${v} (below the GA band ${lo}–${TIMING_CONFIG.GA_DEPTH_BAND.value[1]}) before incision`);
+    }
+    if (id === 'acknowledge_sedation_below_target') {
+      // MAC: the clinician accepts starting the procedure at a sedation level below the plan target
+      // (never automatic; guided/automatic modes only offer it). Logged with the level and target.
+      const tgt = this.plan.sedationTarget || 'moderate'; const lvl = this.state.vitals.sedationLevel;
+      if (this.plan.mode !== 'MAC') return no('Only for a MAC / sedation plan');
+      if (this.state.periop.sedationAck) return no('Sedation level already acknowledged');
+      if (!(SEDATION_RANK[lvl] < SEDATION_RANK[tgt])) return no(`Sedation level ${lvl} is not below the plan target (${tgt})`);
+      this.state.periop.sedationAck = { tSec: t, level: lvl, target: tgt };
+      return ok(`Clinician acknowledged sedation below the planned target (${lvl} vs ${tgt}) and chose to start the procedure at the current level`);
     }
     if (id.startsWith('acknowledge:')) {
       const aid = id.slice(12);
@@ -1041,7 +1051,7 @@ class Simulation {
       alarms: this.alarmMgr.history.map((a) => ({ ...a })),
       extubation: this.stats.extubation || { tSec: null, ...this.extubationReadiness(), note: 'not extubated; current readiness' },
       interlockEvents: this.stats.interlockEvents.slice(),
-      periop: { ...this.state.periop, timeOut: this.state.periop.timeOut ? { ...this.state.periop.timeOut } : null, depthAck: this.state.periop.depthAck ? { ...this.state.periop.depthAck } : null },
+      periop: { ...this.state.periop, timeOut: this.state.periop.timeOut ? { ...this.state.periop.timeOut } : null, depthAck: this.state.periop.depthAck ? { ...this.state.periop.depthAck } : null, sedationAck: this.state.periop.sedationAck ? { ...this.state.periop.sedationAck } : null },
       depthOutOfBandSec: Math.round(this.stats.depthOutOfBandSec),
       timingChecks: liveTimingChecks(this),
       fluids: { crystalloidMl: roundSig(this.state.fluids.crystalloidMl), perKg: roundSig(this.state.fluids.crystalloidMl / this.patient.weightKg, 3), perKgBasis: 'TBW', boluses: this.state.fluids.boluses.map((b) => ({ ...b })),

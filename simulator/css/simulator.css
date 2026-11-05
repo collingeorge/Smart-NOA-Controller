@@ -430,3 +430,19 @@ select.input { padding-right: 1.8rem; }
 .auto-seq li.is-done { color: var(--hmi-muted); }
 .auto-seq__mark { display: inline-block; width: 1.3em; }
 .card--auto { border-color: var(--gold); }
+
+/* Paused banner (guided / automatic; 2026-11 fix) */
+.auto-paused { margin: .4rem 0; padding: .55rem .75rem; border: 3px solid #ffd166; border-radius: 6px; background: #3d3410; color: #fff3c4; overflow-wrap: anywhere; }
+.auto-paused__head { margin: 0; font-weight: 700; font-size: 1.05rem; }
+.auto-paused__list { margin: .3rem 0 0; padding-left: 1.1rem; }
+.auto-sed__msg { color: #ffe08a; font-weight: 600; }
+
+/* Advisory: haemodynamic rescue (ui/advisory.js) */
+.advisory { margin: .6rem 0; border: 2px solid #8fd3ff; overflow-wrap: anywhere; }
+.advisory[data-kind="hypertension"] { border-color: #ffd166; }
+.advisory__disclaimer { margin: 0 0 .3rem; font-weight: 700; color: #cfeaff; }
+.advisory__headline { margin: .2rem 0; font-weight: 700; }
+.advisory__countdown { margin: .2rem 0; color: #ffe9a6; }
+.advisory__suggestion p { margin: .2rem 0; }
+.advisory .btn-row .btn { white-space: normal; max-width: 100%; }
+.auto-panel .btn-row .btn { white-space: normal; max-width: 100%; }

@@ -408,12 +408,15 @@ for (const t of TECHNIQUE_TEMPLATES) for (const mode of ['guided', 'full']) {
       // Timing review: mac_propofol now starts the maintenance infusion when the label initiation ends
       // (no loading/maintenance overlap). At the label lower-bound rate (25 mcg/kg/min, library default) the
       // illustrative model keeps the 27-y MH example patient at minimal sedation, so the moderate target is
-      // not reached: full demonstration stops and reports it; guided mode keeps waiting (titration is the
-      // clinician's decision). No dose is changed by the runner.
+      // not reached. 2026-11 (sedation below target): the full demonstration PAUSES for the clinician (titrate, or
+      // acknowledge and start at the current level) and never acknowledges on its own; guided mode keeps waiting
+      // and shows "Sedation below the planned target". No dose is changed by the runner.
       if (t.id === 'mac_propofol' && ex.id === 'mh_susceptible' && r.state !== 'completed') {
         const st = r.status();
         assert.equal(st.current.id, 'start_procedure', r.message);
-        assert.ok((mode === 'full' ? r.unmetAtStop : st.current.unmet).some((u) => /sedation level minimal/i.test(u)), r.message);
+        if (mode === 'full') { assert.equal(r.state, 'paused', r.message); assert.ok(st.pauseDetails.some((d) => d.item === 'sedation'), r.message); }
+        assert.ok(st.current.unmet.some((u) => /Sedation below the planned target \(minimal vs moderate/i.test(u)), r.message);
+        assert.equal(sim.state.periop.sedationAck, null, 'never acknowledged by the runner');
         assert.ok(sim.planStatus().filter((s) => s.phase !== 'emergence').every((s) => s.status === 'done'));
         continue;
       }

@@ -7,6 +7,7 @@ import { recommend } from '../engine/dosing.js';
 import { getDrug, getAntibiotic, getFluid } from '../engine/library.js';
 import { selectProphylaxis } from '../engine/prophylaxis.js';
 import { macForAge, createPkModel } from '../engine/pk.js';
+import { TECHNIQUE_TEMPLATES } from './templates.js';
 
 // Perturbation fields (applied × intensity 0..1; intensity ramps up over rampSec,
 // holds for holdSec (null = until the end of the case), then resolves over resolveSec):
@@ -124,7 +125,7 @@ export const EXAMPLE_PATIENTS = [
 // amount/rate from recommend(). `dial:'mac1'` selects a vaporizer setting of 1.0 ×
 // age-adjusted MAC (Mapleson 1996, library MAC40) clamped to the regimen's sourced range.
 
-export const EXAMPLE_PLANS = [
+const EXAMPLE_PLANS_RAW = [
   {
     id: 'ga_healthy', label: 'GA: propofol / fentanyl / rocuronium + sevoflurane', patientId: 'healthy_adult', mode: 'GA', sedationTarget: null,
     steps: [
@@ -177,6 +178,27 @@ export const EXAMPLE_PLANS = [
     ],
   },
 ];
+
+/** Fallback "Why this time" for an example-plan step that matches no technique-template step. */
+export const EXAMPLE_TIMING_FALLBACK = Object.freeze({ text: 'Example plan timing (simulator convention).', provenance: 'simulator convention', sources: Object.freeze([]) });
+
+/**
+ * "Why this time" for example-plan steps: the rationale of the matching step (same phase, offset, drug and
+ * kind; antibiotic 'auto' = the template's guideline antibiotic step) in the technique template of the
+ * same mode that shares the most steps with the example plan; otherwise EXAMPLE_TIMING_FALLBACK.
+ */
+const sameStep = (a, b) => a.phase === b.phase && a.atSec === b.atSec && a.drugId === b.drugId && a.kind === b.kind && a.beforeEndSec === undefined && b.beforeEndSec === undefined;
+export function exampleTimingRationales(plan) {
+  const cands = TECHNIQUE_TEMPLATES.filter((t) => t.mode === plan.mode)
+    .map((t) => ({ t, n: plan.steps.filter((s) => t.steps.some((ts) => sameStep(ts, s))).length }))
+    .sort((a, b) => b.n - a.n);
+  return plan.steps.map((s) => {
+    for (const { t } of cands) { const ts = t.steps.find((x) => x.timingRationale && sameStep(x, s)); if (ts) return ts.timingRationale; }
+    return EXAMPLE_TIMING_FALLBACK;
+  });
+}
+
+export const EXAMPLE_PLANS = EXAMPLE_PLANS_RAW.map((p) => { const why = exampleTimingRationales(p); return Object.freeze({ ...p, steps: p.steps.map((s, i) => (s.timingRationale ? s : { ...s, timingRationale: why[i] })) }); });
 
 /**
  * buildPlan(template, patientDerived[, library][, options]) -> { plan, skipped:[{drugId, reason}] }

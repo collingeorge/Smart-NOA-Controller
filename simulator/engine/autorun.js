@@ -19,6 +19,8 @@ import { AUTORUN_CONFIG } from './autorun-config.js';
 import { CASE_ACTIONS } from './case-actions.js';
 import { SEDATION_RANK } from './pd.js';
 import { TIMING_CONFIG, PREMED_TO_INDUCTION_MIN_SEC, premedStatus, preIncisionItems, liveTimingChecks } from './timing.js';
+import { getDrug } from './library.js';
+import { roundSig } from './units.js';
 import { selectProphylaxis } from './prophylaxis.js';
 import { recommend } from './dosing.js';
 
@@ -32,7 +34,60 @@ const ACTIVE = new Set(['running', 'paused']);
 const T = (k) => TIMING_CONFIG[k].value;
 // Clinician-only actions the runner performs ONLY when the clinician presses the matching button
 // (runner.clinicianAction); the runner never calls them on its own.
-export const CLINICIAN_ACTIONS = Object.freeze(['confirm_time_out', 'acknowledge_depth_below_band', 'give_prophylaxis']);
+export const CLINICIAN_ACTIONS = Object.freeze(['confirm_time_out', 'acknowledge_depth_below_band', 'give_prophylaxis', 'acknowledge_sedation_below_target', 'titrate_sedation']);
+const fmtT = (sec) => { const x = Math.max(0, Math.round(sec)); return `${String(Math.floor(x / 60)).padStart(2, '0')}:${String(x % 60).padStart(2, '0')}`; };
+
+/** What the clinician must do for each kind of pause reason (shown in the paused banner). */
+export function pauseAction(r) {
+  if (!r) return '';
+  if (r.kind === 'interlock_hold') return 'Review the cause; if appropriate press "Resume hold" (Interlocks panel), then press Resume.';
+  if (r.kind === 'alarm') return 'Review the patient, acknowledge the alarm (Alarms panel), then press Resume.';
+  if (r.kind === 'checklist') return 'Give guideline prophylaxis (button in this panel), then press Resume.';
+  if (r.kind === 'clinician_confirm') {
+    if (r.item === 'time_out') return 'Confirm the WHO time out (button in this panel), then press Resume.';
+    if (r.item === 'depth') return 'Acknowledge the index below the GA band (button in this panel) or lighten the anaesthetic, then press Resume.';
+    if (r.item === 'sedation') return 'Titrate within the label range, or press "Acknowledge and start procedure at current level" (buttons in this panel), then press Resume.';
+    return 'Confirm the item in this panel, then press Resume.';
+  }
+  return 'Press Resume to continue.';
+}
+
+/**
+ * Clinician titration suggestion when MAC sedation is below the plan target (never applied by the runner):
+ * a running sedation-plan infusion → next step within its label rate range (AUTORUN_CONFIG.SEDATION_TITRATION_*);
+ * otherwise a sedation-plan bolus agent (midazolam) at its regimen default dose after the label repeat interval.
+ * -> { drugId, name, kind, from?, rate?, rateUnit?, amount?, amountUnit?, overSec?, range, sources, waitSec, label } | { none: reason }
+ */
+export function sedationTitration(sim, config = AUTORUN_CONFIG) {
+  const t = sim.state.tSec; const tgt = sim.plan.sedationTarget || 'moderate'; const key = `sedation_${tgt}`;
+  const steps = sim.plan.steps.filter((s) => s.phase === 'sedation' && !s.invalid);
+  const ids = (kind) => [...new Set(steps.filter((s) => s.kind === kind).map((s) => s.drugId))];
+  for (const id of ids('infusion')) {
+    const ds = sim.state.drugs[id]; const drug = getDrug(sim.lib, id);
+    if (!ds || !(ds.infusionRate > 0) || !drug) continue;
+    const rec = recommend(sim.patient, key, id, sim.lib);
+    if (rec.locked || !rec.rate || rec.rate.unit !== ds.rateUnit) continue;
+    const { min, max } = rec.rate.range;
+    const next = roundSig(Math.min(max, ds.infusionRate + (max - min) * config.SEDATION_TITRATION_STEP_FRACTION.value), 4);
+    if (!(next > ds.infusionRate + 1e-9)) continue;
+    const lastChange = (sim.doseLog || []).filter((d) => d.drugId === id && d.kind === 'infusion').pop();
+    const waitSec = lastChange ? Math.max(0, Math.ceil(lastChange.tSec + config.SEDATION_TITRATION_REASSESS_SEC.value - t - 1e-9)) : 0;
+    return { drugId: id, name: drug.name, kind: 'infusion', from: ds.infusionRate, rate: next, rateUnit: ds.rateUnit, range: { min, max }, sources: [...rec.sources], waitSec, regimenKey: key,
+      label: `${drug.name} ${ds.infusionRate} → ${next} ${ds.rateUnit} (label range ${min}–${max})` };
+  }
+  for (const id of ids('bolus')) {
+    const drug = getDrug(sim.lib, id); if (!drug) continue;
+    const rec = recommend(sim.patient, key, id, sim.lib);
+    if (rec.locked || !rec.dose || rec.kind !== 'bolus' || !(rec.dose.value > 0)) continue;
+    const last = (sim.doseLog || []).filter((d) => d.drugId === id && d.kind === 'bolus').pop();
+    const minGap = id === 'midazolam' ? T('MIDAZOLAM_REPEAT_MIN_SEC') : config.SEDATION_TITRATION_REASSESS_SEC.value;
+    const waitSec = last ? Math.max(0, Math.ceil(last.tSec + minGap - t - 1e-9)) : 0;
+    const st = steps.find((s) => s.drugId === id && s.kind === 'bolus');
+    return { drugId: id, name: drug.name, kind: 'bolus', amount: rec.dose.value, amountUnit: rec.dose.unit, overSec: st && st.overSec ? st.overSec : null, range: { ...rec.dose.range }, sources: [...rec.sources], waitSec, regimenKey: key,
+      label: `${drug.name} ${rec.dose.value} ${rec.dose.unit} bolus${st && st.overSec ? ` over ${Math.round(st.overSec / 60)} min` : ''} (label range ${rec.dose.range.min}–${rec.dose.range.max} ${rec.dose.unit}; repeat ≥ ${Math.round(minGap / 60)} min)` };
+  }
+  return { none: 'No further titration within the label range of the plan\'s sedation agents (running infusion at its range maximum and no bolus agent in the plan).' };
+}
 
 /** The step sequence for a plan mode. Exported for documentation and tests. */
 export function buildSequence(planMode, config = AUTORUN_CONFIG) {
@@ -154,10 +209,14 @@ class AutoRunner {
         let sed = null;
         if (step.check === 'preProcedure') {
           const u = [];
-          if (!this._planPhaseDone(['premed', 'sedation'])) u.push('sedation plan steps still pending');
+          const planDone = this._planPhaseDone(['premed', 'sedation']);
+          if (!planDone) u.push('sedation plan steps still pending');
           const tgt = this.sedationTarget || 'moderate';
-          if (!(SEDATION_RANK[V.sedationLevel] >= SEDATION_RANK[tgt])) u.push(`sedation level ${V.sedationLevel} (target ${tgt}, ASA continuum; illustrative mapping)`);
-          sed = { met: u.length === 0, detail: u.length ? u.join('; ') : `${V.sedationLevel} (target ${tgt})` };
+          const below = !(SEDATION_RANK[V.sedationLevel] >= SEDATION_RANK[tgt]);
+          const ack = per.sedationAck || null;
+          if (below && !ack) u.push(`Sedation below the planned target (${V.sedationLevel} vs ${tgt}; ASA continuum, illustrative mapping)`);
+          sed = { met: u.length === 0, below, planDone, level: V.sedationLevel, target: tgt,
+            detail: u.length ? u.join('; ') : below ? `${V.sedationLevel} (target ${tgt}) — below the target, acknowledged by the clinician at ${fmtT(ack.tSec)}` : `${V.sedationLevel} (target ${tgt})` };
         }
         items = preIncisionItems(sim, { planMode: this.planMode, sedationCheck: sed });
         // The GA band's lower edge: an index below it needs the clinician's acknowledgement (never automatic).
@@ -166,6 +225,15 @@ class AutoRunner {
           const [, hi] = T('GA_DEPTH_BAND');
           if (V.depthIndex <= hi && per.depthAck) { dep.met = true; dep.detail += ' — below the band, acknowledged by the clinician'; }
           else if (V.depthIndex <= hi) { dep.clinician = true; dep.detail += ' — below the band: the clinician must acknowledge it (or lighten the anaesthetic)'; }
+        }
+        // Sedation below the plan target after every sedation plan step has run: a clinician item (titrate, or
+        // acknowledge and start at the current level). Guided: offered at once; full demonstration: after
+        // SEDATION_BELOW_TARGET_PAUSE_SEC, then it pauses — it never titrates or acknowledges on its own.
+        const sedIt = items.find((x) => x.id === 'sedation');
+        if (sedIt && !sedIt.met && sed && sed.below && sed.planDone) {
+          const settled = this.mode === 'guided' || this._t() - this._sedationPlanEndSec() >= this._v('SEDATION_BELOW_TARGET_PAUSE_SEC') - 1e-9;
+          sedIt.belowTarget = { level: sed.level, target: sed.target };
+          if (settled) { sedIt.clinician = true; sedIt.detail += ' — titrate within the label range, or acknowledge and start the procedure at the current level (clinician only)'; }
         }
         for (const it of items) if (!it.met) unmet.push(`${it.label}: ${it.detail}`);
         break;
@@ -188,6 +256,16 @@ class AutoRunner {
     return { met: unmet.length === 0, unmet, checklist: abx ? abx.detail : null, otherMet, clinicianUnmet, items, countdownSec };
   }
 
+  /** End time of the last premed/sedation plan step (start + its "give over" time). */
+  _sedationPlanEndSec() {
+    let end = 0;
+    for (const s of this.sim.plan.steps) {
+      if (!['premed', 'sedation'].includes(s.phase) || !this.sim.executed.has(s.id)) continue;
+      end = Math.max(end, this.sim.executed.get(s.id).tSec + (Number.isFinite(s.overSec) ? s.overSec : 0));
+    }
+    return end;
+  }
+
   /** Reasons to pause: latched interlock hold; unacknowledged HIGH alarm active or raised since the last check. */
   blockers(sinceLast = true) {
     const S = this.sim.state; const out = [];
@@ -195,12 +273,12 @@ class AutoRunner {
     // reported as latched until the next step refreshes sim.state.interlocks.
     const latched = this.sim.core && typeof this.sim.core.holdLatched === 'boolean' ? this.sim.core.holdLatched : S.interlocks.holdLatched;
     if (this._v('PAUSE_ON_INTERLOCK_HOLD') && S.interlocks.enabled && latched) {
-      out.push({ kind: 'interlock_hold', message: `Interlock hold latched (held: ${S.interlocks.heldDrugs.join(', ') || 'no infusions running'}). Automatic mode does not release holds — use "Resume hold" if appropriate, then Resume.` });
+      out.push({ kind: 'interlock_hold', headline: 'Interlock hold latched', message: `Interlock hold latched (held: ${S.interlocks.heldDrugs.join(', ') || 'no infusions running'}). Automatic mode does not release holds — use "Resume hold" if appropriate, then Resume.` });
     }
     const pr = this._v('PAUSE_ALARM_PRIORITIES');
     for (const a of S.alarms) {
       if (!pr.includes(a.priority) || a.acknowledged) continue;
-      if (a.active || (sinceLast && a.sinceSec >= this.lastCheckT - 1e-9)) out.push({ kind: 'alarm', alarmId: a.id, message: `${a.priority.toUpperCase()} alarm needs a decision: ${a.message}. Automatic mode does not acknowledge alarms.` });
+      if (a.active || (sinceLast && a.sinceSec >= this.lastCheckT - 1e-9)) out.push({ kind: 'alarm', alarmId: a.id, headline: `${a.priority.toUpperCase()} alarm: ${a.message}`, message: `${a.priority.toUpperCase()} alarm needs a decision: ${a.message}. Automatic mode does not acknowledge alarms.` });
     }
     return out;
   }
@@ -234,12 +312,15 @@ class AutoRunner {
     // prophylaxis) pause the sequence once every state item is met; the runner never confirms them itself.
     if (this.mode === 'full' && c.items && c.otherMet && c.clinicianUnmet.length && el >= waitSec - 1e-9) { this._pause(this._clinicianReasons(c), 'auto'); return this.status(); }
     if (metHeld && el >= waitSec - 1e-9) this._execute(step, 'auto', c);
-    else if (step.timeoutSec && el >= step.timeoutSec && !metHeld) this._stop(`${step.label}: conditions not met within ${Math.round(step.timeoutSec / 60)} min`, c.unmet.length ? c.unmet : ['condition did not hold long enough']);
+    // (Once the conditions are met, the hold period runs to completion even past the time limit — e.g. after a
+    // clinician acknowledgement given while paused; 2026-11.)
+    else if (step.timeoutSec && el >= step.timeoutSec && !c.met) this._stop(`${step.label}: conditions not met within ${Math.round(step.timeoutSec / 60)} min`, c.unmet.length ? c.unmet : ['condition did not hold long enough']);
     return this.status();
   }
 
   _clinicianReasons(c) {
     return c.clinicianUnmet.map((x) => ({ kind: x.id === 'antibiotic' ? 'checklist' : 'clinician_confirm', item: x.id,
+      headline: x.id === 'sedation' && x.belowTarget ? `Sedation below the planned target (${x.belowTarget.level} vs ${x.belowTarget.target})` : x.id === 'antibiotic' ? 'Antibiotic prophylaxis not in window' : `${x.label} — clinician needed`,
       message: x.id === 'antibiotic' ? `Antibiotic checklist needs the clinician: ${x.detail}. Automatic mode does not give or acknowledge it — give prophylaxis now, then Resume.`
         : `${x.label} needs the clinician (${x.detail}). Automatic mode never confirms it — confirm it, then Resume.` }));
   }
@@ -251,7 +332,17 @@ class AutoRunner {
   clinicianAction(id) {
     if (!CLINICIAN_ACTIONS.includes(id)) return { ok: false, message: `Unknown clinician action ${id}` };
     let r;
-    if (id === 'give_prophylaxis') {
+    if (id === 'titrate_sedation') {
+      const sug = sedationTitration(this.sim, this.config);
+      if (sug.none) r = { ok: false, message: sug.none };
+      else if (sug.waitSec > 0) r = { ok: false, message: `Reassess first — next titration step (${sug.label}) allowed in ${fmtT(sug.waitSec)}.` };
+      else {
+        const a = sug.kind === 'infusion'
+          ? this.sim.administer({ drugId: sug.drugId, kind: 'infusion', rate: sug.rate, rateUnit: sug.rateUnit, regimenKey: sug.regimenKey }, { source: 'clinician' })
+          : this.sim.administer({ drugId: sug.drugId, kind: 'bolus', amount: sug.amount, amountUnit: sug.amountUnit, overSec: sug.overSec || undefined, regimenKey: sug.regimenKey }, { source: 'clinician' });
+        r = { ok: a.ok, message: a.ok ? `Clinician-approved sedation titration: ${sug.label} [${sug.sources.join(', ')}]` : a.reasons.join('; ') };
+      }
+    } else if (id === 'give_prophylaxis') {
       const sel = selectProphylaxis(this.sim.patient, this.sim.lib);
       if (!sel.drugId) return { ok: false, message: sel.reason };
       const rec = recommend(this.sim.patient, 'prophylaxis', sel.drugId, this.sim.lib);
@@ -366,7 +457,10 @@ class AutoRunner {
         enabled: this.mode === 'guided' && this.state === 'running' && !!step.gate && c.met };
     }
     return { mode: this.mode, modeLabel: MODE_LABELS[this.mode], banner: BANNERS[this.mode], planMode: this.planMode, state: this.state, active: this.active, message: this.message,
-      pauseReasons: this.pauseReasons.map((r) => r.message), stopReason: this.stopReason, unmetAtStop: this.unmetAtStop.slice(), current: cur,
+      pauseReasons: this.pauseReasons.map((r) => r.message),
+      pauseDetails: this.state === 'paused' ? this.pauseReasons.map((r) => ({ kind: r.kind, item: r.item || null, alarmId: r.alarmId || null, headline: r.headline || r.message, message: r.message, action: pauseAction(r) })) : [],
+      titration: cur && cur.items && cur.items.some((x) => x.id === 'sedation' && !x.met && x.clinician) ? sedationTitration(this.sim, this.config) : null,
+      stopReason: this.stopReason, unmetAtStop: this.unmetAtStop.slice(), current: cur,
       sequence: this.seq.map((s, i) => ({ id: s.id, label: s.label, gate: !!s.gate, gateLabel: s.gateLabel || null, describe: s.describe, done: i < this.idx, current: i === this.idx && this.active })) };
   }
 
