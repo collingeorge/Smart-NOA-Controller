@@ -298,7 +298,7 @@ class Simulation {
       if (!isFiniteNumber(cmd.amount) || cmd.amount <= 0) return res(false, true, ['Bolus amount must be a positive number'], []);
       const routes = Array.isArray(drug.bolusRoutes) && drug.bolusRoutes.length ? drug.bolusRoutes : ['IV'];
       const route = typeof cmd.route === 'string' && cmd.route ? cmd.route.toUpperCase() : routes[0];
-      if (!routes.includes(route)) return res(false, true, [`${drug.name}: no sourced ${route} bolus dose; sourced bolus route(s): ${routes.join(', ')}${drug.id === 'epinephrine' ? ' (push-dose IV epinephrine not included: no label/guideline dose verified)' : ''}`], []);
+      if (!routes.includes(route)) return res(false, true, [`${drug.name}: no sourced ${route} bolus dose; sourced bolus route(s): ${routes.join(', ')}`], []);
       let amt;
       try { amt = convertAmount(cmd.amount, cmd.amountUnit || drug.amountUnit, drug.amountUnit); } catch (e) { return res(false, true, [e.message], []); }
       if (!isFiniteNumber(amt) || amt <= 0) return res(false, true, [`Bolus amount is not a usable number after unit conversion (${String(cmd.amountUnit)})`], []);

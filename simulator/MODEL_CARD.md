@@ -14,8 +14,8 @@ Education only: an educational, label-calibrated anesthesia pharmacology simulat
 - **External validation:** none performed. Simulator outputs have not been compared with observed patient data.
 - **Parts that cannot be validated with available sources:** all rows below marked *author estimate — unvalidated* (effect magnitudes, physiology constants, wash-in time constants, fluid-response constants).
 
-## Parameter inventory (481 parameters)
-Provenance counts: published_model: 29, author_estimate_unvalidated: 416, trial_or_physiology_study: 2, guideline: 4, project_config: 8, simulator_convention: 22.
+## Parameter inventory (496 parameters)
+Provenance counts: published_model: 29, author_estimate_unvalidated: 427, fda_label: 3, trial_or_physiology_study: 2, guideline: 4, project_config: 8, simulator_convention: 23.
 
 | Component | Drug | Parameter | Value | Unit | Provenance | Sources | Note |
 |---|---|---|---|---|---|---|---|
@@ -104,10 +104,10 @@ Provenance counts: published_model: 29, author_estimate_unvalidated: 416, trial_
 | pk | succinylcholine | k21 | 0 | 1/min | author_estimate_unvalidated | S24 | Illustrative 2-compartment model: fitted by the engine to label timing (drug.timing). |
 | pk | succinylcholine | ke0 | 0.37952 | 1/min | author_estimate_unvalidated | S24 | Illustrative 2-compartment model: fitted by the engine to label timing (drug.timing). |
 | pk | succinylcholine | V1 | 0.25 | L/kg (dosing scalar) | author_estimate_unvalidated |  | Illustrative; cancels in the normalised concentration. |
-| pk | sugammadex | k10 | 0.1 | 1/min | author_estimate_unvalidated |  | Illustrative 2-compartment model: generic illustrative constants. |
-| pk | sugammadex | k12 | 0.1 | 1/min | author_estimate_unvalidated |  | Illustrative 2-compartment model: generic illustrative constants. |
-| pk | sugammadex | k21 | 0.02 | 1/min | author_estimate_unvalidated |  | Illustrative 2-compartment model: generic illustrative constants. |
-| pk | sugammadex | ke0 | 0.3 | 1/min | author_estimate_unvalidated |  | Illustrative 2-compartment model: generic illustrative constants. |
+| pk | sugammadex | k10 | 0.006 | 1/min | author_estimate_unvalidated |  | Illustrative 2-compartment model: author-estimate constants. |
+| pk | sugammadex | k12 | 0.02 | 1/min | author_estimate_unvalidated |  | Illustrative 2-compartment model: author-estimate constants. |
+| pk | sugammadex | k21 | 0.02 | 1/min | author_estimate_unvalidated |  | Illustrative 2-compartment model: author-estimate constants. |
+| pk | sugammadex | ke0 | 0.3 | 1/min | author_estimate_unvalidated |  | Illustrative 2-compartment model: author-estimate constants. |
 | pk | sugammadex | V1 | 0.25 | L/kg (dosing scalar) | author_estimate_unvalidated |  | Illustrative; cancels in the normalised concentration. |
 | pk | neostigmine | k10 | 0.0228117 | 1/min | author_estimate_unvalidated | S7 | Illustrative 2-compartment model: fitted by the engine to label timing (drug.timing). |
 | pk | neostigmine | k12 | 0.0684352 | 1/min | author_estimate_unvalidated | S7 | Illustrative 2-compartment model: fitted by the engine to label timing (drug.timing). |
@@ -171,8 +171,12 @@ Provenance counts: published_model: 29, author_estimate_unvalidated: 416, trial_
 | pk |  | generic ke0 | 0.3 | 1/min | author_estimate_unvalidated |  | Used when drug.timing is entirely missing and no drug-specific estimate exists. |
 | pk |  | absorption ka IM | 0.15 | 1/min | author_estimate_unvalidated |  | First-order IM absorption (epinephrine anaphylaxis dose). |
 | pk |  | absorption ka SC | 0.07 | 1/min | author_estimate_unvalidated |  | First-order SC absorption (epinephrine anaphylaxis dose). |
-| pk | rocuronium | molecular weight rocuronium bromide | 609.7 | g/mol | author_estimate_unvalidated |  | Engine author recollection of label value; not re-verified. |
-| pk | sugammadex | molecular weight sugammadex sodium | 2178 | g/mol | author_estimate_unvalidated |  | Engine author recollection of label value; not re-verified; 1:1 binding, instantaneous. |
+| pk |  | IM/SC absorption perfusion MAP_FRAC_FULL | 0.8 | fraction of baseline MAP | author_estimate_unvalidated |  | Absorption slows when MAP is far below baseline (linear between MAP_FRAC_MIN and MAP_FRAC_FULL). |
+| pk |  | IM/SC absorption perfusion MAP_FRAC_MIN | 0.4 | fraction of baseline MAP | author_estimate_unvalidated |  | Absorption slows when MAP is far below baseline (linear between MAP_FRAC_MIN and MAP_FRAC_FULL). |
+| pk |  | IM/SC absorption perfusion KA_FACTOR_MIN | 0.1 | multiplier | author_estimate_unvalidated |  | Absorption slows when MAP is far below baseline (linear between MAP_FRAC_MIN and MAP_FRAC_FULL). |
+| pk | rocuronium | molecular weight rocuronium bromide | 609.7 | g/mol | fda_label | S12 | Label DESCRIPTION (C32H53BrN2O4, 609.70); verified 2026-11 (WebSearch record of the Pfizer rocuronium label). |
+| pk | sugammadex | molecular weight sugammadex sodium | 2178.01 | g/mol | fda_label | S6 | Label DESCRIPTION (2178.01); 1:1 molar binding, instantaneous (illustrative kinetics). |
+| pk | sugammadex | sugammadex dose-salt factor | 1.088 | mg sugammadex sodium per mg sugammadex | fda_label | S6 | Label: each mL contains 100 mg sugammadex, equivalent to 108.8 mg sugammadex sodium. |
 | pd | propofol | hyp max effect | 1 | fraction | author_estimate_unvalidated |  | Sigmoid Emax on normalised Ce. |
 | pd | propofol | hyp EC50 | 0.6 | normalised Ce | author_estimate_unvalidated |  |  |
 | pd | propofol | hyp gamma | 2.5 |  | author_estimate_unvalidated |  |  |
@@ -213,7 +217,7 @@ Provenance counts: published_model: 29, author_estimate_unvalidated: 416, trial_
 | pd | ketamine | hr EC50 | 0.3 | normalised Ce | author_estimate_unvalidated |  |  |
 | pd | ketamine | hr gamma | 1.5 |  | author_estimate_unvalidated |  |  |
 | pd | midazolam | hyp max effect | 0.3 | fraction | author_estimate_unvalidated |  | Sigmoid Emax on normalised Ce. |
-| pd | midazolam | hyp EC50 | 0.6 | normalised Ce | author_estimate_unvalidated |  |  |
+| pd | midazolam | hyp EC50 | 1 | normalised Ce | author_estimate_unvalidated |  |  |
 | pd | midazolam | hyp gamma | 2 |  | author_estimate_unvalidated |  |  |
 | pd | midazolam | resp max effect | 0.35 | fraction | author_estimate_unvalidated |  | Sigmoid Emax on normalised Ce. |
 | pd | midazolam | resp EC50 | 0.7 | normalised Ce | author_estimate_unvalidated |  |  |
@@ -221,7 +225,7 @@ Provenance counts: published_model: 29, author_estimate_unvalidated: 416, trial_
 | pd | midazolam | map max effect | -0.05 | fraction of baseline | author_estimate_unvalidated |  | Sigmoid Emax on normalised Ce. |
 | pd | midazolam | map EC50 | 0.6 | normalised Ce | author_estimate_unvalidated |  |  |
 | pd | midazolam | map gamma | 1.5 |  | author_estimate_unvalidated |  |  |
-| pd | dexmedetomidine | hyp max effect | 0.55 | fraction | author_estimate_unvalidated |  | Sigmoid Emax on normalised Ce. |
+| pd | dexmedetomidine | hyp max effect | 0.35 | fraction | author_estimate_unvalidated |  | Sigmoid Emax on normalised Ce. |
 | pd | dexmedetomidine | hyp EC50 | 0.6 | normalised Ce | author_estimate_unvalidated |  |  |
 | pd | dexmedetomidine | hyp gamma | 2 |  | author_estimate_unvalidated |  |  |
 | pd | dexmedetomidine | ana max effect | 0.3 | fraction | author_estimate_unvalidated |  | Sigmoid Emax on normalised Ce. |
@@ -303,6 +307,12 @@ Provenance counts: published_model: 29, author_estimate_unvalidated: 416, trial_
 | pd | epinephrine | hr max effect | 0.3 | fraction of baseline | author_estimate_unvalidated |  | Sigmoid Emax on normalised Ce. |
 | pd | epinephrine | hr EC50 | 2.5 | normalised Ce | author_estimate_unvalidated |  |  |
 | pd | epinephrine | hr gamma | 1.5 |  | author_estimate_unvalidated |  |  |
+| pd | epinephrine | mapHigh max effect | 0.35 | fraction | author_estimate_unvalidated |  | Sigmoid Emax on normalised Ce. |
+| pd | epinephrine | mapHigh EC50 | 10 | normalised Ce | author_estimate_unvalidated |  |  |
+| pd | epinephrine | mapHigh gamma | 2 |  | author_estimate_unvalidated |  |  |
+| pd | epinephrine | hrHigh max effect | 0.35 | fraction | author_estimate_unvalidated |  | Sigmoid Emax on normalised Ce. |
+| pd | epinephrine | hrHigh EC50 | 10 | normalised Ce | author_estimate_unvalidated |  |  |
+| pd | epinephrine | hrHigh gamma | 2 |  | author_estimate_unvalidated |  |  |
 | pd | epinephrine | broncho max effect | 1 | fraction | author_estimate_unvalidated |  | Sigmoid Emax on normalised Ce. |
 | pd | epinephrine | broncho EC50 | 1 | normalised Ce | author_estimate_unvalidated |  |  |
 | pd | epinephrine | broncho gamma | 2 |  | author_estimate_unvalidated |  |  |
@@ -344,6 +354,8 @@ Provenance counts: published_model: 29, author_estimate_unvalidated: 416, trial_
 | pd |  | patient/interaction modifier OPIOID_HYPNOTIC_SYNERGY | 0.5 |  | author_estimate_unvalidated |  | Illustrative sensitivity or interaction modifier. |
 | pd |  | patient/interaction modifier NALOXONE_OPIOID_DISPLACEMENT | 10 |  | author_estimate_unvalidated |  | Illustrative sensitivity or interaction modifier. |
 | pd |  | patient/interaction modifier NEOSTIGMINE_EC50_SHIFT_MAX | 0.6 |  | author_estimate_unvalidated |  | Illustrative sensitivity or interaction modifier. |
+| pd |  | patient/interaction modifier KETAMINE_AIRWAY_FRACTION | 0.3 |  | author_estimate_unvalidated |  | Illustrative sensitivity or interaction modifier. |
+| pd |  | patient/interaction modifier N2O_HYPNOSIS_FRACTION | 0.5 |  | author_estimate_unvalidated |  | Illustrative sensitivity or interaction modifier. |
 | physiology |  | oxyhaemoglobin dissociation (Severinghaus 1979 approximation) | "SO2 = 100/(23400/(PO2³+150·PO2)+1)" |  | trial_or_physiology_study |  | Severinghaus JW, J Appl Physiol 1979, blood O2 dissociation equations (citation not registered in SOURCES; not re-verified). |
 | physiology |  | alveolar gas equation constants | "PAO2 = FiO2·713 − PaCO2/0.8" | mmHg | trial_or_physiology_study |  | Standard sea-level alveolar gas equation (textbook relation; no citation registered). |
 | physiology |  | O2_CONSUMPTION_MMHG_PER_MIN | 70 |  | author_estimate_unvalidated |  | Illustrative ventilation/oxygenation constant. |
@@ -389,7 +401,9 @@ Provenance counts: published_model: 29, author_estimate_unvalidated: 416, trial_
 | physiology |  | stimulus EXTUBATION | 0.6 |  | author_estimate_unvalidated |  | Nociceptive stimulus profile / orchestrator constant. |
 | physiology |  | stimulus EXTUBATION_SEC | 60 |  | author_estimate_unvalidated |  | Nociceptive stimulus profile / orchestrator constant. |
 | physiology |  | stimulus EXTUBATION_DECAY_SEC | 25 |  | author_estimate_unvalidated |  | Nociceptive stimulus profile / orchestrator constant. |
-| physiology |  | stimulus SUGAMMADEX_ROC_KE0_MULT | 4 |  | author_estimate_unvalidated |  | Nociceptive stimulus profile / orchestrator constant. |
+| physiology |  | stimulus SUGAMMADEX_KE0_MULT_MAX | 10 |  | author_estimate_unvalidated |  | Nociceptive stimulus profile / orchestrator constant. |
+| physiology |  | stimulus SUGAMMADEX_EXCESS_HALF | 1.5 |  | author_estimate_unvalidated |  | Nociceptive stimulus profile / orchestrator constant. |
+| physiology |  | stimulus SUGAMMADEX_EXCESS_HILL | 4 |  | author_estimate_unvalidated |  | Nociceptive stimulus profile / orchestrator constant. |
 | physiology |  | stimulus DES_RAPID_RISE_HR | 0.15 |  | author_estimate_unvalidated |  | Nociceptive stimulus profile / orchestrator constant. |
 | physiology |  | stimulus DES_RAPID_RISE_MAP | 0.1 |  | author_estimate_unvalidated |  | Nociceptive stimulus profile / orchestrator constant. |
 | physiology |  | stimulus DES_RAPID_RISE_START_MAC | 0.5 |  | author_estimate_unvalidated |  | Nociceptive stimulus profile / orchestrator constant. |
@@ -491,6 +505,7 @@ Provenance counts: published_model: 29, author_estimate_unvalidated: 416, trial_
 | autorun |  | EXTUBATION_TIMEOUT_SEC | 1800 | s | simulator_convention |  | [guided + full] If readiness is not met within this time after emergence begins: the demonstration stops and lists the unmet criteria; guided mode lists them and keeps "Extubate" disabled. |
 | autorun |  | POST_EXTUBATION_OBSERVE_SEC | 300 | s | simulator_convention |  | [guided + full] After extubation the sequence observes for this time, then reports the case complete. |
 | autorun |  | SEDATION_TARGET_LEVEL | "plan.sedationTarget" | ASA continuum level | guideline | S31 | [guided + full] The procedure starts automatically once the simulated sedation level reaches the plan target (minimal / moderate / deep, ASA continuum definitions) and all sedation plan steps have run. The mapping from depth index to level is an illustrative engine rule. |
+| autorun |  | SEDATION_TARGET_HOLD_SEC | 10 | s | simulator_convention |  | [guided + full] The sedation target must be met for this many consecutive simulated seconds before the procedure starts, so a single noisy sample does not start it (2026-11 audit; same idea as READINESS_HOLD_SEC and RECOVERY_HOLD_SEC). |
 | autorun |  | SEDATION_TARGET_TIMEOUT_SEC | 900 | s | simulator_convention |  | [guided + full] If the sedation target is not reached within this time after sedation starts, automatic mode stops and reports it. |
 | autorun |  | PROCEDURE_DURATION_SEC | 1200 | s | simulator_convention |  | [full demonstration only] Full demonstration ends the procedure after this time and moves to recovery. In guided mode the clinician presses "End procedure". |
 | autorun |  | RECOVERY_LEVEL_MAX | "minimal" | ASA continuum level | simulator_convention |  | [guided + full] Recovery is reported complete when the simulated sedation level is minimal or awake for RECOVERY_HOLD_SEC. This is a teaching end point, not a discharge criterion. |
@@ -520,11 +535,11 @@ While either mode runs, an on-screen banner (exact text: `BANNERS` in `engine/au
 **MAC sequence**
 
 1. **Start sedation** — gate “Approve & start sedation” (guided: you press it; full demonstration: passes automatically); supplemental O2 FiO2 0.4, then sedation plan steps run at their offsets.
-2. **Start procedure** — automatic in both modes; automatic once the plan sedation target is reached and all sedation plan steps have run.
+2. **Start procedure** — automatic in both modes; automatic once the plan sedation target has held for 10 s and all sedation plan steps have run.
 3. **End procedure → recovery** — gate “End procedure” (guided: you press it; full demonstration: passes automatically); ends the procedure and starts recovery (plan stop steps run).
 4. **Recovery** — automatic in both modes; complete when sedation level is minimal or awake.
 
-Every condition and timing (26 entries; also listed in the parameter inventory as component `autorun`):
+Every condition and timing (27 entries; also listed in the parameter inventory as component `autorun`):
 
 | Entry | Value | Unit | Applies to | Provenance | Sources | Rationale |
 |---|---|---|---|---|---|---|
@@ -545,6 +560,7 @@ Every condition and timing (26 entries; also listed in the parameter inventory a
 | EXTUBATION_TIMEOUT_SEC | 1800 | s | both | simulator convention (unsourced) |  | If readiness is not met within this time after emergence begins: the demonstration stops and lists the unmet criteria; guided mode lists them and keeps "Extubate" disabled. |
 | POST_EXTUBATION_OBSERVE_SEC | 300 | s | both | simulator convention (unsourced) |  | After extubation the sequence observes for this time, then reports the case complete. |
 | SEDATION_TARGET_LEVEL | "plan.sedationTarget" | ASA continuum level | both | guideline | S31 | The procedure starts automatically once the simulated sedation level reaches the plan target (minimal / moderate / deep, ASA continuum definitions) and all sedation plan steps have run. The mapping from depth index to level is an illustrative engine rule. |
+| SEDATION_TARGET_HOLD_SEC | 10 | s | both | simulator convention (unsourced) |  | The sedation target must be met for this many consecutive simulated seconds before the procedure starts, so a single noisy sample does not start it (2026-11 audit; same idea as READINESS_HOLD_SEC and RECOVERY_HOLD_SEC). |
 | SEDATION_TARGET_TIMEOUT_SEC | 900 | s | both | simulator convention (unsourced) |  | If the sedation target is not reached within this time after sedation starts, automatic mode stops and reports it. |
 | PROCEDURE_DURATION_SEC | 1200 | s | full demonstration | simulator convention (unsourced) |  | Full demonstration ends the procedure after this time and moves to recovery. In guided mode the clinician presses "End procedure". |
 | RECOVERY_LEVEL_MAX | "minimal" | ASA continuum level | both | simulator convention (unsourced) |  | Recovery is reported complete when the simulated sedation level is minimal or awake for RECOVERY_HOLD_SEC. This is a teaching end point, not a discharge criterion. |

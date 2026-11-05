@@ -208,6 +208,17 @@ for (const { name, lib } of LIBS) {
     const r1 = on.administer({ drugId: 'dexmedetomidine', kind: 'infusion', rate: 0.6, rateUnit: 'mcg/kg/h' });
     assert.equal(r1.blocked, true); assert.match(r1.reasons[0], /Python simulation ceiling/);
     assert.ok(on.administer({ drugId: 'dexmedetomidine', kind: 'infusion', rate: 0.5, rateUnit: 'mcg/kg/h' }).ok); // strict '>'
+    // stepping at exactly the ceiling must not latch a hold, at any weight (2026-11 audit, code finding 1)
+    for (const weightKg of [55.3, 60, 62, 71.9, 80, 97.1, 133.7]) {
+      for (const [id, rate, unit] of [['dexmedetomidine', 0.5, 'mcg/kg/h'], ['ketamine', 0.2, 'mg/kg/h'], ['lidocaine', 1.5, 'mg/kg/h']]) {
+        const sw = createSimulation({ patient: P({ weightKg }), library: lib });
+        assert.ok(sw.administer({ drugId: id, kind: 'infusion', rate, rateUnit: unit }).ok, `${id} ${weightKg} kg`);
+        runFor(sw, 3);
+        assert.equal(sw.state.interlocks.holdLatched, false, `${id} at the ceiling, ${weightKg} kg: no hold`);
+        assert.equal(sw.state.drugs[id].infusionRate, rate);
+      }
+    }
+    runFor(on, 3); assert.equal(on.state.interlocks.holdLatched, false);
     const off = createSimulation({ patient: P(), library: lib, interlocks: false });
     assert.ok(off.administer({ drugId: 'dexmedetomidine', kind: 'infusion', rate: 0.6, rateUnit: 'mcg/kg/h' }).ok);
     assert.equal(off.administer({ drugId: 'dexmedetomidine', kind: 'infusion', rate: 5, rateUnit: 'mcg/kg/h' }).blocked, true); // label ceiling

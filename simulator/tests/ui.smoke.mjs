@@ -37,7 +37,7 @@ function startServer() {
       res.end(req.method === 'HEAD' ? undefined : data);
     });
   });
-  return new Promise((resolve) => server.listen(0, '127.0.0.1', () => resolve(server)));
+  return new Promise((resolve) => { server.listen(0, '127.0.0.1', () => resolve(server)); });
 }
 let URL_ = process.env.SIM_URL || null;
 let server = null;
@@ -321,6 +321,66 @@ test('simulator UI smoke', { skip, timeout: 900000 }, async (t) => {
       assert.ok(await page.isVisible('#auto-full'), 'start buttons offered again');
     });
 
+    await t.test('guided gate: a double-click approves only the gate that was shown', async () => {
+      await loadCase(page, 'healthy_adult'); await toRun(page);
+      await page.click('[data-speed="60"]');
+      await page.click('#auto-guided');
+      await gate(page, 'Approve & start induction');
+      for (let i = 0; ; i++) {
+        const dom = await page.evaluate(() => { const b = document.getElementById('auto-gate'); return { text: b.textContent.trim(), on: !b.disabled && !b.hidden }; });
+        if (dom.text === 'Intubate (secure airway)' && dom.on) break;
+        const s = await autoStatus(page);
+        if (s.state === 'paused') await userResolvesPause(page);
+        if (i > 3000) throw new Error('intubate gate never enabled');
+        await page.waitForTimeout(100);
+      }
+      await page.dblclick('#auto-gate');
+      await page.waitForTimeout(800);
+      const s = await autoStatus(page);
+      const ids = s.history.map((x) => x.id);
+      assert.ok(ids.includes('secure_airway'), 'the shown gate was approved');
+      assert.ok(!ids.includes('start_maintenance'), `the next gate was NOT approved by the second click: ${ids.join(',')}`);
+      assert.equal(s.current.id, 'start_maintenance'); assert.equal(s.phase, 'induction');
+    });
+
+    await t.test('extubation dialog pauses the clock and re-checks readiness at confirm', async () => {
+      await loadCase(page, 'healthy_adult'); await toRun(page);
+      await page.click('#ph-induction'); await page.click('[data-step="60"]'); await page.click('[data-step="60"]'); await page.click('[data-step="60"]');
+      await page.click('#ph-secure');
+      await page.click('[data-speed="60"]'); await page.click('#mon-play');
+      await page.waitForTimeout(500);
+      await page.click('#ph-extubate'); await page.waitForSelector('#extubate-dialog[open]');
+      const a = await simState(page); await page.waitForTimeout(2500); const b = await simState(page);
+      assert.equal(a.playing, false, 'clock paused while the dialog is open');
+      assert.equal(b.t, a.t, `sim time did not advance (${a.t} → ${b.t})`);
+      assert.ok(await page.isVisible('#ext-override'), 'not ready: override path offered');
+      await page.click('#extubate-dialog .btn:has-text("Cancel")');
+      await page.waitForTimeout(800);
+      const c = await simState(page);
+      assert.equal(c.playing, true, 'clock resumes after the dialog closes'); assert.ok(c.t > b.t);
+      assert.equal(c.airway.secured, true, 'cancel keeps the tube');
+      await page.click('#mon-play'); // pause
+    });
+
+    await t.test('reading a citation or pre-filling the form does not end automatic mode', async () => {
+      await loadCase(page, 'healthy_adult'); await toRun(page);
+      await page.click('[data-speed="20"]');
+      await page.click('#auto-full');
+      await waitAuto(page, (x) => x.state === 'running' && x.t > 5, { label: 'auto running' });
+      await page.click('#mon-ready-h ~ p .src-tag');
+      await page.waitForSelector('#sources-dialog[open]');
+      await page.click('#sources-dialog [data-close-dialog]');
+      let s = await autoStatus(page);
+      assert.notEqual(s.state, 'manual', `source tag did not end automatic mode (${s.state}: ${s.message})`);
+      await page.waitForSelector('#mon-drugs button:has-text("Bolus")');
+      await page.click('#mon-drugs button:has-text("Bolus")');
+      s = await autoStatus(page);
+      assert.notEqual(s.state, 'manual', 'drug-row Bolus (pre-fill only) did not end automatic mode');
+      await page.click('#ad-give');
+      s = await autoStatus(page);
+      assert.equal(s.state, 'manual', 'giving a drug is manual control and ends automatic mode');
+    });
+
     await t.test('panels open', async () => {
       for (const id of ['open-sources', 'open-model', 'open-about']) {
         await page.click(`#${id}`);
@@ -347,6 +407,6 @@ test('simulator UI smoke', { skip, timeout: 900000 }, async (t) => {
     assert.deepEqual(problems, [], `console/CSP/network problems:\n${problems.join('\n')}`);
   } finally {
     await browser.close();
-    if (server) await new Promise((r) => server.close(r));
+    if (server) await new Promise((r) => { server.close(r); });
   }
 });

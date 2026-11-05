@@ -63,25 +63,31 @@ With **Interlocks (Smart NOA rules)** switched on, `engine/interlocks.js` applie
 - MAP < 60 sets dexmedetomidine and lidocaine to zero.
 - An unusable sensor value sets the dexmedetomidine, ketamine and lidocaine infusions to zero and turns the status RED.
 - Holds latch and are never released automatically.
-- The free-text lockouts and the simulation rate ceilings apply (dexmedetomidine 0.5 mcg/kg/h, ketamine 0.2 mg/kg/h, lidocaine 1.5 mg/kg/h).
+- The free-text lockouts and the simulation rate ceilings apply (dexmedetomidine 0.5 mcg/kg/h, ketamine 0.2 mg/kg/h, lidocaine 1.5 mg/kg/h). A rate is compared with its ceiling in the Python unit with the same tolerance (1e-9) as `smart_noa_controller.py` (`RATE_CEILING_TOLERANCE`), so a rate exactly at the ceiling is accepted in both.
 
 The simulator adds one thing the Python controller does not have: an explicit, logged **Resume hold** action.
 
 When a label default exceeds a Smart NOA ceiling, the plan editor pre-fills the ceiling and explains why. For example, the dexmedetomidine sedation start rate of 0.6 mcg/kg/h becomes 0.5. With interlocks off, these rules are skipped, but label ceilings and contraindication lockouts always apply. Parity tests (`tests/parity.test.mjs`) reproduce the outcomes in `EXAMPLE_RESULTS.json` and the regression cases in `test_safety_hardening.py`.
 
-## Tests
+## Tests and lint
 
 ```sh
-# engine, drug library and Python-parity tests (Node ≥ 18)
-node --test simulator/tests
+cd simulator
+# engine, drug library and Python-parity tests (Node ≥ 18; no dependencies)
+npm test
 
-# browser smoke test (needs Playwright + Chromium and a running static server)
-python3 -m http.server 8765 &        # from the repository root
-node --test simulator/tests/ui.smoke.mjs
-#   optional: SIM_URL=http://host:port/simulator/index.html  SHOTS_DIR=/path/for/screenshots
+# browser smoke test: starts its own static server (Node http, no dependencies) on a free port.
+# Needs Playwright + Chromium (e.g. npm i -D playwright && npx playwright install chromium).
+npm run test:ui
+#   optional: SIM_URL=http://host:port/simulator/index.html?test=1 (use an existing server), SHOTS_DIR=/path
+#   SMOKE_SKIP=1 skips it explicitly when Playwright is not installed; otherwise a missing Playwright FAILS.
+
+# lint (dev dependencies only: eslint 9, @eslint/js 9, globals — `npm install` in simulator/;
+# node_modules is git-ignored and is not needed to serve the site)
+npm run lint
 ```
 
-The smoke test skips itself when Playwright or the server is unavailable. When it runs, it checks:
+The page exposes a test hook only when its URL contains `?test=1`: `window.__smartNoa.snapshot()` returns a deep copy (plain data) of the run state; nothing live or mutable is exposed. The smoke test checks:
 
 - the page loads with no console, CSP or external-request errors;
 - inline validation works;
@@ -91,7 +97,10 @@ The smoke test skips itself when Playwright or the server is unavailable. When i
 - the MAC moderate-sedation case runs;
 - guided mode for a GA example (elderly) and the MAC example at 60×: gates appear in order, nothing advances without the gate, *Intubate* and *Extubate* are enabled only when their conditions are met, and the debrief notes guided mode;
 - "Run full case automatically" for a GA example (MH-susceptible TIVA) and the MAC example at 60×: the banner text, completion, `AUTO:` log entries, no override, the debrief "ran automatically" note and the session JSON flag;
-- a manual control ends automatic mode;
+- a manual control ends automatic mode, but reading a source citation or pre-filling the drug form (drug-row *Bolus*/*Adjust*) does not;
+- a double-click on a guided-mode gate approves only the gate that was shown (the button is disabled while the approval is processed);
+- the extubation dialog pauses the clock while it is open, resumes it on close, and re-checks readiness when a button is pressed;
+- no console warnings or errors;
 - a sensor fault shows `FAULT`, turns the status RED/HOLD, and "Resume hold" is logged;
 - the Sources, Model card and About panels open;
 - there is no page-level horizontal scroll at 390 px.

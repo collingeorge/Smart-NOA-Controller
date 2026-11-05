@@ -28,7 +28,7 @@
 //    BJA table. The primary PDF could not be opened from this build environment.
 //    Simulator choices (NOT part of the published model): arterial-sampling form; the
 //    concomitant-drug switch is set once, when the propofol model is created (true if an
-//    opioid or IV local anaesthetic is in the plan or already given); the Eleveld BIS
+//    opioid is in the plan or already given; opioids only, as published); the Eleveld BIS
 //    PD model is NOT used — the depth index stays the illustrative PD in pd.js, driven by
 //    Ce normalised to the peak Ce of a 2 mg/kg bolus in the Eleveld reference individual.
 //
@@ -373,7 +373,7 @@ function buildCompartment(drug, weightKg, opts = {}) {
   if (drug.pkModel === 'eleveld') {
     const cov = opts.covariates || { ...ELEVELD_2018.REF, weightKg: ELEVELD_2018.REF.weightKg, opioids: false };
     const e = eleveldPropofol(cov);
-    return { type: 'eleveld', params: { ...e, covariates: { ...cov } }, model: new CompartmentModel({ v1L: e.v1, k10: e.k10, k12: e.k12, k21: e.k21, k13: e.k13, k31: e.k31, ke0: e.ke0 }), provenance: `Eleveld 2018 published population PK (arterial; concomitant opioid/local anaesthetic switch ${e.opioids ? 'ON' : 'OFF'}); ke0 Eleveld Table 3 arterial. Implementation verification only (reproduces published reference values); not validation of the simulator.` };
+    return { type: 'eleveld', params: { ...e, covariates: { ...cov } }, model: new CompartmentModel({ v1L: e.v1, k10: e.k10, k12: e.k12, k21: e.k21, k13: e.k13, k31: e.k31, ke0: e.ke0 }), provenance: `Eleveld 2018 published population PK (arterial; concomitant-opioid switch ${e.opioids ? 'ON' : 'OFF'}); ke0 Eleveld Table 3 arterial. Implementation verification only (reproduces published reference values); not validation of the simulator.` };
   }
   if (drug.pkModel === 'marsh') {
     const m = MARSH_1991;
