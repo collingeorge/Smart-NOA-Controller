@@ -25,13 +25,13 @@ Entries S1–S22 reuse citations and verification text from `breast-reconstructi
 | S10 | S15 (Schwenk 2018) | S21 | S33 (STOP-Bang 2016) |
 | S11 | S16 (propofol) | S22 | S35 (ASA monitoring) |
 
-S23–S37 are new. S35 is the repository's own `config.yaml`. It is cited only so the simulator matches the Python controller's software ceilings and lockouts. It is **not clinical evidence**.
+S23–S39 are new. S38 and S39 are non-label sources used only for nitrous oxide (see below). S35 is the repository's own `config.yaml`. It is cited only so the simulator matches the Python controller's software ceilings and lockouts. It is **not clinical evidence**.
 
 ## Data conventions
 
 - **Defaults:** where the label names a usual, average or initial dose, that is the default. Otherwise the default is the lower bound of the stated range. Where a source gives only an upper limit (Foo 2021 lidocaine, Schwenk 2018 ketamine), `min` is 0 and the default is the limit. The ketamine maintenance default (0.2 mg/kg/h) is the Python simulation ceiling from S35, not a guideline value.
 - **Weight scalars:** `scalarBasis: 'guideline'` for lidocaine (IBW, Foo 2021). `'label'` for sugammadex (actual body weight, Bridion label). `'convention'` (TBW) for propofol, etomidate, ketamine, fentanyl, rocuronium, succinylcholine, neostigmine and dexmedetomidine: their labels give mg/kg (or mcg/kg) doses, but this session found no label statement saying which weight to use.
-- **Ceilings:** `basis: 'label maximum'` / `'guideline maximum'` only where the source states a maximum: neostigmine, phenylephrine, ephedrine, ketorolac, acetaminophen, lidocaine and ketamine. `'label range upper bound'` (propofol 200 mcg/kg/min, dexmedetomidine 1 mcg/kg/h, sevoflurane 3%, desflurane 8.5%, isoflurane 3.5% (2.5% maintenance bound plus the label's extra 1.0% with oxygen alone), sugammadex 16 mg/kg) is a simulator hard stop at the top of a labelled range that the label does not call a maximum.
+- **Ceilings:** `basis: 'label maximum'` / `'guideline maximum'` only where the source states a maximum: neostigmine, phenylephrine, ephedrine, ketorolac, acetaminophen, lidocaine and ketamine. `'study protocol value'` (nitrous oxide 70%, from ENIGMA-II) marks a trial concentration, not a label maximum. `'label range upper bound'` (propofol 200 mcg/kg/min, dexmedetomidine 1 mcg/kg/h, sevoflurane 3%, desflurane 8.5%, isoflurane 3.5% (2.5% maintenance bound plus the label's extra 1.0% with oxygen alone), sugammadex 16 mg/kg) is a simulator hard stop at the top of a labelled range that the label does not call a maximum.
 - **Timing:** numbers come only from label statements. Where the label gives a range, the midpoint is used and the range is kept in `timing.ranges`. Where no statement was verified, the numbers are `null` and `basis` is `'not stated in label'`. The engine then falls back to its own illustrative constants. This applies to dexmedetomidine, sevoflurane, desflurane, isoflurane, lidocaine, sugammadex, glycopyrrolate, dexamethasone, ondansetron, phenylephrine, ephedrine, ketorolac and acetaminophen.
 - **Severity versus label wording:** contraindication messages quote or closely paraphrase the label/guideline text. Where the simulator's severity differs from the label, the message says so:
   - Dexmedetomidine with heart block is a LOCK, mirroring the controller. The label only says "use with caution".
@@ -62,11 +62,12 @@ Identifiers: doi:10.1213/ANE.0000000000004833; PMID 32467512
 
 ### S3
 **Gan TJ, et al. Fifth consensus guidelines for the management of postoperative nausea and vomiting: executive summary. Anesth Analg. Published online November 14, 2025.** https://journals.lww.com/anesthesia-analgesia/  
-Identifiers: doi:10.1213/ANE.0000000000007816; PMID unverified
+Identifiers: doi:10.1213/ANE.0000000000007816; PMID unverified  
+Type: consensus guideline
 
-- **Supports:** Two interventions for adults at risk of PONV; dexamethasone 4–8 mg IV at induction (8 mg may be optimal); ondansetron 4 mg IV at end of surgery; dexamethasone plus a 5-HT3 antagonist as the best-studied pair.
-- **Used by:** dexamethasone, ondansetron
-- **Verified via:** Copied from DOSING_SOURCES.md S8: WebSearch records of journals.lww.com (executive summary landing page), the LWW-hosted full report (cdn-links.lww.com/permalink/aa/f/aa_1_1_2025_11_24_cd_1_sdc1.pdf), scholars.duke.edu and a NYSORA summary, 2026-11-05. Full text not opened. PMID (identifier unverified). (date 2026-11-05)
+- **Supports:** Two interventions for adults at risk of PONV; dexamethasone 4–8 mg IV at induction (8 mg may be optimal); ondansetron 4 mg IV at end of surgery; dexamethasone plus a 5-HT3 antagonist as the best-studied pair. Baseline risk reduction includes avoidance of nitrous oxide during maintenance anaesthesia (with opioid-sparing analgesia, propofol TIVA where appropriate, regional anaesthesia, hydration).
+- **Used by:** nitrous_oxide, dexamethasone, ondansetron
+- **Verified via:** Copied from DOSING_SOURCES.md S8: WebSearch records of journals.lww.com (executive summary landing page), the LWW-hosted full report (cdn-links.lww.com/permalink/aa/f/aa_1_1_2025_11_24_cd_1_sdc1.pdf), scholars.duke.edu and a NYSORA summary, 2026-11-05. Full text not opened. PMID (identifier unverified). The nitrous-oxide baseline-risk-reduction item was confirmed only in a secondary summary (WebSearch record, nysora.com / dovepress review), not in the guideline text; secondary summaries add that the benefit of avoidance is duration dependent (Peyton & Wu meta-analysis cited by the consensus: NNT 9 for >2 h, 128 for <1 h). (date 2026-11-05)
 
 ### S4
 **Apfel CC, Läärä E, Koivuranta M, Greim CA, Roewer N. A simplified risk score for predicting postoperative nausea and vomiting: conclusions from cross-validations between two centers. Anesthesiology. 1999;91(3):693-700.** https://pubmed.ncbi.nlm.nih.gov/10485781/  
@@ -246,10 +247,11 @@ Identifiers: none confirmed
 
 ### S26
 **Mapleson WW. Effect of age on MAC in humans: a meta-analysis. Br J Anaesth. 1996;76(2):179-185.** https://academic.oup.com/bja/issue/76/2  
-Identifiers: doi:10.1093/bja/76.2.179; PMID unverified
+Identifiers: doi:10.1093/bja/76.2.179; PMID unverified  
+Type: meta-analysis (age-adjusted MAC model)
 
 - **Supports:** MAC(age) = MAC40 × 10^(−0.00269 × (age − 40)), same slope for all inhaled agents above age 1 y (about 6% decline per decade). MAC40: sevoflurane 1.80%, isoflurane 1.17%, desflurane 6.6%, nitrous oxide 104% (halothane 0.75%, enflurane 1.63%); 95% limits about ±7% (desflurane ±10%).
-- **Used by:** sevoflurane, desflurane, isoflurane
+- **Used by:** sevoflurane, desflurane, isoflurane, nitrous_oxide
 - **Verified via:** WebSearch records of the BJA 76(2) issue listing (citation, DOI), a Mapleson-authored abstract on scite.ai (MAC40 1.80% sevoflurane; b = −0.00269), and a StatPearls review quoting the equation, 2026-11-05. Isoflurane 1.17%, desflurane 6.6% and nitrous oxide 104% MAC40 values confirmed in the same scite.ai abstract record and repeated in secondary pages (meddic.jp; medicalalgorithms.com), 2026-11-05. Full text not opened. (date 2026-11-05)
 
 ### S27
@@ -341,6 +343,28 @@ Identifiers: none confirmed
 - **Used by:** isoflurane
 - **Verified via:** WebSearch records of the archived FDA-hosted 2006 Forane PI, the Baxter Canada Forane monograph and an Irish SmPC (consistent figures), 2026-11-05. US-format contraindication wording from the search record; drugs.com isoflurane page text was garbled and not relied on. (date 2026-11-05)
 
+### Non-label sources for nitrous oxide (S38, S39)
+
+These two sources are **not** FDA labels or society guidelines. The owner asked for nitrous oxide to be included. US nitrous oxide cylinder labels give no clinical concentration and no contraindications, only handling, fire and asphyxia warnings. So for N2O only, an RCT (S38) supplies the illustrative concentration and an animal physiology study (S39) supplies the closed-gas-space rules. Each entry is labelled with its type.
+
+### S38
+**Myles PS, Leslie K, Chan MTV, et al; ANZCA Trials Group for the ENIGMA-II investigators. The safety of addition of nitrous oxide to general anaesthesia in at-risk patients having major non-cardiac surgery (ENIGMA-II): a randomised, single-blind trial. Lancet. 2014;384(9952):1446-1454.** https://clinicaltrials.gov/study/NCT00430989  
+Identifiers: doi:10.1016/S0140-6736(14)60893-X; PMID 25142708; NCT00430989  
+Type: RCT
+
+- **Supports:** Intervention arm: nitrous oxide at an inspired concentration of 70% in 30% oxygen; control: N2O-free with inspired oxygen 30%. 7112 patients ≥45 y with or at risk of coronary disease; death and cardiovascular complications at 30 days 8% in each group (RR 0.96, 95% CI 0.83–1.12). Avoiding nitrous oxide reduced severe PONV.
+- **Used by:** nitrous_oxide
+- **Verified via:** WebSearch records of the ClinicalTrials.gov NCT00430989 record ("inspired concentration of 70% in 30% Oxygen"), the University of Geneva archive record (citation, DOI, PMID), ANZCA repository and qxmd.com/r/25142708, 2026-11-05. Full text not opened. Non-label source: used because no US nitrous oxide label states a clinical concentration. (date 2026-11-05)
+
+### S39
+**Eger EI 2nd, Saidman LJ. Hazards of nitrous oxide anesthesia in bowel obstruction and pneumothorax. Anesthesiology. 1965;26:61-66.** https://pubmed.ncbi.nlm.nih.gov/14257336/  
+Identifiers: PMID 14257336  
+Type: physiology study
+
+- **Supports:** Nitrous oxide diffuses into closed gas spaces faster than nitrogen leaves, expanding them: in dogs breathing 75% N2O, pneumothorax volume roughly doubled by 10 min and roughly tripled-to-quadrupled (about +300%) by 60 min, whereas oxygen did not change it; bowel gas also expanded. Authors concluded nitrous oxide is relatively contraindicated in intestinal obstruction or pneumothorax.
+- **Used by:** nitrous_oxide
+- **Verified via:** WebSearch records of PubMed 14257336 (citation; no abstract listed), the Scilit record (conclusion "relatively contraindicated in intestinal obstruction or pneumothorax"), BestBets review table (dog data, +100% at 10 min, ~+300% at 60 min) and a textbook figure reproduction (75% N2O), 2026-11-05. Full text not opened; volume figures are from secondary reproductions. Animal study (pneumothorax created by air injection). Non-label source: used because no US nitrous oxide label states contraindications. (date 2026-11-05)
+
 ## Not included, and why
 
 | Item | Reason |
@@ -361,7 +385,7 @@ Identifiers: none confirmed
 | Janmahasatian numerator (9270) | The citation, DOI and denominators were confirmed, but the numerator was not displayed in a search record. The engine worker should treat it as unverified (S34). |
 | Mapleson 1996 PMID; PONV 5th consensus PMID; sevoflurane NDA | Identifiers unverified. Omitted. |
 | Bratzler 2013 antibiotic prophylaxis | Not part of the SPEC §4 drug set, so it is not registered here. |
-| Nitrous oxide (entire drug) | No US prescribing information with a dosage, maintenance concentration or contraindication section was found. US cylinder labels (drugcentral.org, ndclist.com) carry only handling, fire and asphyxia warnings. The closed-gas-space, vitamin B12/folate and middle-ear wording was seen only in New Zealand and Swedish product information. The PONV-risk statement was not verified in the PONV consensus records. Its Mapleson MAC40 (104%) is recorded in S26 for reference only. No N2O conditions were added. |
+| Nitrous oxide: 50% lower bound, vitamin B12/folate and middle-ear/eye-gas rules, intracranial air | No confirmable primary or guideline source was found. B12 and middle-ear wording was seen only in non-US product information. The maintenance range is therefore the single ENIGMA-II value of 70%, and the only N2O rules are pneumothorax (LOCK, as simulator policy) and bowel obstruction (WARN), both from S39. N2O is not an MH trigger, so it has no MH lock. |
 | Desflurane induction regimen and airway-irritability warning | The US adult mask-induction wording was not retrieved. "Not recommended for mask induction in adults" was seen only in the Canadian monograph. The US label's airway-event statement found concerns paediatric induction, which is outside scope. Desflurane therefore has a maintenance regimen only. The verified heart-rate/rapid-increase wording is a runtime warning. |
 | Desflurane US MAC-by-age table | Not retrieved. Only the Mapleson MAC40 (6.6%) is used. |
 | Dexamethasone under `emergence` | S2 and S3 say to give it at induction. The regimen is stored under `induction`, with a note. |
@@ -371,4 +395,6 @@ Identifiers: none confirmed
 - All drugs use `pkModel: 'calibrated'`. The engine fits illustrative constants to the `timing` values above, or to its own fallbacks when those are null. No PK/PD parameter is a published model except the Mapleson age-adjusted MAC equation (S26).
 - **Additive MAC of co-administered inhaled agents** (`LIBRARY_NOTES.inhaledMacAdditivity`). The engine treats MAC fractions as additive. This is standard teaching. **No acceptable source was verified for it in this session**, so it is uncited.
 - Isoflurane and desflurane also use the Mapleson equation (MAC40 1.17% and 6.6%, the same slope). The isoflurane label table (1.28/1.15/1.05% at mean ages 26/44/64 y) is stored for display.
+- **N2O and FiO2:** the maximum FiO2 is 1 − FiN2O (70% N2O leaves at most 0.30). This is simple arithmetic, so no source is cited.
+- **N2O cannot work alone:** its MAC40 is 104% (Mapleson), so it cannot provide anaesthesia alone at 1 atm and is modelled only as an adjunct.
 - Sevoflurane carries two MAC references: Mapleson MAC40 = 1.80% and the US label table (2.1% at 40 y in O2). They differ. The engine's effect model uses Mapleson, and the UI may show both.

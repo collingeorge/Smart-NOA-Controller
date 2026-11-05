@@ -7,7 +7,7 @@ import {
 } from '../data/drugs.js';
 
 const CLASSES = new Set(['hypnotic', 'opioid', 'nmb', 'reversal', 'alpha2', 'nmda', 'local', 'antiemetic',
-  'vasopressor', 'anticholinergic', 'benzodiazepine', 'volatile', 'nsaid', 'analgesic']);
+  'vasopressor', 'anticholinergic', 'benzodiazepine', 'volatile', 'gas', 'nsaid', 'analgesic']);
 const AMOUNT_UNITS = new Set(['mg', 'mcg', 'units', '%']);
 const REGIMEN_KEYS = new Set(['premed', 'sedation_minimal', 'sedation_moderate', 'sedation_deep',
   'induction', 'maintenance', 'emergence', 'rescue']);
@@ -138,7 +138,7 @@ test('ceilings are positive and sourced', () => {
     const c = d.ceiling;
     assert.ok(typeof c.value === 'number' && c.value > 0, `${d.id}.ceiling.value positive`);
     assert.ok(c.unit, `${d.id}.ceiling.unit`);
-    assert.ok(['label maximum', 'guideline maximum', 'label range upper bound'].includes(c.basis), `${d.id}.ceiling.basis`);
+    assert.ok(['label maximum', 'guideline maximum', 'label range upper bound', 'study protocol value'].includes(c.basis), `${d.id}.ceiling.basis`);
     checkSources(c.sources, `${d.id}.ceiling`);
     if (c.perKg) assert.ok(c.perKg.value > 0, `${d.id}.ceiling.perKg positive`);
   }
@@ -250,7 +250,25 @@ test('inhaled agents: MAC model, inhaled regimens, MH lock', () => {
   assert.deepEqual([byId.desflurane.regimens.maintenance.rate.min, byId.desflurane.regimens.maintenance.rate.max], [2.5, 8.5]);
   assert.equal(byId.desflurane.regimens.induction, undefined, 'no desflurane induction regimen');
   assert.ok(byId.desflurane.runtimeRules.some((r) => r.id === 'rapid_concentration_increase'));
-  // Nitrous oxide deliberately omitted (no verifiable US label dosing); documented in LIBRARY_NOTES.
-  assert.equal(byId.nitrous_oxide, undefined);
-  assert.ok(LIBRARY_NOTES.nitrousOxide && LIBRARY_NOTES.inhaledMacAdditivity);
+  assert.ok(LIBRARY_NOTES.nitrousOxide && LIBRARY_NOTES.inhaledMacAdditivity && LIBRARY_NOTES.fio2Arithmetic);
+});
+
+test('nitrous oxide: non-label sources, MAC 104%, gas-space rules, no MH lock', () => {
+  const n2o = DRUGS.find((d) => d.id === 'nitrous_oxide');
+  assert.ok(n2o);
+  assert.equal(n2o.cls, 'gas');
+  assert.equal(n2o.mac.mac40Pct, 104);
+  const m = n2o.regimens.maintenance;
+  assert.equal(m.kind, 'inhaled');
+  assert.deepEqual([m.rate.default, m.rate.max, m.rate.unit], [70, 70, '%']);
+  assert.ok(m.sources.includes('S38'));
+  assert.equal(SOURCES.S38.type, 'RCT');
+  assert.equal(SOURCES.S39.type, 'physiology study');
+  const rule = (w) => n2o.contraindications.find((c) => c.when === w);
+  assert.equal(rule('condition:pneumothorax').severity, 'lock');
+  assert.equal(rule('condition:bowel_obstruction').severity, 'warn');
+  assert.equal(rule('condition:mh_susceptible'), undefined, 'N2O is not an MH trigger');
+  assert.ok(!n2o.contraindications.some((c) => /b12|folate|ear/i.test(c.when)));
+  assert.ok(n2o.ponvNote.sources.every((s) => SOURCES[s]));
+  assert.equal(n2o.induction, undefined);
 });

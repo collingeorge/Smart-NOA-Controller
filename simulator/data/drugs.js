@@ -79,8 +79,8 @@ export const SOURCES = {
     url: 'https://journals.lww.com/anesthesia-analgesia/',
     identifiers: 'doi:10.1213/ANE.0000000000007816; PMID unverified',
     type: 'consensus guideline',
-    supports: 'Two interventions for adults at risk of PONV; dexamethasone 4–8 mg IV at induction (8 mg may be optimal); ondansetron 4 mg IV at end of surgery; dexamethasone plus a 5-HT3 antagonist as the best-studied pair.',
-    verifiedVia: 'Copied from DOSING_SOURCES.md S8: WebSearch records of journals.lww.com (executive summary landing page), the LWW-hosted full report (cdn-links.lww.com/permalink/aa/f/aa_1_1_2025_11_24_cd_1_sdc1.pdf), scholars.duke.edu and a NYSORA summary, 2026-11-05. Full text not opened. PMID (identifier unverified).',
+    supports: 'Two interventions for adults at risk of PONV; dexamethasone 4–8 mg IV at induction (8 mg may be optimal); ondansetron 4 mg IV at end of surgery; dexamethasone plus a 5-HT3 antagonist as the best-studied pair. Baseline risk reduction includes avoidance of nitrous oxide during maintenance anaesthesia (with opioid-sparing analgesia, propofol TIVA where appropriate, regional anaesthesia, hydration).',
+    verifiedVia: 'Copied from DOSING_SOURCES.md S8: WebSearch records of journals.lww.com (executive summary landing page), the LWW-hosted full report (cdn-links.lww.com/permalink/aa/f/aa_1_1_2025_11_24_cd_1_sdc1.pdf), scholars.duke.edu and a NYSORA summary, 2026-11-05. Full text not opened. PMID (identifier unverified). The nitrous-oxide baseline-risk-reduction item was confirmed only in a secondary summary (WebSearch record, nysora.com / dovepress review), not in the guideline text; secondary summaries add that the benefit of avoidance is duration dependent (Peyton & Wu meta-analysis cited by the consensus: NNT 9 for >2 h, 128 for <1 h).',
   },
   S4: {
     id: 'S4',
@@ -388,6 +388,25 @@ export const SOURCES = {
     supports: 'Induction: start at 0.5%; 1.5–3.0% usually produces surgical anesthesia in 7–10 min. Maintenance: 1.0–2.5% in oxygen/nitrous oxide; an additional 0.5–1.0% may be required with oxygen alone. Average MAC in 100% O2: 1.28% (age 26 ± 4), 1.15% (44 ± 7), 1.05% (64 ± 5); in 70% N2O: 0.56%, 0.50%, 0.37%. Contraindications: known sensitivity to isoflurane or other halogenated agents; known or suspected genetic susceptibility to malignant hyperthermia.',
     verifiedVia: 'WebSearch records of the archived FDA-hosted 2006 Forane PI, the Baxter Canada Forane monograph and an Irish SmPC (consistent figures), 2026-11-05. US-format contraindication wording from the search record; drugs.com isoflurane page text was garbled and not relied on.',
   },
+  // S38–S39: NON-LABEL sources used for nitrous oxide only (owner request; US labels give no clinical dose).
+  S38: {
+    id: 'S38',
+    citation: 'Myles PS, Leslie K, Chan MTV, et al; ANZCA Trials Group for the ENIGMA-II investigators. The safety of addition of nitrous oxide to general anaesthesia in at-risk patients having major non-cardiac surgery (ENIGMA-II): a randomised, single-blind trial. Lancet. 2014;384(9952):1446-1454.',
+    url: 'https://clinicaltrials.gov/study/NCT00430989',
+    identifiers: 'doi:10.1016/S0140-6736(14)60893-X; PMID 25142708; NCT00430989',
+    type: 'RCT',
+    supports: 'Intervention arm: nitrous oxide at an inspired concentration of 70% in 30% oxygen; control: N2O-free with inspired oxygen 30%. 7112 patients ≥45 y with or at risk of coronary disease; death and cardiovascular complications at 30 days 8% in each group (RR 0.96, 95% CI 0.83–1.12). Avoiding nitrous oxide reduced severe PONV.',
+    verifiedVia: 'WebSearch records of the ClinicalTrials.gov NCT00430989 record ("inspired concentration of 70% in 30% Oxygen"), the University of Geneva archive record (citation, DOI, PMID), ANZCA repository and qxmd.com/r/25142708, 2026-11-05. Full text not opened. Non-label source: used because no US nitrous oxide label states a clinical concentration.',
+  },
+  S39: {
+    id: 'S39',
+    citation: 'Eger EI 2nd, Saidman LJ. Hazards of nitrous oxide anesthesia in bowel obstruction and pneumothorax. Anesthesiology. 1965;26:61-66.',
+    url: 'https://pubmed.ncbi.nlm.nih.gov/14257336/',
+    identifiers: 'PMID 14257336',
+    type: 'physiology study',
+    supports: 'Nitrous oxide diffuses into closed gas spaces faster than nitrogen leaves, expanding them: in dogs breathing 75% N2O, pneumothorax volume roughly doubled by 10 min and roughly tripled-to-quadrupled (about +300%) by 60 min, whereas oxygen did not change it; bowel gas also expanded. Authors concluded nitrous oxide is relatively contraindicated in intestinal obstruction or pneumothorax.',
+    verifiedVia: 'WebSearch records of PubMed 14257336 (citation; no abstract listed), the Scilit record (conclusion "relatively contraindicated in intestinal obstruction or pneumothorax"), BestBets review table (dog data, +100% at 10 min, ~+300% at 60 min) and a textbook figure reproduction (75% N2O), 2026-11-05. Full text not opened; volume figures are from secondary reproductions. Animal study (pneumothorax created by air injection). Non-label source: used because no US nitrous oxide label states contraindications.',
+  },
 };
 
 // ---------------------------------------------------------------------------------------------
@@ -408,6 +427,7 @@ export const CONDITIONS = [
   // renal / hepatic
   { id: 'liver_disease', label: 'Liver disease / hepatic impairment', group: 'renal_hepatic' },
   { id: 'severe_hepatic_impairment', label: 'Severe hepatic impairment', group: 'renal_hepatic' },
+  { id: 'bowel_obstruction', label: 'Bowel obstruction (gas-distended bowel)', group: 'renal_hepatic' },
   { id: 'bowel_or_urinary_obstruction', label: 'Peritonitis or mechanical bowel/urinary obstruction', group: 'renal_hepatic' },
   // neuro / psych
   { id: 'psychosis_history', label: 'History of psychosis', group: 'neuro_psych' },
@@ -419,6 +439,7 @@ export const CONDITIONS = [
   { id: 'adrenal_insufficiency', label: 'Adrenal insufficiency', group: 'metabolic_other' },
   { id: 'sepsis', label: 'Sepsis', group: 'metabolic_other' },
   { id: 'diabetes', label: 'Diabetes mellitus', group: 'metabolic_other' },
+  { id: 'pneumothorax', label: 'Pneumothorax (current)', group: 'respiratory' },
   { id: 'gerd', label: 'Gastro-oesophageal reflux (aspiration risk)', group: 'metabolic_other' },
   { id: 'systemic_fungal_infection', label: 'Systemic fungal infection', group: 'metabolic_other' },
   // anaesthesia-specific
@@ -462,7 +483,8 @@ export const WHEN_FORMS = Object.freeze({
 
 export const LIBRARY_NOTES = Object.freeze({
   inhaledMacAdditivity: 'Illustrative model assumption: MAC fractions of co-administered inhaled agents are treated as additive. This is standard teaching; no acceptable source was verified in this session (see SOURCES.md, Model assumptions).',
-  nitrousOxide: 'Nitrous oxide is not included: no US prescribing information with dosage or contraindications was found (US cylinder labels carry only handling/asphyxia warnings). Its Mapleson MAC40 (104%) is recorded in S26 for reference only.',
+  nitrousOxide: 'Nitrous oxide is included from NON-LABEL sources only (US cylinder labels give no clinical dose): ENIGMA-II trial concentration (S38), Eger & Saidman 1965 closed-gas-space physiology (S39), PONV consensus (S3), Mapleson MAC40 104% (S26). MAC40 >100% means it cannot provide anaesthesia alone at 1 atm and must be combined with another agent.',
+  fio2Arithmetic: 'Inspired N2O fraction limits the maximum FiO2: FiO2 max = 1 − FiN2O (e.g., 70% N2O leaves at most 0.30 O2). Simple fraction arithmetic; no source cited.',
 });
 
 const NOT_STATED = (note) => ({
@@ -683,6 +705,39 @@ export const DRUGS = [
       { when: 'allergy:halogenated_volatile', severity: 'lock', message: 'Contraindicated in patients with known sensitivity to isoflurane or to other halogenated agents (label CONTRAINDICATIONS).', sources: ['S37'] },
     ],
     timing: NOT_STATED('Volatile agent: engine uses first-order wash-in/out (illustrative). Label: 1.5–3.0% usually produces surgical anesthesia in 7–10 minutes (induction context).'),
+    pkModel: 'calibrated',
+  },
+
+  {
+    id: 'nitrous_oxide', name: 'Nitrous oxide', cls: 'gas',
+    concentration: null,
+    amountUnit: '%',
+    sourceTypeNote: 'NON-LABEL sources (RCT, physiology study, consensus); see SOURCES.md.',
+    regimens: {
+      maintenance: {
+        kind: 'inhaled',
+        rate: { default: 70, min: 70, max: 70, unit: '%' },
+        scalar: null, scalarBasis: null,
+        timing: 'Adjunct to another anaesthetic; ENIGMA-II gave an inspired concentration of 70% in 30% oxygen.',
+        sources: ['S38', 'S26'],
+        note: 'Illustrative concentration from the ENIGMA-II intervention arm (RCT), not a label dose. No source for a lower bound (e.g., 50%) was confirmed, so the range is the single trial value. MAC40 104% (Mapleson): cannot provide anaesthesia alone; must be combined.',
+      },
+    },
+    mac: {
+      model: 'mapleson1996', mac40Pct: 104, slopePerYear: -0.00269,
+      formula: 'MAC(age) = MAC40 × 10^(slopePerYear × (age − 40))',
+      sources: ['S26'],
+      labelTableO2: null, labelTableSources: [],
+      note: 'MAC above 100% at 1 atm: N2O alone cannot reach 1 MAC.',
+    },
+    fio2Note: 'FiO2 max = 1 − FiN2O (70% N2O → FiO2 ≤ 0.30). Arithmetic; no source.',
+    ponvNote: { text: 'PONV consensus lists avoidance of nitrous oxide during maintenance anaesthesia among baseline risk-reduction measures; benefit is reported to be duration dependent.', sources: ['S3'] },
+    ceiling: { value: 70, unit: '%', basis: 'study protocol value', sources: ['S38'], note: 'Highest concentration supported by the cited trial; not a label maximum.' },
+    contraindications: [
+      { when: 'condition:pneumothorax', severity: 'lock', message: 'Eger & Saidman 1965: nitrous oxide expands closed gas spaces; in dogs breathing 75% N2O a pneumothorax roughly doubled in volume within 10 min. The authors concluded N2O is relatively contraindicated in pneumothorax. (Simulator LOCK is policy; source is an animal physiology study, not a label.)', sources: ['S39'] },
+      { when: 'condition:bowel_obstruction', severity: 'warn', message: 'Eger & Saidman 1965: nitrous oxide diffuses into and expands gas in obstructed bowel; the authors concluded N2O is relatively contraindicated in intestinal obstruction. (Physiology study, not a label.)', sources: ['S39'] },
+    ],
+    timing: NOT_STATED('Inhaled gas: engine uses first-order wash-in/out (illustrative). No label timing exists.'),
     pkModel: 'calibrated',
   },
 
@@ -1122,7 +1177,7 @@ export const DRUGS = [
 // runtime rules, MAC model). Kept frozen; tests check it matches the actual references.
 export const SOURCE_IDS_USED = Object.freeze([
   'S1', 'S2', 'S3', 'S5', 'S6', 'S7', 'S8', 'S9', 'S10', 'S11', 'S12', 'S13', 'S14', 'S15', 'S16',
-  'S17', 'S18', 'S19', 'S23', 'S24', 'S25', 'S26', 'S27', 'S28', 'S29', 'S30', 'S35', 'S36', 'S37',
+  'S17', 'S18', 'S19', 'S23', 'S24', 'S25', 'S26', 'S27', 'S28', 'S29', 'S30', 'S35', 'S36', 'S37', 'S38', 'S39',
 ]);
 
 // S-ids present for the engine/UI (scores, weight scalars, monitoring, sedation definitions) but
