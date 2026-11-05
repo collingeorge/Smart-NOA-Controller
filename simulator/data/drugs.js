@@ -1,0 +1,1038 @@
+// Smart NOA Web Simulator — drug library (pure data, no DOM).
+//
+// EDUCATIONAL SIMULATION WITH FICTIONAL PATIENTS. Not a medical device, not clinical decision
+// support, not medical advice. Every dose below is an illustrative value transcribed from the cited
+// source (FDA prescribing information, society guideline/consensus, or original validation paper).
+// None is an order. Labels vary by manufacturer and are revised often.
+//
+// Schema: simulator/SPEC.md §4. Human-readable registry: simulator/SOURCES.md.
+//
+// ---------------------------------------------------------------------------------------------
+// S-id mapping to /home/user/breast-reconstruction-anesthesia-protocol/DOSING_SOURCES.md
+// (citation and verification text copied from that registry; new entries verified 2026-11-05):
+//   S1  <- S1  Foo 2021 lidocaine consensus
+//   S2  <- S7  Gan 2020 Fourth PONV consensus
+//   S3  <- S8  Gan 2025 Fifth PONV consensus
+//   S4  <- S9  Apfel 1999
+//   S5  <- S10 Thilen 2023 ASA NMB guideline
+//   S6  <- S11 Sugammadex (Bridion) label
+//   S7  <- S12 Neostigmine (Bloxiverz) label
+//   S8  <- S13 Glycopyrrolate label
+//   S9  <- S14 Dexmedetomidine (Precedex) label
+//   S10 <- S15 Schwenk 2018 ketamine consensus
+//   S11 <- S16 Propofol (Diprivan) label (+ MAC-sedation and onset text verified this session)
+//   S12 <- S17 Rocuronium label (+ 2026 FDA label timing verified this session)
+//   S13 <- S18 Fentanyl label (+ moderate-dose tier and timing verified this session)
+//   S14 <- S22 Naloxone label (+ onset verified this session)
+//   S15 <- S23 Ketorolac label (+ contraindications verified this session)
+//   S16 <- S24 Acetaminophen injection (Ofirmev) label
+//   S17 <- S27 Midazolam label (+ onset verified this session)
+//   S18 <- S28 Phenylephrine (Biorphen) label
+//   S19 <- S29 Ephedrine (Akovaz) label
+//   S20 <- S32 Chung 2008 STOP-Bang
+//   S21 <- S33 Chung 2016 STOP-Bang risk categories
+//   S22 <- S35 ASA Standards for Basic Anesthetic Monitoring
+//   S23–S35 new in this registry (no counterpart in DOSING_SOURCES.md).
+// ---------------------------------------------------------------------------------------------
+//
+// Conventions used throughout (also documented in SOURCES.md):
+// * `default` values: the label's stated usual/average/initial dose where the label names one;
+//   otherwise the LOWER bound of the stated range. Where a source gives only an upper limit
+//   ("not exceeding X"), min is 0 and default is X (noted per regimen). Defaults are a simulator
+//   choice for auto-fill, not a recommendation.
+// * `scalarBasis`: 'label' / 'guideline' when the source states the weight scalar; 'convention'
+//   when the source just says "mg/kg" and the simulator applies total body weight (TBW).
+// * Ceiling `basis`: 'label maximum' / 'guideline maximum' only when the source states a maximum;
+//   'label range upper bound' when the simulator hard-stops at the top of a labelled range that the
+//   label does not call a maximum.
+// * `timing`: numbers only from label statements; when a label gives a range the midpoint is used
+//   and the range is kept in `ranges`. Missing values are null and the engine falls back to its
+//   illustrative defaults. `basis: 'not stated in label'` means no usable label statement was
+//   verified.
+// * `when` grammar (contraindications): exactly one token of
+//     condition:<id> | allergy:<id> | medication:<id> | egfr<N | age>=N | flag:<id>
+//   `adjust[].when` may join several tokens with '|' (logical OR) and may also use asa>=N and
+//   weight<N (kg, total body weight).
+
+export const SOURCES = {
+  S1: {
+    id: 'S1',
+    citation: 'Foo I, Macfarlane AJR, Srivastava D, et al. The use of intravenous lidocaine for postoperative pain and recovery: international consensus statement on efficacy and safety. Anaesthesia. 2021;76(2):238-250.',
+    url: 'https://read.qxmd.com/read/33141959',
+    identifiers: 'doi:10.1111/anae.15270; PMID 33141959',
+    type: 'consensus statement',
+    supports: 'Lidocaine loading dose ≤1.5 mg/kg over about 10 min; infusion ≤1.5 mg/kg/h; dosing on ideal body weight; hourly ceiling 120 mg/h for any patient; not for patients under 40 kg; not given concurrently with other local-anaesthetic interventions (nerve blocks, wound infiltration) or while their effect is still active; about 4 h separation between a block and IV lidocaine. IV lidocaine for analgesia is not an FDA-labelled indication.',
+    verifiedVia: 'Copied from DOSING_SOURCES.md S1: WebSearch record of the abstract and full-text excerpts (Nottingham and Glasgow repository copies; read.qxmd.com/read/33141959), 2026-11-05.',
+  },
+  S2: {
+    id: 'S2',
+    citation: 'Gan TJ, Belani KG, Bergese S, et al. Fourth consensus guidelines for the management of postoperative nausea and vomiting. Anesth Analg. 2020;131(2):411-448.',
+    url: 'https://pubmed.ncbi.nlm.nih.gov/32467512/',
+    identifiers: 'doi:10.1213/ANE.0000000000004833; PMID 32467512',
+    type: 'consensus guideline',
+    supports: 'Dexamethasone 4–8 mg IV at induction; ondansetron 4 mg IV at end of surgery; rescue with a different drug class.',
+    verifiedVia: 'Copied from DOSING_SOURCES.md S7: WebSearch records of PubMed 32467512 and of the APSF podcast notes and the Meyer TSHP handout summarizing Table 4, 2026-11-05. Superseded in part by S3.',
+  },
+  S3: {
+    id: 'S3',
+    citation: 'Gan TJ, et al. Fifth consensus guidelines for the management of postoperative nausea and vomiting: executive summary. Anesth Analg. Published online November 14, 2025.',
+    url: 'https://journals.lww.com/anesthesia-analgesia/',
+    identifiers: 'doi:10.1213/ANE.0000000000007816; PMID unverified',
+    type: 'consensus guideline',
+    supports: 'Two interventions for adults at risk of PONV; dexamethasone 4–8 mg IV at induction (8 mg may be optimal); ondansetron 4 mg IV at end of surgery; dexamethasone plus a 5-HT3 antagonist as the best-studied pair.',
+    verifiedVia: 'Copied from DOSING_SOURCES.md S8: WebSearch records of journals.lww.com (executive summary landing page), the LWW-hosted full report (cdn-links.lww.com/permalink/aa/f/aa_1_1_2025_11_24_cd_1_sdc1.pdf), scholars.duke.edu and a NYSORA summary, 2026-11-05. Full text not opened. PMID (identifier unverified).',
+  },
+  S4: {
+    id: 'S4',
+    citation: 'Apfel CC, Läärä E, Koivuranta M, Greim CA, Roewer N. A simplified risk score for predicting postoperative nausea and vomiting: conclusions from cross-validations between two centers. Anesthesiology. 1999;91(3):693-700.',
+    url: 'https://pubmed.ncbi.nlm.nih.gov/10485781/',
+    identifiers: 'doi:10.1097/00000542-199909000-00022; PMID 10485781',
+    type: 'score validation',
+    supports: 'Four risk factors (female sex, non-smoking, history of PONV or motion sickness, postoperative opioids), one point each; estimated PONV incidence for 0–4 factors about 10%, 21%, 39%, 61%, 79%.',
+    verifiedVia: 'Copied from DOSING_SOURCES.md S9: citation and percentages as audited in v2.0 of that repository against the PubMed record; not re-searched in this session (2026-11-05).',
+  },
+  S5: {
+    id: 'S5',
+    citation: 'Thilen SR, Weigel WA, Todd MM, et al. 2023 American Society of Anesthesiologists practice guidelines for monitoring and antagonism of neuromuscular blockade. Anesthesiology. 2023;138(1):13-41.',
+    url: 'https://pubmed.ncbi.nlm.nih.gov/36520073/',
+    identifiers: 'doi:10.1097/ALN.0000000000004379; PMID 36520073',
+    type: 'society guideline',
+    supports: 'Quantitative monitoring; confirm TOFR ≥0.9 before extubation; sugammadex over neostigmine for deep, moderate and shallow rocuronium/vecuronium block; neostigmine reasonable at minimal depth (TOFR 0.4 to <0.9).',
+    verifiedVia: 'Copied from DOSING_SOURCES.md S10: WebSearch record of PubMed 36520073 and the APSF summary, 2026-11-05.',
+  },
+  S6: {
+    id: 'S6',
+    citation: 'Sugammadex injection (BRIDION). Merck Sharp & Dohme LLC. FDA-approved prescribing information, revised 11/2022.',
+    url: 'https://www.accessdata.fda.gov/drugsatfda_docs/label/2022/022225Orig1s012lbl.pdf',
+    identifiers: 'NDA 022225',
+    type: 'FDA label',
+    supports: '2 mg/kg at reappearance of T2; 4 mg/kg at 1–2 post-tetanic counts with no TOF twitch; 16 mg/kg for immediate reversal about 3 min after rocuronium 1.2 mg/kg; dosing on actual body weight. Contraindication: known hypersensitivity to sugammadex or any of its components.',
+    verifiedVia: 'Dosing copied from DOSING_SOURCES.md S11 (WebSearch record of the FDA-hosted 2022 label, the Merck PI and the Medsafe datasheet, 2026-11-05). Contraindication wording "Known hypersensitivity to sugammadex or any of its components" confirmed in a WebSearch record of the US label, 2026-11-05. Median recovery times were found only in non-US datasheets and are not used.',
+  },
+  S7: {
+    id: 'S7',
+    citation: 'Neostigmine methylsulfate injection (BLOXIVERZ). Exela Pharma Sciences. FDA-approved prescribing information, 2023 revision.',
+    url: 'https://www.accessdata.fda.gov/drugsatfda_docs/label/2023/204078Orig1s014lbl.pdf',
+    identifiers: 'NDA 204078',
+    type: 'FDA label',
+    supports: '0.03–0.07 mg/kg IV (0.03 mg/kg for shorter half-life agents such as rocuronium); maximum total 0.07 mg/kg or 5 mg, whichever is less; anticholinergic before or with neostigmine; TOF0.9 generally within 10–20 min. Contraindications: hypersensitivity to neostigmine; peritonitis or mechanical obstruction of the intestinal or urinary tract.',
+    verifiedVia: 'Dosing copied from DOSING_SOURCES.md S12 (WebSearch record of the FDA-hosted 2023 and 2015 labels and the Amneal PI, 2026-11-05). Contraindications and the "TOF0.9 within 10 to 20 minutes" statement confirmed in a WebSearch record of the FDA-hosted 2023 label highlights and drugs.com/medlibrary copies, 2026-11-05.',
+  },
+  S8: {
+    id: 'S8',
+    citation: 'Glycopyrrolate injection, USP. Multiple manufacturers (label copies indexed at medlibrary.org/lib/rx/meds/glycopyrrolate-54/). FDA-approved prescribing information (revision dates vary).',
+    url: 'https://medlibrary.org/lib/rx/meds/glycopyrrolate-54/',
+    identifiers: 'none (multiple ANDAs)',
+    type: 'FDA label',
+    supports: 'With neostigmine reversal, 0.2 mg glycopyrrolate per 1 mg neostigmine. Intraoperative use: 0.1 mg IV, repeated as needed at 2–3 min intervals.',
+    verifiedVia: 'Copied from DOSING_SOURCES.md S13: WebSearch record of several label copies (medlibrary.org; ndclist.com), 2026-11-05. The 0.1 mg wording was confirmed in one manufacturer\'s label but not tied to its section heading.',
+  },
+  S9: {
+    id: 'S9',
+    citation: 'Dexmedetomidine hydrochloride injection (PRECEDEX). Hospira, Inc. (Pfizer). FDA-approved prescribing information, 2026 revision.',
+    url: 'https://www.accessdata.fda.gov/drugsatfda_docs/label/2026/021038s061lbl.pdf',
+    identifiers: 'NDA 021038',
+    type: 'FDA label',
+    supports: 'Procedural sedation of non-intubated patients: loading 1 mcg/kg over 10 min (0.5 mcg/kg over 10 min for less invasive procedures); maintenance started at 0.6 mcg/kg/h, titrated 0.2–1 mcg/kg/h. ICU maintenance 0.2–0.7 mcg/kg/h. >65 y: loading 0.5 mcg/kg over 10 min, consider reducing maintenance. Hepatic impairment: consider reduction. Contraindications: none. Warning: use with caution in advanced heart block and/or severe ventricular dysfunction. Use as a general-anaesthesia adjunct is off-label.',
+    verifiedVia: 'Dosing copied from DOSING_SOURCES.md S14 (WebSearch record of the FDA-hosted 2026 and 2013 labels and Pfizer labeling pages, 2026-11-05; procedural 0.6 and 0.2–1 mcg/kg/h wording confirmed in the 2013 text). Contraindications "None" and the heart-block caution confirmed in a WebSearch record of the DailyMed Precedex listing and pfizermedicalinformation.com/precedex/warnings, 2026-11-05. No onset time was found.',
+  },
+  S10: {
+    id: 'S10',
+    citation: 'Schwenk ES, Viscusi ER, Buvanendran A, et al. Consensus guidelines on the use of intravenous ketamine infusions for acute pain management from the American Society of Regional Anesthesia and Pain Medicine, the American Academy of Pain Medicine, and the American Society of Anesthesiologists. Reg Anesth Pain Med. 2018;43(5):456-466.',
+    url: 'https://pmc.ncbi.nlm.nih.gov/articles/PMC6023582/',
+    identifiers: 'doi:10.1097/AAP.0000000000000806; PMID 29870457',
+    type: 'consensus guideline',
+    supports: 'Subanaesthetic ketamine for acute pain: bolus ≤0.35 mg/kg; infusions up to about 1 mg/kg/h; contraindications for acute pain largely mirror those for chronic pain. Analgesic ketamine is outside the FDA-labelled anaesthetic indications.',
+    verifiedVia: 'Copied from DOSING_SOURCES.md S15: WebSearch record of PubMed 29870457, PMC6023582 and the ASRA guideline page, 2026-11-05. The 0.35 mg/kg and 1 mg/kg/h figures were confirmed in a secondary summary. The specific contraindication list was NOT retrieved in this session.',
+  },
+  S11: {
+    id: 'S11',
+    citation: 'Propofol injectable emulsion (DIPRIVAN). Fresenius Kabi USA. FDA-approved prescribing information, 2022 revision; and generic propofol injectable emulsion labels (medlibrary.org copies).',
+    url: 'https://www.accessdata.fda.gov/drugsatfda_docs/Label/2022/019627s069lbl.pdf',
+    identifiers: 'NDA 019627',
+    type: 'FDA label',
+    supports: 'Induction <55 y about 2–2.5 mg/kg; elderly/debilitated/ASA III–IV about 1–1.5 mg/kg. Maintenance 100–200 mcg/kg/min (<55 y); 50–100 mcg/kg/min (elderly/ASA III–IV). MAC sedation initiation: 100–150 mcg/kg/min for 3–5 min or slow injection about 0.5 mg/kg over 3–5 min; slow infusion/injection preferable to rapid bolus; maintenance 25–75 mcg/kg/min during the first 10–15 min, then 25–50 mcg/kg/min; no rapid bolus for MAC sedation in elderly/debilitated/ASA III–IV. Onset: hypnosis usually within 40 s from start of injection. Contraindication: known hypersensitivity to propofol, egg or soybean (current label).',
+    verifiedVia: 'Induction/maintenance copied from DOSING_SOURCES.md S16 (WebSearch record of the FDA-hosted 2022 label and the medlibrary.org label copy, 2026-11-05). MAC-sedation rates, slow-injection 0.5 mg/kg and the elderly no-rapid-bolus wording confirmed in WebSearch records of medlibrary.org propofol and Diprivan label copies (medlibrary.org/lib/rx/meds/propofol/, /diprivan/page/2/), 2026-11-05. 40 s onset confirmed in a WebSearch record of an ndclist.com label copy and the FDA-hosted 2014 label (019627s062). Contraindication wording from a WebSearch record of the current label highlights; older labels word it as anaphylaxis to eggs/egg products/soybeans/soy products.',
+  },
+  S12: {
+    id: 'S12',
+    citation: 'Rocuronium bromide injection. Generic manufacturer labels (e.g., DailyMed setid a54a79f7-5207-43d8-a139-7d57557caa50), Pfizer prescribing information, and FDA-hosted 2026 rocuronium label (NDA 217472).',
+    url: 'https://www.accessdata.fda.gov/drugsatfda_docs/nda/2026/217472Orig1s000Lbl.pdf',
+    identifiers: 'NDA 217472 (2026 label); others vary',
+    type: 'FDA label',
+    supports: 'Intubating dose 0.6 mg/kg; rapid sequence 0.6–1.2 mg/kg; maintenance guided by response (older labels: 0.1, 0.15 or 0.2 mg/kg at 25% recovery of T1). 0.6 mg/kg: maximum block in most patients in <3 min; 31 (15–85) min clinical relaxation. Contraindication (older label): hypersensitivity (e.g., anaphylaxis) to rocuronium bromide or other neuromuscular blocking agents.',
+    verifiedVia: 'Dosing copied from DOSING_SOURCES.md S17 (WebSearch record of the Pfizer dosage page, the DailyMed listing and an FDA-hosted 2026 label, 2026-11-05). Timing ("less than 3 minutes", "31 (15-85) minutes") from a WebSearch record of the FDA-hosted 2026 label; contraindication wording from an older label copy (ndclist.com / labeling.pfizer.com), 2026-11-05.',
+  },
+  S13: {
+    id: 'S13',
+    citation: 'Fentanyl citrate injection, USP. Hospira, Inc. (Pfizer) and Fresenius Kabi (August 2023 PI) prescribing information.',
+    url: 'https://pfizermedicalinformation.com/fentanyl-citrate/dosage-admin',
+    identifiers: 'none (multiple NDAs/ANDAs)',
+    type: 'FDA label',
+    supports: 'Individualized dosing; reduce initial dose in elderly/debilitated. General anaesthesia low dose 2 mcg/kg; moderate dose 2–20 mcg/kg with 25–100 mcg increments for maintenance. IV onset almost immediate; analgesia 30–60 min after a single IV dose up to 100 mcg.',
+    verifiedVia: 'Low-dose tier copied from DOSING_SOURCES.md S18 (WebSearch record of the Pfizer dosage page and Fresenius/medlibrary copies, 2026-11-05). Moderate-dose "2 mcg/kg to 20 mcg/kg, 25 mcg to 100 mcg" confirmed in a WebSearch record of the Fresenius Kabi August 2023 PI and ndclist.com label copies; the maintenance sentence itself was cut off in the snippet. Onset/duration from an archived (2008–2009) DailyMed label copy (webarchive.library.unt.edu), 2026-11-05.',
+  },
+  S14: {
+    id: 'S14',
+    citation: 'Naloxone hydrochloride injection, USP. Generic manufacturer labels (copies indexed at medlibrary.org/lib/rx/meds/naloxone-hydrochloride-14/; labeling.pfizer.com).',
+    url: 'https://labeling.pfizer.com/ShowLabeling.aspx?id=4542',
+    identifiers: 'none (multiple ANDAs)',
+    type: 'FDA label',
+    supports: 'Postoperative opioid depression: 0.1–0.2 mg IV at 2–3 min intervals to desired reversal; repeat doses may be needed at 1–2 h intervals. IV onset generally apparent within 2 min; duration depends on dose and route.',
+    verifiedVia: 'Dosing copied from DOSING_SOURCES.md S22 (WebSearch record of multiple label copies, 2026-11-05). Onset "generally apparent within two minutes" confirmed in WebSearch records of ndclist.com and labeling.pfizer.com label copies, 2026-11-05.',
+  },
+  S15: {
+    id: 'S15',
+    citation: 'Ketorolac tromethamine injection, USP. Hospira, Inc. (Pfizer) prescribing information.',
+    url: 'https://www.pfizermedical.com/ketorolac-inj/dosage-admin',
+    identifiers: 'none',
+    type: 'FDA label',
+    supports: '<65 y: 30 mg IV every 6 h, max 120 mg/day; ≥65 y, renally impaired or <50 kg: 15 mg every 6 h, max 60 mg/day; ≤5 days. Contraindicated in advanced renal impairment or risk for renal failure due to volume depletion; in patients with allergic reactions to aspirin or other NSAIDs; in patients currently receiving aspirin or NSAIDs.',
+    verifiedVia: 'Dosing copied from DOSING_SOURCES.md S23 (WebSearch record of the Pfizer dosage page and medlibrary.org copies, 2026-11-05). Contraindication wording confirmed in a WebSearch record of pfizermedicalinformation.com/ketorolac-inj/contradictions and the Hospira DailyMed listing, 2026-11-05.',
+  },
+  S16: {
+    id: 'S16',
+    citation: 'Acetaminophen injection (OFIRMEV). Mallinckrodt Hospital Products. FDA-approved prescribing information.',
+    url: 'https://www.accessdata.fda.gov/drugsatfda_docs/label/2010/022450lbl.pdf',
+    identifiers: 'NDA 022450',
+    type: 'FDA label',
+    supports: 'Adults ≥50 kg: 1000 mg every 6 h or 650 mg every 4 h, max single dose 1000 mg, max 4000 mg/day; <50 kg: 15 mg/kg every 6 h, max 75 mg/kg/day; daily maximum counts all routes. Contraindicated in severe hepatic impairment; caution in hepatic impairment.',
+    verifiedVia: 'Copied from DOSING_SOURCES.md S24: WebSearch record of the FDA-hosted 2010 label, the Mallinckrodt PI and drugs.com label copy, 2026-11-05.',
+  },
+  S17: {
+    id: 'S17',
+    citation: 'Midazolam hydrochloride injection, USP. Multiple manufacturers (e.g., DailyMed setid e22611dd-1830-40af-9139-7cdb07f5a426).',
+    url: 'https://dailymed.nlm.nih.gov/dailymed/drugInfo.cfm?setid=e22611dd-1830-40af-9139-7cdb07f5a426',
+    identifiers: 'none (multiple ANDAs)',
+    type: 'FDA label',
+    supports: 'Individualized; IV sedation in a healthy adult starts with as little as 1 mg and should not exceed 2.5 mg initial dose, titrated slowly; reduce in older, debilitated or chronically ill patients and with opioids/CNS depressants. Sedation achieved within 3–5 min after IV injection. Contraindicated in acute narrow-angle glaucoma. Boxed warning on respiratory depression.',
+    verifiedVia: 'Dosing copied from DOSING_SOURCES.md S27 (WebSearch record of a prescriberpoint.com label copy and the DailyMed listing, 2026-11-05; age ≥60 figure NOT confirmed). Onset "within 3 to 5 minutes" and the narrow-angle glaucoma contraindication confirmed in WebSearch records of US label copies (DailyMed listings; medlibrary.org), 2026-11-05.',
+  },
+  S18: {
+    id: 'S18',
+    citation: 'Phenylephrine hydrochloride injection (BIORPHEN). FDA-approved prescribing information, 2019.',
+    url: 'https://www.accessdata.fda.gov/drugsatfda_docs/label/2019/212909s000lbl.pdf',
+    identifiers: 'NDA 212909',
+    type: 'FDA label',
+    supports: 'Hypotension during anaesthesia: initial IV bolus 40–100 mcg; additional boluses every 1–2 min, not exceeding 200 mcg per bolus; infusion 10–35 mcg/min, not exceeding 200 mcg/min.',
+    verifiedVia: 'Copied from DOSING_SOURCES.md S28: WebSearch record of the FDA-hosted 2019 label and drugs.com label copy, 2026-11-05.',
+  },
+  S19: {
+    id: 'S19',
+    citation: 'Ephedrine sulfate injection (AKOVAZ). Exela Pharma Sciences. FDA-approved prescribing information.',
+    url: 'https://www.drugs.com/pro/akovaz.html',
+    identifiers: 'none',
+    type: 'FDA label',
+    supports: 'Clinically important hypotension in the setting of anaesthesia: IV bolus 5–10 mg as needed, not to exceed 50 mg; tachyphylaxis possible.',
+    verifiedVia: 'Copied from DOSING_SOURCES.md S29: WebSearch record of drugs.com and medlibrary.org label copies, 2026-11-05.',
+  },
+  S20: {
+    id: 'S20',
+    citation: 'Chung F, Yegneswaran B, Liao P, et al. STOP questionnaire: a tool to screen patients for obstructive sleep apnea. Anesthesiology. 2008;108(5):812-821.',
+    url: 'https://pubmed.ncbi.nlm.nih.gov/18431116/',
+    identifiers: 'PMID 18431116 (DOI not re-verified)',
+    type: 'score validation',
+    supports: 'STOP items and Bang items (BMI >35, age >50, neck >40 cm, male sex).',
+    verifiedVia: 'Copied from DOSING_SOURCES.md S32: WebSearch record of PubMed 18431116 and qxmd.com/r/18431116, 2026-11-05.',
+  },
+  S21: {
+    id: 'S21',
+    citation: 'Chung F, Abdullah HR, Liao P. STOP-Bang questionnaire: a practical approach to screen for obstructive sleep apnea. Chest. 2016;149(3):631-638.',
+    url: 'https://pubmed.ncbi.nlm.nih.gov/26378880/',
+    identifiers: 'PMID 26378880 (DOI not re-verified)',
+    type: 'score validation',
+    supports: 'STOP-Bang 0–2 low, 3–4 intermediate, 5–8 high risk of moderate-to-severe OSA.',
+    verifiedVia: 'Copied from DOSING_SOURCES.md S33: WebSearch record of PubMed 26378880 and the UW-hosted STOP-Bang appendix, 2026-11-05.',
+  },
+  S22: {
+    id: 'S22',
+    citation: 'American Society of Anesthesiologists. Standards for Basic Anesthetic Monitoring. Last amended October 15, 2025.',
+    url: 'https://www.asahq.org/standards-and-practice-parameters/standards-for-basic-anesthetic-monitoring',
+    identifiers: 'none',
+    type: 'society standard',
+    supports: 'BP and HR at least every 5 min; continuous ECG; pulse oximetry; end-tidal CO2 during GA; exhaled-CO2 monitoring during moderate or deep sedation.',
+    verifiedVia: 'Copied from DOSING_SOURCES.md S35: WebSearch record of the asahq.org standards page and the OpenAnesthesia summary, 2026-11-05.',
+  },
+  S23: {
+    id: 'S23',
+    citation: 'Etomidate injection, USP (AMIDATE). Hospira, Inc. (Pfizer). FDA-approved prescribing information.',
+    url: 'https://www.pfizermedical.com/amidate/dosage-admin',
+    identifiers: 'NDA 018227 (FDA-hosted label 2017: 018227s032lbl.pdf)',
+    type: 'FDA label',
+    supports: 'Adults: 0.2–0.6 mg/kg, individualized; usual 0.3 mg/kg over 30–60 s. Onset usually within 1 min; duration dose dependent, usually 3–5 min at 0.3 mg/kg. Reduced plasma cortisol after 0.3 mg/kg persisting about 6–8 h, unresponsive to ACTH. Geriatric patients may require reduced doses. Contraindicated in patients who have shown hypersensitivity to it.',
+    verifiedVia: 'WebSearch records of pfizermedical.com/amidate (dosage-admin), prescriberpoint.com etomidate label copies, the FDA-hosted 2017 label (accessdata.fda.gov 018227s032lbl.pdf, link only) and the drugs.com Amidate copy (updated Jan 2026) for onset/duration wording, 2026-11-05.',
+  },
+  S24: {
+    id: 'S24',
+    citation: 'Succinylcholine chloride injection, USP (ANECTINE; QUELICIN). Sandoz / Hospira prescribing information (medlibrary.org and medthority.com label copies; DailyMed setid 1d4302db-a0d5-d0e8-e063-6294a90a22f8).',
+    url: 'https://medlibrary.org/lib/rx/meds/anectine/',
+    identifiers: 'none',
+    type: 'FDA label',
+    supports: 'Average adult intubating dose 0.6 mg/kg IV (range 0.3–1.1 mg/kg). After IV doses in this range blockade develops in about 1 min, maximum about 2 min, recovery within 4–6 min. Contraindications (older-format labels): personal or familial history of malignant hyperthermia, skeletal muscle myopathies, known hypersensitivity; not to be used after the acute phase of injury following major burns, multiple trauma, extensive denervation of skeletal muscle, or upper motor neuron injury. Boxed warning: hyperkalemic rhabdomyolysis in pediatric patients. Hyperkalemia risk in burn/injury patients peaks 7–10 days after injury.',
+    verifiedVia: 'WebSearch records of medlibrary.org Anectine copies (0.3–1.1 mg/kg; onset/peak/recovery), medthority.com Anectine/Quelicin copies (0.6 mg/kg; boxed warning; burn hyperkalemia timing), drugs.com and DailyMed listings (contraindication wording), 2026-11-05. Contraindication lists differ between label versions (some newer labels move burns/denervation to Warnings).',
+  },
+  S25: {
+    id: 'S25',
+    citation: 'Sevoflurane, USP, volatile liquid for inhalation (ULTANE). AbbVie. FDA-approved prescribing information.',
+    url: 'https://medlibrary.org/lib/rx/meds/ultane-1/',
+    identifiers: 'none confirmed',
+    type: 'FDA label',
+    supports: 'MAC in oxygen by age: 25 y 2.6%; 40 y 2.1%; 60 y 1.7%; 80 y 1.4%. Surgical levels of anaesthesia usually achieved with 0.5–3% with or without nitrous oxide. Contraindicated in known or suspected genetic susceptibility to malignant hyperthermia and known sensitivity to sevoflurane or other halogenated agents.',
+    verifiedVia: 'WebSearch records of prescriberpoint.com sevoflurane label copies (MAC table; contraindications), medlibrary.org Ultane copy and pdr.net (0.5–3% maintenance sentence), 2026-11-05. The current US label full text was not opened; the 0.5–3% sentence appeared under an odd heading in the medlibrary copy.',
+  },
+  S26: {
+    id: 'S26',
+    citation: 'Mapleson WW. Effect of age on MAC in humans: a meta-analysis. Br J Anaesth. 1996;76(2):179-185.',
+    url: 'https://academic.oup.com/bja/issue/76/2',
+    identifiers: 'doi:10.1093/bja/76.2.179; PMID unverified',
+    type: 'meta-analysis (age-adjusted MAC model)',
+    supports: 'MAC(age) = MAC40 × 10^(−0.00269 × (age − 40)); sevoflurane MAC40 1.80% (about 6% decline per decade).',
+    verifiedVia: 'WebSearch records of the BJA 76(2) issue listing (citation, DOI), a Mapleson-authored abstract on scite.ai (MAC40 1.80% sevoflurane; b = −0.00269), and a StatPearls review quoting the equation, 2026-11-05. Full text not opened.',
+  },
+  S27: {
+    id: 'S27',
+    citation: 'Ketamine hydrochloride injection (KETALAR). Par Pharmaceutical / Endo. FDA-approved prescribing information, 2022 revision (also 2026 revision 016812s057); and Fresenius Kabi generic ketamine label.',
+    url: 'https://www.accessdata.fda.gov/drugsatfda_docs/label/2022/016812s051lbl.pdf',
+    identifiers: 'NDA 016812',
+    type: 'FDA label',
+    supports: 'IV induction 1–4.5 mg/kg over 60 s; average 2 mg/kg produces 5–10 min of surgical anaesthesia within 30 s; maintenance increments of one-half to the full induction dose. Contraindicated in patients for whom a significant elevation of blood pressure would constitute a serious hazard, and in known hypersensitivity. Postoperative confusional states may occur during recovery.',
+    verifiedVia: 'WebSearch records of the FDA-hosted 2022 and 2026 Ketalar labels (1–4.5 mg/kg; maintenance increments; contraindications; emergence wording) and the Fresenius Kabi generic label copy (2 mg/kg, 5–10 min, within 30 s), 2026-11-05.',
+  },
+  S28: {
+    id: 'S28',
+    citation: 'Lidocaine hydrochloride injection, USP (intravenous, antiarrhythmic). Fresenius Kabi and Hospira prescribing information; archived DailyMed lidocaine labels.',
+    url: 'https://labeling.pfizer.com/ShowLabeling.aspx?id=4497',
+    identifiers: 'none',
+    type: 'FDA label',
+    supports: 'Contraindication (Fresenius Kabi): not to be used in Stokes-Adams syndrome, Wolff-Parkinson-White syndrome, or severe degrees of sinoatrial, atrioventricular or intraventricular block. Warning (older-format labels): patients with severe hepatic disease are at greater risk of developing toxic plasma concentrations.',
+    verifiedVia: 'WebSearch records of guidelinecentral.com Fresenius lidocaine label, labeling.pfizer.com (Hospira caution wording), the drugs.com lidocaine monograph and archived DailyMed lidocaine labels (webarchive.library.unt.edu), 2026-11-05. No dose is taken from this label.',
+  },
+  S29: {
+    id: 'S29',
+    citation: 'Ondansetron injection, USP. Pfizer prescribing information (pfizermedicalinformation.com/ondansetron).',
+    url: 'https://www.pfizermedicalinformation.com/ondansetron/contradictions',
+    identifiers: 'none',
+    type: 'FDA label',
+    supports: 'Contraindicated in known hypersensitivity (e.g., anaphylaxis) to the product or its components, and with concomitant apomorphine (profound hypotension and loss of consciousness reported).',
+    verifiedVia: 'WebSearch record of pfizermedicalinformation.com/ondansetron/contradictions and Canadian monographs (pdf.hres.ca), 2026-11-05. Dose is taken from S3, not from this label.',
+  },
+  S30: {
+    id: 'S30',
+    citation: 'Dexamethasone sodium phosphate injection, USP. Multiple manufacturers (e.g., Fresenius Kabi; label copies at medthority.com and drugcentral.org).',
+    url: 'https://drugcentral.org/label/9dbb2b90-471a-4de8-b105-6c9ede7d8d7e/view',
+    identifiers: 'none',
+    type: 'FDA label',
+    supports: 'Contraindications: systemic fungal infections; hypersensitivity to any component of this product (including sulfites in some products).',
+    verifiedVia: 'WebSearch records of drugcentral.org and medthority.com dexamethasone sodium phosphate label copies, 2026-11-05. Dose is taken from S2/S3, not from this label.',
+  },
+  S31: {
+    id: 'S31',
+    citation: 'American Society of Anesthesiologists. Statement on Continuum of Depth of Sedation: Definition of General Anesthesia and Levels of Sedation/Analgesia. Original approval October 13, 1999; last amended October 23, 2024.',
+    url: 'https://www.asahq.org/standards-and-practice-parameters/statement-on-continuum-of-depth-of-sedation-definition-of-general-anesthesia-and-levels-of-sedation-analgesia',
+    identifiers: 'none',
+    type: 'society statement',
+    supports: 'Minimal sedation: normal response to verbal stimulation. Moderate: purposeful response to verbal or light tactile stimulation. Deep: purposeful response after repeated or painful stimulation (reflex withdrawal is not purposeful). General anaesthesia: not arousable even by painful stimulation.',
+    verifiedVia: 'WebSearch record of the asahq.org statement page (amendment date) and reproductions of the statement text, 2026-11-05.',
+  },
+  S32: {
+    id: 'S32',
+    citation: 'Practice guidelines for moderate procedural sedation and analgesia 2018: a report by the American Society of Anesthesiologists Task Force on Moderate Procedural Sedation and Analgesia, et al. Anesthesiology. 2018;128(3):437-479.',
+    url: 'https://pubmed.ncbi.nlm.nih.gov/29334501/',
+    identifiers: 'doi:10.1097/ALN.0000000000002043; PMID 29334501',
+    type: 'society guideline',
+    supports: 'Framework for moderate procedural sedation (monitoring, titration, personnel). No dose is taken from it in this library.',
+    verifiedVia: 'WebSearch record of PubMed 29334501 and qxmd.com/r/29334501 (citation, DOI), 2026-11-05. Its capnography recommendation text was not retrieved; capnography statements in the simulator are tagged to S22.',
+  },
+  S33: {
+    id: 'S33',
+    citation: 'Devine BJ. Gentamicin therapy. Drug Intell Clin Pharm. 1974;8:650-655.',
+    url: 'https://wikem.org/wiki/Ideal_body_weight_calculator',
+    identifiers: 'none confirmed',
+    type: 'weight scalar (original formula)',
+    supports: 'Ideal body weight: male 50 kg, female 45.5 kg, + 2.3 kg per inch over 60 in.',
+    verifiedVia: 'WebSearch records of secondary reproductions (wikem.org; evigrade.com; calcfyi.com) giving the citation and formula, 2026-11-05. Original article not opened.',
+  },
+  S34: {
+    id: 'S34',
+    citation: 'Janmahasatian S, Duffull SB, Ash S, Ward LC, Byrne NM, Green B. Quantification of lean bodyweight. Clin Pharmacokinet. 2005;44(10):1051-1065.',
+    url: 'https://pmc.ncbi.nlm.nih.gov/articles/PMC2485235',
+    identifiers: 'doi:10.2165/00003088-200544100-00004',
+    type: 'weight scalar (original formula)',
+    supports: 'Lean body weight: male 9270 × TBW / (6680 + 216 × BMI); female 9270 × TBW / (8780 + 244 × BMI).',
+    verifiedVia: 'WebSearch records of bibliographic copies (citation, DOI, pages) and a PMC article quoting the denominators 6680 + 216×BMI and 8780 + 244×BMI, 2026-11-05. The 9270 numerator was not displayed in the search record (identifier/constant unverified in this session); check the original before reuse.',
+  },
+  S35: {
+    id: 'S35',
+    citation: 'Smart NOA Controller. config.yaml (simulation_rate_ceilings; ketorolac egfr_minimum; dexmedetomidine cardiac_conditions). Project configuration in this repository.',
+    url: 'config.yaml',
+    identifiers: 'none',
+    type: 'project configuration (software ceilings, not clinical maxima)',
+    supports: 'Python simulation rate ceilings: dexmedetomidine 0.5 mcg/kg/h, ketamine 0.2 mg/kg/h, lidocaine 1.5 mg/kg/h; ketorolac lockout below eGFR 30; dexmedetomidine lockout for heart block conditions.',
+    verifiedVia: 'Read directly from /home/user/smart-noa-controller/config.yaml, 2026-11-05. This is not clinical evidence; it is cited so the simulator mirrors the Python controller.',
+  },
+};
+
+// ---------------------------------------------------------------------------------------------
+// Patient-entry vocabularies. `group` drives UI checkbox grouping.
+export const CONDITIONS = [
+  // cardiovascular
+  { id: 'heart_block', label: '2nd/3rd-degree heart block (no pacemaker)', group: 'cardiovascular' },
+  { id: 'wpw', label: 'Wolff-Parkinson-White syndrome', group: 'cardiovascular' },
+  { id: 'cad', label: 'Coronary artery disease', group: 'cardiovascular' },
+  { id: 'hf_reduced_ef', label: 'Heart failure with reduced ejection fraction', group: 'cardiovascular' },
+  { id: 'aortic_stenosis_severe', label: 'Severe aortic stenosis', group: 'cardiovascular' },
+  { id: 'uncontrolled_htn', label: 'Uncontrolled hypertension', group: 'cardiovascular' },
+  { id: 'hypovolemia', label: 'Hypovolaemia / volume depletion', group: 'cardiovascular' },
+  // respiratory
+  { id: 'osa', label: 'Obstructive sleep apnoea (diagnosed)', group: 'respiratory' },
+  { id: 'asthma', label: 'Asthma', group: 'respiratory' },
+  { id: 'copd', label: 'COPD', group: 'respiratory' },
+  // renal / hepatic
+  { id: 'liver_disease', label: 'Liver disease / hepatic impairment', group: 'renal_hepatic' },
+  { id: 'severe_hepatic_impairment', label: 'Severe hepatic impairment', group: 'renal_hepatic' },
+  { id: 'bowel_or_urinary_obstruction', label: 'Peritonitis or mechanical bowel/urinary obstruction', group: 'renal_hepatic' },
+  // neuro / psych
+  { id: 'psychosis_history', label: 'History of psychosis', group: 'neuro_psych' },
+  { id: 'neuromuscular_disease', label: 'Skeletal muscle myopathy / neuromuscular disease', group: 'neuro_psych' },
+  { id: 'recent_burn_or_denervation', label: 'Major burn, multiple trauma, extensive denervation or upper motor neuron injury (after acute phase)', group: 'neuro_psych' },
+  { id: 'narrow_angle_glaucoma', label: 'Acute narrow-angle glaucoma', group: 'neuro_psych' },
+  // metabolic / other
+  { id: 'hyperkalemia', label: 'Hyperkalaemia', group: 'metabolic_other' },
+  { id: 'adrenal_insufficiency', label: 'Adrenal insufficiency', group: 'metabolic_other' },
+  { id: 'sepsis', label: 'Sepsis', group: 'metabolic_other' },
+  { id: 'diabetes', label: 'Diabetes mellitus', group: 'metabolic_other' },
+  { id: 'gerd', label: 'Gastro-oesophageal reflux (aspiration risk)', group: 'metabolic_other' },
+  { id: 'systemic_fungal_infection', label: 'Systemic fungal infection', group: 'metabolic_other' },
+  // anaesthesia-specific
+  { id: 'mh_susceptible', label: 'Malignant hyperthermia susceptible (personal/family history)', group: 'anesthesia_specific' },
+  { id: 'regional_block_planned', label: 'Regional block / wound infiltration planned or active', group: 'anesthesia_specific' },
+];
+
+export const ALLERGIES = [
+  { id: 'nsaid', label: 'NSAID / aspirin' },
+  { id: 'propofol', label: 'Propofol' },
+  { id: 'egg_soy', label: 'Egg or soybean' },
+  { id: 'rocuronium', label: 'Rocuronium / other neuromuscular blocker' },
+  { id: 'succinylcholine', label: 'Succinylcholine' },
+  { id: 'sugammadex', label: 'Sugammadex' },
+  { id: 'neostigmine', label: 'Neostigmine' },
+  { id: 'etomidate', label: 'Etomidate' },
+  { id: 'ketamine', label: 'Ketamine' },
+  { id: 'halogenated_volatile', label: 'Sevoflurane / halogenated volatile agents' },
+  { id: 'ondansetron', label: 'Ondansetron' },
+  { id: 'dexamethasone', label: 'Dexamethasone (product component)' },
+];
+
+export const MEDICATIONS = [
+  { id: 'beta_blocker', label: 'Beta-blocker' },
+  { id: 'apomorphine', label: 'Apomorphine' },
+  { id: 'nsaid_aspirin', label: 'Current aspirin or NSAID therapy' },
+  { id: 'opioid_chronic', label: 'Long-term opioid therapy' },
+  { id: 'cns_depressant', label: 'Other CNS depressant (benzodiazepine, sedative)' },
+];
+
+// Patient flags produced by engine/patient.js derivePatient() (SPEC §3). Listed here so data tests
+// can validate `flag:<id>` references.
+export const KNOWN_FLAGS = Object.freeze([
+  'elderly', 'obese', 'morbidObese', 'ckd', 'severeCkd', 'aspirationRisk', 'difficultAirwayPredicted',
+]);
+
+export const WHEN_FORMS = Object.freeze({
+  contraindication: ['condition:<id>', 'allergy:<id>', 'medication:<id>', 'egfr<N', 'age>=N', 'flag:<id>'],
+  adjust: ['any contraindication form', 'asa>=N', 'weight<N', "tokens joined by '|' (OR)"],
+});
+
+const NOT_STATED = (note) => ({
+  onsetMin: null, peakMin: null, durationMin: null,
+  basis: 'not stated in label', sources: [], note: note || 'Engine uses its illustrative fallback constants.',
+});
+
+// ---------------------------------------------------------------------------------------------
+export const DRUGS = [
+  // ---------------- Hypnotics ----------------
+  {
+    id: 'propofol', name: 'Propofol', cls: 'hypnotic',
+    concentration: { value: 10, unit: 'mg/mL' },
+    amountUnit: 'mg',
+    regimens: {
+      sedation_moderate: {
+        kind: 'infusion',
+        loading: { method: 'slow injection', perKg: { default: 0.5, min: 0.5, max: 0.5 }, unit: 'mg/kg', overMin: { min: 3, max: 5 },
+          alternative: 'or infusion 100–150 mcg/kg/min for 3–5 min' },
+        rate: { default: 25, min: 25, max: 75, unit: 'mcg/kg/min' },
+        scalar: 'TBW', scalarBasis: 'convention',
+        adjust: [{ when: 'flag:elderly|asa>=3', note: 'Label: in elderly, debilitated or ASA III/IV patients, rapid (single or repeated) bolus dose administration should not be used for MAC sedation.', sources: ['S11'] }],
+        timing: 'Slow infusion or slow injection preferable to rapid bolus; maintenance 25–75 mcg/kg/min for the first 10–15 min, then 25–50 mcg/kg/min.',
+        sources: ['S11'],
+        note: 'Label MAC-sedation dosing does not distinguish moderate from deep; target depth is set by titration (S31). Default = lower bound.',
+      },
+      sedation_deep: {
+        kind: 'infusion',
+        loading: { method: 'slow injection', perKg: { default: 0.5, min: 0.5, max: 0.5 }, unit: 'mg/kg', overMin: { min: 3, max: 5 },
+          alternative: 'or infusion 100–150 mcg/kg/min for 3–5 min' },
+        rate: { default: 25, min: 25, max: 75, unit: 'mcg/kg/min' },
+        scalar: 'TBW', scalarBasis: 'convention',
+        adjust: [{ when: 'flag:elderly|asa>=3', note: 'Label: in elderly, debilitated or ASA III/IV patients, rapid (single or repeated) bolus dose administration should not be used for MAC sedation.', sources: ['S11'] }],
+        timing: 'Slow infusion or slow injection preferable to rapid bolus.',
+        sources: ['S11'],
+        note: 'Same label range as moderate sedation; deep sedation requires exhaled-CO2 monitoring (S22).',
+      },
+      induction: {
+        kind: 'bolus',
+        perKg: { default: 2, min: 2, max: 2.5 }, unit: 'mg/kg',
+        scalar: 'TBW', scalarBasis: 'convention',
+        adjust: [{ when: 'flag:elderly|asa>=3', perKg: { default: 1, min: 1, max: 1.5 }, note: 'Label: elderly, debilitated or ASA III–IV about 1–1.5 mg/kg (20 mg every 10 s).', sources: ['S11'] }],
+        timing: 'Healthy adults <55 y: about 40 mg every 10 s until onset.',
+        sources: ['S11'],
+      },
+      maintenance: {
+        kind: 'infusion',
+        rate: { default: 100, min: 100, max: 200, unit: 'mcg/kg/min' },
+        scalar: 'TBW', scalarBasis: 'convention',
+        adjust: [{ when: 'flag:elderly|asa>=3', rate: { default: 50, min: 50, max: 100, unit: 'mcg/kg/min' }, note: 'Label: elderly, debilitated or ASA III–IV 50–100 mcg/kg/min.', sources: ['S11'] }],
+        timing: 'Label rates assume co-administered nitrous oxide or opioids.',
+        sources: ['S11'],
+      },
+    },
+    ceiling: { value: 200, unit: 'mcg/kg/min', basis: 'label range upper bound', sources: ['S11'], note: 'Top of the label maintenance range; the label does not call this a maximum.' },
+    contraindications: [
+      { when: 'allergy:propofol', severity: 'lock', message: 'Contraindicated: known hypersensitivity to propofol (label CONTRAINDICATIONS).', sources: ['S11'] },
+      { when: 'allergy:egg_soy', severity: 'lock', message: 'Contraindicated: known hypersensitivity to propofol, egg or soybean (current label CONTRAINDICATIONS; older labels: anaphylaxis to eggs, egg products, soybeans or soy products).', sources: ['S11'] },
+    ],
+    timing: { onsetMin: 0.67, peakMin: null, durationMin: null, basis: 'label statement: hypnosis usually within 40 seconds from the start of injection (one arm-brain circulation)', defaultBolus: '2 mg/kg', sources: ['S11'] },
+    pkModel: 'calibrated',
+    pkNote: 'Marsh 1991 adult parameters could not be verified in this session; calibrated model used (see SOURCES.md).',
+  },
+  {
+    id: 'etomidate', name: 'Etomidate', cls: 'hypnotic',
+    concentration: { value: 2, unit: 'mg/mL' },
+    amountUnit: 'mg',
+    regimens: {
+      induction: {
+        kind: 'bolus',
+        perKg: { default: 0.3, min: 0.2, max: 0.6 }, unit: 'mg/kg',
+        scalar: 'TBW', scalarBasis: 'convention',
+        adjust: [{ when: 'flag:elderly', note: 'Label: geriatric patients may require reduced doses (no figure given).', sources: ['S23'] }],
+        timing: 'Inject over 30–60 seconds.',
+        sources: ['S23'],
+        note: 'Default is the label usual dose 0.3 mg/kg.',
+      },
+    },
+    ceiling: null,
+    contraindications: [
+      { when: 'allergy:etomidate', severity: 'lock', message: 'Contraindicated in patients who have shown hypersensitivity to it (label CONTRAINDICATIONS).', sources: ['S23'] },
+      { when: 'condition:adrenal_insufficiency', severity: 'warn', message: 'Label: reduced plasma cortisol levels have been reported with induction doses of 0.3 mg/kg; these persist for approximately 6–8 hours and appear to be unresponsive to ACTH administration.', sources: ['S23'] },
+      { when: 'condition:sepsis', severity: 'warn', message: 'Label: reduced plasma cortisol levels have been reported with induction doses of 0.3 mg/kg; these persist for approximately 6–8 hours and appear to be unresponsive to ACTH administration. (The label does not name sepsis; the simulator applies this warning as policy.)', sources: ['S23'] },
+    ],
+    timing: { onsetMin: 1, peakMin: null, durationMin: 4, ranges: { durationMin: [3, 5] }, basis: 'label statement: rapid onset, usually within one minute; duration usually three to five minutes at 0.3 mg/kg (midpoint used)', defaultBolus: '0.3 mg/kg', sources: ['S23'] },
+    pkModel: 'calibrated',
+  },
+  {
+    id: 'ketamine', name: 'Ketamine', cls: 'nmda',
+    concentration: { value: 10, unit: 'mg/mL' },
+    amountUnit: 'mg',
+    regimens: {
+      induction: {
+        kind: 'bolus',
+        perKg: { default: 2, min: 1, max: 4.5 }, unit: 'mg/kg',
+        scalar: 'TBW', scalarBasis: 'convention',
+        timing: 'Administer slowly (over 60 seconds); rapid administration may cause respiratory depression and enhanced vasopressor response.',
+        sources: ['S27'],
+        note: 'Default is the label average dose (2 mg/kg gives 5–10 min surgical anaesthesia).',
+      },
+      maintenance: {
+        kind: 'infusion',
+        rate: { default: 0.2, min: 0, max: 1, unit: 'mg/kg/h' },
+        scalar: 'TBW', scalarBasis: 'convention',
+        timing: 'Subanaesthetic analgesic infusion (consensus); bolus, if used, ≤0.35 mg/kg.',
+        sources: ['S10', 'S35'],
+        note: 'Off-label analgesic use per Schwenk 2018 (infusion up to about 1 mg/kg/h). Default 0.2 mg/kg/h equals the Smart NOA Python simulation ceiling (config.yaml), which applies when interlocks are enabled; it is a software value, not a guideline recommendation.',
+      },
+    },
+    ceiling: { value: 1, unit: 'mg/kg/h', basis: 'guideline maximum', appliesTo: 'maintenance', sources: ['S10'], note: 'Schwenk 2018: infusions up to about 1 mg/kg/h; bolus ≤0.35 mg/kg for analgesia.' },
+    contraindications: [
+      { when: 'allergy:ketamine', severity: 'lock', message: 'Contraindicated: known hypersensitivity to ketamine or to any excipient (label CONTRAINDICATIONS).', sources: ['S27'] },
+      { when: 'condition:uncontrolled_htn', severity: 'warn', message: 'Label CONTRAINDICATIONS: patients for whom a significant elevation of blood pressure would constitute a serious hazard. (Simulator shows this as a warning per SPEC; the label lists it as a contraindication.)', sources: ['S27'] },
+      { when: 'condition:psychosis_history', severity: 'warn', message: 'Label: postoperative confusional states may occur during the recovery period. (The label does not name psychosis history; the simulator applies this warning as policy. Schwenk 2018 contraindication list not retrieved.)', sources: ['S27'] },
+    ],
+    timing: { onsetMin: 0.5, peakMin: null, durationMin: 7.5, ranges: { durationMin: [5, 10] }, basis: 'label statement: 2 mg/kg produces 5 to 10 minutes of surgical anesthesia within 30 seconds (midpoint used)', defaultBolus: '2 mg/kg', sources: ['S27'] },
+    pkModel: 'calibrated',
+  },
+  {
+    id: 'sevoflurane', name: 'Sevoflurane', cls: 'volatile',
+    concentration: null,
+    amountUnit: '%',
+    regimens: {
+      maintenance: {
+        kind: 'inhaled',
+        rate: { default: 0.5, min: 0.5, max: 3, unit: '%' },
+        defaultRule: 'ageAdjustedMac',
+        scalar: null, scalarBasis: null,
+        timing: 'Surgical levels of anesthesia can usually be achieved with concentrations of 0.5–3% with or without nitrous oxide.',
+        sources: ['S25', 'S26'],
+        note: 'Numeric default is the label lower bound. Engine may instead display/offer 1.0 × age-adjusted MAC (Mapleson 1996); 1 MAC is a definitional reference point, not a recommendation.',
+      },
+    },
+    mac: {
+      model: 'mapleson1996', mac40Pct: 1.80, slopePerYear: -0.00269,
+      formula: 'MAC(age) = MAC40 × 10^(slopePerYear × (age − 40))',
+      sources: ['S26'],
+      labelTableO2: [{ ageYears: 25, macPct: 2.6 }, { ageYears: 40, macPct: 2.1 }, { ageYears: 60, macPct: 1.7 }, { ageYears: 80, macPct: 1.4 }],
+      labelTableSources: ['S25'],
+      note: 'Mapleson MAC40 (1.80%) and the US label table (2.1% at 40 y) differ; both are shown. The simulator effect model uses Mapleson.',
+    },
+    ceiling: { value: 3, unit: '%', basis: 'label range upper bound', sources: ['S25'], note: 'Top of the label maintenance range (0.5–3%); not called a maximum.' },
+    contraindications: [
+      { when: 'condition:mh_susceptible', severity: 'lock', message: 'Contraindicated in patients with known or suspected genetic susceptibility to malignant hyperthermia (label CONTRAINDICATIONS).', sources: ['S25'] },
+      { when: 'allergy:halogenated_volatile', severity: 'lock', message: 'Contraindicated in patients with known sensitivity to sevoflurane or to other halogenated agents (label CONTRAINDICATIONS).', sources: ['S25'] },
+    ],
+    timing: NOT_STATED('Volatile agent: engine uses first-order wash-in/out of end-tidal fraction (illustrative).'),
+    pkModel: 'calibrated',
+  },
+
+  // ---------------- Alpha-2 agonist ----------------
+  {
+    id: 'dexmedetomidine', name: 'Dexmedetomidine', cls: 'alpha2',
+    concentration: null,
+    amountUnit: 'mcg',
+    regimens: {
+      sedation_moderate: {
+        kind: 'infusion',
+        loading: { perKg: { default: 1, min: 0.5, max: 1 }, unit: 'mcg/kg', overMin: { min: 10, max: 10 } },
+        rate: { default: 0.6, min: 0.2, max: 1, unit: 'mcg/kg/h' },
+        scalar: 'TBW', scalarBasis: 'convention',
+        adjust: [
+          { when: 'age>=66', loading: { perKg: { default: 0.5, min: 0.5, max: 0.5 }, unit: 'mcg/kg' }, note: 'Label: patients >65 years, loading 0.5 mcg/kg over 10 min; consider reducing maintenance.', sources: ['S9'] },
+          { when: 'condition:liver_disease', note: 'Label: consider dose reduction in hepatic impairment.', sources: ['S9'] },
+        ],
+        timing: 'Loading infusion over 10 minutes; 0.5 mcg/kg may suit less invasive procedures.',
+        sources: ['S9'],
+        note: 'Labelled for procedural sedation of non-intubated patients. Default rate = label starting rate 0.6 mcg/kg/h (above the 0.5 mcg/kg/h Python simulation ceiling when interlocks are on, S35).',
+      },
+      sedation_deep: {
+        kind: 'infusion',
+        loading: { perKg: { default: 1, min: 0.5, max: 1 }, unit: 'mcg/kg', overMin: { min: 10, max: 10 } },
+        rate: { default: 0.6, min: 0.2, max: 1, unit: 'mcg/kg/h' },
+        scalar: 'TBW', scalarBasis: 'convention',
+        adjust: [
+          { when: 'age>=66', loading: { perKg: { default: 0.5, min: 0.5, max: 0.5 }, unit: 'mcg/kg' }, note: 'Label: patients >65 years, loading 0.5 mcg/kg over 10 min; consider reducing maintenance.', sources: ['S9'] },
+        ],
+        timing: 'Loading infusion over 10 minutes.',
+        sources: ['S9'],
+        note: 'Same label regimen; label does not define a deep-sedation dose.',
+      },
+      maintenance: {
+        kind: 'infusion',
+        rate: { default: 0.2, min: 0.2, max: 0.7, unit: 'mcg/kg/h' },
+        scalar: 'TBW', scalarBasis: 'convention',
+        adjust: [{ when: 'age>=66', note: 'Label: consider reducing maintenance dose in patients >65 years.', sources: ['S9'] }],
+        timing: 'No loading dose in this regimen.',
+        sources: ['S9', 'S35'],
+        note: 'OFF-LABEL general-anaesthesia adjunct. Range shown is the label ICU maintenance range (0.2–0.7 mcg/kg/h) as the nearest labelled infusion range; Python simulation ceiling 0.5 mcg/kg/h applies with interlocks.',
+      },
+    },
+    ceiling: { value: 1, unit: 'mcg/kg/h', basis: 'label range upper bound', sources: ['S9'], note: 'Top of the labelled procedural titration range (0.2–1 mcg/kg/h); not called a maximum.' },
+    contraindications: [
+      { when: 'condition:heart_block', severity: 'lock', message: 'Label WARNINGS: use with caution in patients with advanced heart block and/or severe ventricular dysfunction (bradycardia and sinus arrest reported). Label CONTRAINDICATIONS: none. Simulator LOCK mirrors the Smart NOA controller cardiac-condition lockout (config.yaml).', sources: ['S9', 'S35'] },
+    ],
+    timing: NOT_STATED('No onset/peak/duration statement verified in the label; 10 min is the loading-infusion duration, not onset.'),
+    pkModel: 'calibrated',
+  },
+
+  // ---------------- Benzodiazepine ----------------
+  {
+    id: 'midazolam', name: 'Midazolam', cls: 'benzodiazepine',
+    concentration: null,
+    amountUnit: 'mg',
+    regimens: Object.fromEntries(['premed', 'sedation_minimal', 'sedation_moderate'].map((k) => [k, {
+      kind: 'bolus',
+      fixed: { default: 1, min: 1, max: 2.5, unit: 'mg' },
+      scalar: null, scalarBasis: null,
+      adjust: [{ when: 'flag:elderly|asa>=3|medication:cns_depressant|medication:opioid_chronic', note: 'Label: reduce dose in older, debilitated or chronically ill patients and with concomitant opioids or other CNS depressants (no figure used; age ≥60 figure not confirmed).', sources: ['S17'] }],
+      timing: 'Healthy adult: start with as little as 1 mg; initial dose not to exceed 2.5 mg; titrate slowly.',
+      sources: ['S17'],
+      note: k === 'premed' ? 'IV anxiolysis using the label IV sedation titration (IM premedication dosing not used).' : 'Label IV sedation/anxiolysis titration.',
+    }])),
+    ceiling: null,
+    contraindications: [
+      { when: 'condition:narrow_angle_glaucoma', severity: 'lock', message: 'Benzodiazepines are contraindicated in patients with acute narrow-angle glaucoma (label CONTRAINDICATIONS).', sources: ['S17'] },
+    ],
+    timing: { onsetMin: 4, peakMin: null, durationMin: null, ranges: { onsetMin: [3, 5] }, basis: 'label statement: sedation achieved within 3 to 5 minutes after IV injection (midpoint used)', defaultBolus: '1 mg', sources: ['S17'] },
+    pkModel: 'calibrated',
+  },
+
+  // ---------------- Opioid ----------------
+  {
+    id: 'fentanyl', name: 'Fentanyl', cls: 'opioid',
+    concentration: { value: 50, unit: 'mcg/mL' },
+    amountUnit: 'mcg',
+    regimens: {
+      induction: {
+        kind: 'bolus',
+        perKg: { default: 2, min: 2, max: 20 }, unit: 'mcg/kg',
+        scalar: 'TBW', scalarBasis: 'convention',
+        adjust: [{ when: 'flag:elderly|asa>=3', note: 'Label: reduce the initial dose in elderly and debilitated patients; guide further increments by response to the first dose.', sources: ['S13'] }],
+        timing: 'Low dose 2 mcg/kg (minor procedures); moderate dose 2–20 mcg/kg.',
+        sources: ['S13'],
+        note: 'Default = label low-dose tier.',
+      },
+      maintenance: {
+        kind: 'bolus',
+        fixed: { default: 25, min: 25, max: 100, unit: 'mcg' },
+        scalar: null, scalarBasis: null,
+        timing: 'Moderate-dose technique increments, given when indicated by response.',
+        sources: ['S13'],
+        note: 'Range seen in label copies paired with the moderate-dose tier; full maintenance sentence not displayed in the search record. Default = lower bound.',
+      },
+    },
+    ceiling: null,
+    contraindications: [],
+    timing: { onsetMin: null, peakMin: null, durationMin: 45, ranges: { durationMin: [30, 60] }, basis: 'label statement: onset almost immediate IV; analgesia 30 to 60 minutes after a single IV dose of up to 100 mcg (midpoint used)', defaultBolus: '≤100 mcg', sources: ['S13'] },
+    pkModel: 'calibrated',
+  },
+
+  // ---------------- Local anaesthetic (IV) ----------------
+  {
+    id: 'lidocaine', name: 'Lidocaine (IV)', cls: 'local',
+    concentration: null,
+    amountUnit: 'mg',
+    regimens: {
+      induction: {
+        kind: 'bolus',
+        perKg: { default: 1.5, min: 0, max: 1.5 }, unit: 'mg/kg',
+        scalar: 'IBW', scalarBasis: 'guideline',
+        timing: 'Loading dose ≤1.5 mg/kg given over about 10 min.',
+        sources: ['S1'],
+        note: 'Foo 2021 loading dose for an analgesic infusion (off-label). The cited sources do not support a dose for airway/pressor attenuation. Source gives only an upper limit: min 0, default = limit. Not for patients <40 kg. Overlap rule: not with other local-anaesthetic interventions.',
+      },
+      maintenance: {
+        kind: 'infusion',
+        rate: { default: 1.5, min: 0, max: 1.5, unit: 'mg/kg/h' },
+        scalar: 'IBW', scalarBasis: 'guideline',
+        timing: 'Infusion ≤1.5 mg/kg/h (IBW), never above 120 mg/h; review by 24 h.',
+        sources: ['S1', 'S35'],
+        note: 'Source gives only an upper limit: min 0, default = limit. Equals the Python simulation ceiling (config.yaml).',
+      },
+    },
+    ceiling: { value: 120, unit: 'mg/h', basis: 'guideline maximum', perKg: { value: 1.5, unit: 'mg/kg/h', scalar: 'IBW' }, sources: ['S1'], note: 'Whichever is lower: 1.5 mg/kg/h IBW or 120 mg/h.' },
+    contraindications: [
+      { when: 'condition:regional_block_planned', severity: 'warn', message: 'Foo 2021: IV lidocaine should not be given concurrently with other local anaesthetic interventions (nerve blocks, wound infiltration) or while their effect is still active; separate by about 4 h.', sources: ['S1'] },
+      { when: 'condition:liver_disease', severity: 'warn', message: 'Label: patients with severe hepatic disease, because of their inability to metabolize local anesthetics normally, are at greater risk of developing toxic plasma concentrations.', sources: ['S28'] },
+      { when: 'condition:heart_block', severity: 'warn', message: 'Label CONTRAINDICATIONS (IV lidocaine): should not be used in patients with Stokes-Adams syndrome, Wolff-Parkinson-White syndrome, or with severe degrees of sinoatrial, atrioventricular or intraventricular block. (Shown as a warning per SPEC.)', sources: ['S28'] },
+      { when: 'condition:wpw', severity: 'warn', message: 'Label CONTRAINDICATIONS (IV lidocaine, some manufacturers): should not be used in patients with Wolff-Parkinson-White syndrome.', sources: ['S28'] },
+    ],
+    timing: NOT_STATED(),
+    pkModel: 'calibrated',
+  },
+
+  // ---------------- Neuromuscular blockers ----------------
+  {
+    id: 'rocuronium', name: 'Rocuronium', cls: 'nmb',
+    concentration: null,
+    amountUnit: 'mg',
+    regimens: {
+      induction: {
+        kind: 'bolus',
+        perKg: { default: 0.6, min: 0.6, max: 1.2 }, unit: 'mg/kg',
+        scalar: 'TBW', scalarBasis: 'convention',
+        timing: 'Intubating dose 0.6 mg/kg; rapid sequence 0.6–1.2 mg/kg.',
+        sources: ['S12'],
+        note: 'TBW is a simulator convention; the scalar statement in the label was not verified.',
+      },
+      maintenance: {
+        kind: 'bolus',
+        perKg: { default: 0.1, min: 0.1, max: 0.2 }, unit: 'mg/kg',
+        scalar: 'TBW', scalarBasis: 'convention',
+        timing: 'Guided by response to prior dose (older labels: at 25% recovery of T1).',
+        sources: ['S12'],
+      },
+    },
+    ceiling: null,
+    contraindications: [
+      { when: 'allergy:rocuronium', severity: 'lock', message: 'Contraindicated in patients known to have hypersensitivity (e.g., anaphylaxis) to rocuronium bromide or other neuromuscular blocking agents (label CONTRAINDICATIONS).', sources: ['S12'] },
+    ],
+    timing: { onsetMin: null, peakMin: 3, durationMin: 31, ranges: { durationMin: [15, 85] }, basis: 'label statement: 0.6 mg/kg — maximum blockade in most patients in less than 3 minutes (upper bound used); 31 (15–85) minutes clinical relaxation', defaultBolus: '0.6 mg/kg', sources: ['S12'] },
+    pkModel: 'calibrated',
+  },
+  {
+    id: 'succinylcholine', name: 'Succinylcholine', cls: 'nmb',
+    concentration: { value: 20, unit: 'mg/mL' },
+    amountUnit: 'mg',
+    regimens: {
+      induction: {
+        kind: 'bolus',
+        perKg: { default: 0.6, min: 0.3, max: 1.1 }, unit: 'mg/kg',
+        scalar: 'TBW', scalarBasis: 'convention',
+        timing: 'Average dose to facilitate tracheal intubation 0.6 mg/kg IV.',
+        sources: ['S24'],
+      },
+    },
+    ceiling: null,
+    contraindications: [
+      { when: 'condition:mh_susceptible', severity: 'lock', message: 'Contraindicated in patients with personal or familial history of malignant hyperthermia (label CONTRAINDICATIONS).', sources: ['S24'] },
+      { when: 'condition:neuromuscular_disease', severity: 'lock', message: 'Contraindicated in patients with skeletal muscle myopathies (label CONTRAINDICATIONS).', sources: ['S24'] },
+      { when: 'condition:recent_burn_or_denervation', severity: 'lock', message: 'Label: should not be used after the acute phase of injury following major burns, multiple trauma, extensive denervation of skeletal muscle, or upper motor neuron injury (risk of severe hyperkalemia; peaks 7–10 days after injury).', sources: ['S24'] },
+      { when: 'condition:hyperkalemia', severity: 'lock', message: 'Label WARNINGS: succinylcholine can cause hyperkalemia leading to cardiac arrhythmias and arrest (boxed warning: hyperkalemic rhabdomyolysis). The label wording on pre-existing hyperkalemia was not retrieved; the simulator LOCK is policy per SPEC.', sources: ['S24'] },
+      { when: 'allergy:succinylcholine', severity: 'lock', message: 'Contraindicated in patients with known hypersensitivity to succinylcholine (label CONTRAINDICATIONS).', sources: ['S24'] },
+    ],
+    timing: { onsetMin: 1, peakMin: 2, durationMin: 5, ranges: { durationMin: [4, 6] }, basis: 'label statement: after 0.3–1.1 mg/kg IV, blockade develops in about 1 minute, maximum in about 2 minutes, recovery within 4 to 6 minutes (midpoint used)', defaultBolus: '0.6 mg/kg', sources: ['S24'] },
+    pkModel: 'calibrated',
+  },
+
+  // ---------------- Reversal ----------------
+  {
+    id: 'sugammadex', name: 'Sugammadex', cls: 'reversal',
+    concentration: null,
+    amountUnit: 'mg',
+    regimens: {
+      emergence: {
+        kind: 'bolus',
+        perKg: { default: 2, min: 2, max: 16 }, unit: 'mg/kg',
+        byDepth: [
+          { depth: 'shallow', criterion: 'spontaneous recovery to reappearance of T2', perKg: 2 },
+          { depth: 'deep', criterion: '1–2 post-tetanic counts, no TOF twitch', perKg: 4 },
+          { depth: 'immediate', criterion: 'about 3 min after a single rocuronium 1.2 mg/kg', perKg: 16 },
+        ],
+        scalar: 'TBW', scalarBasis: 'label',
+        timing: 'Single IV bolus; dose chosen by depth of block.',
+        sources: ['S6', 'S5'],
+        note: 'Label: dose on actual body weight. Thilen 2023: sugammadex preferred over neostigmine for deep, moderate and shallow block.',
+      },
+    },
+    ceiling: { value: 16, unit: 'mg/kg', basis: 'label range upper bound', sources: ['S6'], note: 'Highest labelled dose (immediate reversal); not called a maximum.' },
+    contraindications: [
+      { when: 'allergy:sugammadex', severity: 'lock', message: 'Contraindicated: known hypersensitivity to sugammadex or any of its components (label CONTRAINDICATIONS).', sources: ['S6'] },
+    ],
+    timing: NOT_STATED('Median recovery times verified only in non-US datasheets; not used.'),
+    pkModel: 'calibrated',
+  },
+  {
+    id: 'neostigmine', name: 'Neostigmine', cls: 'reversal',
+    concentration: { value: 1, unit: 'mg/mL' },
+    amountUnit: 'mg',
+    regimens: {
+      emergence: {
+        kind: 'bolus',
+        perKg: { default: 0.03, min: 0.03, max: 0.07 }, unit: 'mg/kg',
+        scalar: 'TBW', scalarBasis: 'convention',
+        timing: 'Give glycopyrrolate (or atropine) before or with neostigmine.',
+        sources: ['S7', 'S5'],
+        note: 'Label: 0.03 mg/kg for shorter half-life agents such as rocuronium. Thilen 2023: neostigmine reasonable only at minimal depth (TOFR 0.4 to <0.9).',
+      },
+    },
+    runtimeRules: [
+      { id: 'tof_depth_not_minimal', severity: 'warn', message: 'Thilen 2023: neostigmine is reasonable only at minimal depth of block (TOFR 0.4 to <0.9); sugammadex is recommended for deep, moderate and shallow block.', sources: ['S5'] },
+    ],
+    ceiling: { value: 5, unit: 'mg', basis: 'label maximum', perKg: { value: 0.07, unit: 'mg/kg' }, rule: 'lesser of', sources: ['S7'] },
+    contraindications: [
+      { when: 'allergy:neostigmine', severity: 'lock', message: 'Contraindicated: hypersensitivity to neostigmine (label CONTRAINDICATIONS).', sources: ['S7'] },
+      { when: 'condition:bowel_or_urinary_obstruction', severity: 'lock', message: 'Contraindicated: peritonitis or mechanical obstruction of the intestinal or urinary tract (label CONTRAINDICATIONS).', sources: ['S7'] },
+    ],
+    timing: { onsetMin: null, peakMin: 15, durationMin: null, ranges: { peakMin: [10, 20] }, basis: 'label statement: 0.03–0.07 mg/kg will generally achieve TOF0.9 within 10 to 20 minutes (midpoint used)', defaultBolus: '0.03 mg/kg', sources: ['S7'] },
+    pkModel: 'calibrated',
+  },
+
+  // ---------------- Anticholinergic ----------------
+  {
+    id: 'glycopyrrolate', name: 'Glycopyrrolate', cls: 'anticholinergic',
+    concentration: null,
+    amountUnit: 'mg',
+    regimens: {
+      emergence: {
+        kind: 'bolus',
+        ratioTo: { drugId: 'neostigmine', mgPerMg: 0.2 },
+        fixed: { default: 0.2, min: 0.2, max: 1, unit: 'mg' },
+        scalar: null, scalarBasis: null,
+        timing: 'With neostigmine: 0.2 mg glycopyrrolate for each 1 mg neostigmine.',
+        sources: ['S8'],
+        note: 'Engine should compute 0.2 × neostigmine mg; fixed range is that ratio applied to 1–5 mg neostigmine (label 5 mg neostigmine maximum, S7).',
+      },
+      rescue: {
+        kind: 'bolus',
+        fixed: { default: 0.1, min: 0.1, max: 0.1, unit: 'mg' },
+        scalar: null, scalarBasis: null,
+        timing: 'Intraoperative: 0.1 mg IV, repeated as needed at 2–3 minute intervals.',
+        sources: ['S8'],
+      },
+    },
+    ceiling: null,
+    contraindications: [],
+    timing: NOT_STATED(),
+    pkModel: 'calibrated',
+  },
+
+  // ---------------- Antiemetics ----------------
+  {
+    id: 'dexamethasone', name: 'Dexamethasone', cls: 'antiemetic',
+    concentration: { value: 4, unit: 'mg/mL' },
+    amountUnit: 'mg',
+    regimens: {
+      induction: {
+        kind: 'bolus',
+        fixed: { default: 4, min: 4, max: 8, unit: 'mg' },
+        scalar: null, scalarBasis: null,
+        timing: 'PONV prophylaxis given at induction (early), per consensus.',
+        sources: ['S3', 'S2'],
+        note: 'SPEC groups dexamethasone with emergence drugs, but S2/S3 state it is given at induction; regimen key is therefore induction. 8 mg may be optimal (S3).',
+      },
+    },
+    ceiling: null,
+    contraindications: [
+      { when: 'condition:systemic_fungal_infection', severity: 'lock', message: 'Contraindicated: systemic fungal infections (label CONTRAINDICATIONS; see WARNINGS regarding amphotericin B).', sources: ['S30'] },
+      { when: 'allergy:dexamethasone', severity: 'lock', message: 'Contraindicated: hypersensitivity to any component of this product (label CONTRAINDICATIONS).', sources: ['S30'] },
+    ],
+    timing: NOT_STATED(),
+    pkModel: 'calibrated',
+  },
+  {
+    id: 'ondansetron', name: 'Ondansetron', cls: 'antiemetic',
+    concentration: null,
+    amountUnit: 'mg',
+    regimens: {
+      emergence: {
+        kind: 'bolus',
+        fixed: { default: 4, min: 4, max: 4, unit: 'mg' },
+        scalar: null, scalarBasis: null,
+        timing: 'At end of surgery.',
+        sources: ['S3', 'S2'],
+      },
+    },
+    ceiling: null,
+    contraindications: [
+      { when: 'medication:apomorphine', severity: 'lock', message: 'The concomitant use of apomorphine with ondansetron is contraindicated based on reports of profound hypotension and loss of consciousness (label CONTRAINDICATIONS).', sources: ['S29'] },
+      { when: 'allergy:ondansetron', severity: 'lock', message: 'Contraindicated for patients known to have hypersensitivity (e.g., anaphylaxis) to this product or any of its components (label CONTRAINDICATIONS).', sources: ['S29'] },
+    ],
+    timing: NOT_STATED(),
+    pkModel: 'calibrated',
+  },
+
+  // ---------------- Vasopressors ----------------
+  {
+    id: 'phenylephrine', name: 'Phenylephrine', cls: 'vasopressor',
+    concentration: { value: 100, unit: 'mcg/mL' },
+    amountUnit: 'mcg',
+    regimens: {
+      rescue: {
+        kind: 'bolus',
+        fixed: { default: 40, min: 40, max: 100, unit: 'mcg' },
+        scalar: null, scalarBasis: null,
+        timing: 'Additional boluses every 1–2 min as needed; not exceeding 200 mcg per bolus.',
+        sources: ['S18'],
+      },
+      maintenance: {
+        kind: 'infusion',
+        rate: { default: 10, min: 10, max: 35, unit: 'mcg/min', hardMax: 200 },
+        scalar: null, scalarBasis: null,
+        timing: 'Infusion 10–35 mcg/min titrated; not exceeding 200 mcg/min.',
+        sources: ['S18'],
+      },
+    },
+    ceiling: { value: 200, unit: 'mcg', scope: 'per bolus', basis: 'label maximum', infusion: { value: 200, unit: 'mcg/min' }, sources: ['S18'] },
+    contraindications: [],
+    timing: NOT_STATED('Label: onset of BP increase after IV bolus is rapid, typically within minutes (no number).'),
+    pkModel: 'calibrated',
+  },
+  {
+    id: 'ephedrine', name: 'Ephedrine', cls: 'vasopressor',
+    concentration: null,
+    amountUnit: 'mg',
+    regimens: {
+      rescue: {
+        kind: 'bolus',
+        fixed: { default: 5, min: 5, max: 10, unit: 'mg' },
+        scalar: null, scalarBasis: null,
+        timing: 'IV bolus as needed; tachyphylaxis possible.',
+        sources: ['S19'],
+      },
+    },
+    ceiling: { value: 50, unit: 'mg', scope: 'cumulative', basis: 'label maximum', sources: ['S19'] },
+    contraindications: [],
+    timing: NOT_STATED(),
+    pkModel: 'calibrated',
+  },
+
+  // ---------------- Opioid antagonist ----------------
+  {
+    id: 'naloxone', name: 'Naloxone', cls: 'reversal',
+    concentration: null,
+    amountUnit: 'mg',
+    regimens: {
+      rescue: {
+        kind: 'bolus',
+        fixed: { default: 0.1, min: 0.1, max: 0.2, unit: 'mg' },
+        scalar: null, scalarBasis: null,
+        timing: 'IV at 2–3 min intervals to desired reversal; repeat doses may be needed at 1–2 h intervals.',
+        sources: ['S14'],
+        note: 'Larger doses can reverse analgesia and raise blood pressure.',
+      },
+    },
+    ceiling: null,
+    contraindications: [],
+    timing: { onsetMin: 2, peakMin: null, durationMin: null, basis: 'label statement: IV onset of action generally apparent within two minutes; duration depends on dose and route', defaultBolus: '0.1 mg', sources: ['S14'] },
+    pkModel: 'calibrated',
+  },
+
+  // ---------------- Non-opioid analgesics ----------------
+  {
+    id: 'ketorolac', name: 'Ketorolac', cls: 'nsaid',
+    concentration: null,
+    amountUnit: 'mg',
+    regimens: {
+      rescue: {
+        kind: 'bolus',
+        fixed: { default: 30, min: 30, max: 30, unit: 'mg' },
+        scalar: null, scalarBasis: null,
+        adjust: [{ when: 'flag:elderly|flag:ckd|weight<50', fixed: { default: 15, min: 15, max: 15, unit: 'mg' }, note: 'Label: ≥65 years, renally impaired or <50 kg: 15 mg every 6 h, maximum 60 mg/day.', sources: ['S15'] }],
+        timing: 'Every 6 h; combined IV/IM and oral use not to exceed 5 days.',
+        sources: ['S15'],
+      },
+    },
+    ceiling: { value: 120, unit: 'mg/day', basis: 'label maximum', adjusted: { when: 'flag:elderly|flag:ckd|weight<50', value: 60, unit: 'mg/day' }, sources: ['S15'] },
+    contraindications: [
+      { when: 'egfr<30', severity: 'lock', message: 'Contraindicated in patients with advanced renal impairment (label CONTRAINDICATIONS). eGFR <30 threshold mirrors the Smart NOA controller (config.yaml); the label gives no eGFR number.', sources: ['S15', 'S35'] },
+      { when: 'condition:hypovolemia', severity: 'lock', message: 'Contraindicated in patients at risk for renal failure due to volume depletion (label CONTRAINDICATIONS).', sources: ['S15'] },
+      { when: 'allergy:nsaid', severity: 'lock', message: 'Contraindicated in patients with hypersensitivity to ketorolac and in patients with allergic reactions (asthma, urticaria or allergic-type reactions) to aspirin or other NSAIDs (label CONTRAINDICATIONS).', sources: ['S15'] },
+      { when: 'medication:nsaid_aspirin', severity: 'lock', message: 'Contraindicated in patients currently receiving aspirin or NSAIDs because of the cumulative risk of serious NSAID-related side effects (label CONTRAINDICATIONS).', sources: ['S15'] },
+    ],
+    timing: NOT_STATED(),
+    pkModel: 'calibrated',
+  },
+  {
+    id: 'acetaminophen', name: 'Acetaminophen (IV)', cls: 'analgesic',
+    concentration: null,
+    amountUnit: 'mg',
+    regimens: {
+      rescue: {
+        kind: 'bolus',
+        fixed: { default: 1000, min: 650, max: 1000, unit: 'mg' },
+        scalar: null, scalarBasis: null,
+        adjust: [{ when: 'weight<50', perKg: { default: 15, min: 12.5, max: 15 }, unit: 'mg/kg', note: 'Label: adults <50 kg 15 mg/kg every 6 h or 12.5 mg/kg every 4 h; maximum 75 mg/kg/day.', sources: ['S16'] }],
+        timing: '1000 mg every 6 h or 650 mg every 4 h; minimum interval 4 h.',
+        sources: ['S16'],
+      },
+    },
+    ceiling: { value: 4000, unit: 'mg/day', basis: 'label maximum', adjusted: { when: 'weight<50', perKg: 75, unit: 'mg/kg/day' }, sources: ['S16'], note: 'Counts all routes and all acetaminophen-containing products.' },
+    contraindications: [
+      { when: 'condition:severe_hepatic_impairment', severity: 'lock', message: 'Contraindicated in patients with severe hepatic impairment (label CONTRAINDICATIONS).', sources: ['S16'] },
+      { when: 'condition:liver_disease', severity: 'warn', message: 'Label: use caution in hepatic impairment, chronic alcohol use, malnutrition or hypovolemia.', sources: ['S16'] },
+      { when: 'condition:hypovolemia', severity: 'warn', message: 'Label: use caution in hypovolemia.', sources: ['S16'] },
+    ],
+    timing: NOT_STATED(),
+    pkModel: 'calibrated',
+  },
+];
+
+// Every S-id referenced anywhere above (regimens, adjust, ceilings, contraindications, timing,
+// runtime rules, MAC model). Kept frozen; tests check it matches the actual references.
+export const SOURCE_IDS_USED = Object.freeze([
+  'S1', 'S2', 'S3', 'S5', 'S6', 'S7', 'S8', 'S9', 'S10', 'S11', 'S12', 'S13', 'S14', 'S15', 'S16',
+  'S17', 'S18', 'S19', 'S23', 'S24', 'S25', 'S26', 'S27', 'S28', 'S29', 'S30', 'S35',
+]);
+
+// S-ids present for the engine/UI (scores, weight scalars, monitoring, sedation definitions) but
+// not referenced by a drug entry.
+export const SOURCE_IDS_ENGINE = Object.freeze({
+  apfel: 'S4', stopBang: 'S20', stopBangRisk: 'S21', monitoring: 'S22',
+  sedationContinuum: 'S31', moderateSedationGuideline: 'S32', ibwDevine: 'S33', lbwJanmahasatian: 'S34',
+  tofExtubation: 'S5', pythonConfig: 'S35',
+});
