@@ -28,7 +28,7 @@ const INDEX = new WeakMap();
 function index(lib) {
   let ix = INDEX.get(lib);
   if (!ix) {
-    ix = { drugs: new Map((lib.DRUGS || []).map((d) => [d.id, d])) };
+    ix = { drugs: new Map((lib.DRUGS || []).map((d) => [d.id, d])), antibiotics: new Map((lib.ANTIBIOTICS || []).map((d) => [d.id, d])), fluids: new Map((lib.FLUIDS || []).map((f) => [f.id, f])) };
     INDEX.set(lib, ix);
   }
   return ix;
@@ -39,6 +39,15 @@ export function getDrug(library, drugId) {
 }
 
 export function listDrugs(library) { return resolveLibrary(library).DRUGS || []; }
+
+/** Surgical-prophylaxis antibiotics (data/drugs.js ANTIBIOTICS; timing only, no PK). */
+export function getAntibiotic(library, id) { return index(resolveLibrary(library)).antibiotics.get(id) || null; }
+export function listAntibiotics(library) { return resolveLibrary(library).ANTIBIOTICS || []; }
+/** IV fluids (data/drugs.js FLUIDS). */
+export function getFluid(library, id) { return index(resolveLibrary(library)).fluids.get(id) || null; }
+export function listFluids(library) { return resolveLibrary(library).FLUIDS || []; }
+/** A drug or a prophylaxis antibiotic (both use the regimen schema read by recommend()). */
+export function getDosable(library, id) { return getDrug(library, id) || getAntibiotic(library, id); }
 
 /** Find a source id whose citation contains `needle` (case-insensitive); null if none. */
 export function findSourceId(library, needle) {

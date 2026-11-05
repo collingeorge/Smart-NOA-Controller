@@ -2,25 +2,30 @@
 // EDUCATIONAL SIMULATION with fictional patients. Not a medical device.
 // All model outputs are illustrative (see pk.js / pd.js / physiology.js).
 
-import { resolveLibrary, getDrug, listDrugs, findSourceId } from './library.js';
+import { resolveLibrary, getDrug, listDrugs, findSourceId, getAntibiotic, getFluid, listFluids } from './library.js';
+import { evaluateWindow, redoseStatus, PROPHYLAXIS_CONFIG } from './prophylaxis.js';
 import { derivePatient, scalarWeight } from './patient.js';
-import { evaluateContraindications, interpretCeilings, recommend, convertRateSafe } from './dosing.js';
-import { createPkModel, isInhaled, isNitrous, referenceRegimen, ROUTE_KA_ILLUSTRATIVE } from './pk.js';
-import { combineEffects, patientModifiers, tofFromTwitches, SEDATION_RANK, PROFILES } from './pd.js';
+import { evaluateContraindications, interpretCeilings, recommend, convertRateSafe, evaluateWhen } from './dosing.js';
+import { createPkModel, isInhaled, isNitrous, referenceRegimen, ROUTE_KA_ILLUSTRATIVE, perfusionKaFactor } from './pk.js';
+import { combineEffects, patientModifiers, tofFromTwitches, SEDATION_RANK, PROFILES, PATIENT_MODS } from './pd.js';
 import { Physiology } from './physiology.js';
 import { buildParameterInventory } from './inventory.js';
-import { InterlockCore, pythonLockouts, CONTROLLED, PY_TO_SIM_ID, SIM_TO_PY_ID, PY_RATE_UNITS, NOA_CONFIG } from './interlocks.js';
+import { InterlockCore, pythonLockouts, CONTROLLED, PY_TO_SIM_ID, SIM_TO_PY_ID, PY_RATE_UNITS, NOA_CONFIG, aboveCeiling } from './interlocks.js';
 import { AlarmManager } from './alarms.js';
-import { convertAmount, rateToAmountPerMin, isFiniteNumber, roundSig, parseRateUnit } from './units.js';
+import { convertAmount, rateToAmountPerMin, isFiniteNumber, roundSig } from './units.js';
 import { getScenario } from '../data/scenarios.js';
 import { createRng as createRngLocal } from './rng.js';
+import { repeatBolusHold, TIMING_CONFIG, liveTimingChecks } from './timing.js';
 
 export const PHASES = ['premed', 'sedation', 'induction', 'maintenance', 'emergence'];
 export const MIN_FIO2_WITH_N2O = 0.30;
-// Molecular weights for 1:1 sugammadex–rocuronium encapsulation (rocuronium bromide
-// 609.7 g/mol; sugammadex sodium 2178 g/mol, as stated in the respective labels to the
-// engine author's knowledge — verify). Binding kinetics are instantaneous (illustrative).
-export const MW = Object.freeze({ rocuronium: 609.7, sugammadex: 2178 });
+// Molecular weights for 1:1 sugammadex–rocuronium encapsulation, from the US labels (DESCRIPTION):
+// rocuronium bromide 609.70 g/mol (S12); sugammadex sodium 2178.01 g/mol, and each mL holds
+// 100 mg sugammadex = 108.8 mg sugammadex sodium (S6), so doses in mg sugammadex convert with
+// SUGAMMADEX_SALT_PER_MG. Binding is instantaneous and stoichiometric (illustrative).
+export const MW = Object.freeze({ rocuronium: 609.70, sugammadex: 2178.01, SUGAMMADEX_SALT_PER_MG: 1.088 });
+/** mmol of rocuronium bromide / sugammadex per mg of the labelled dose amount. */
+export const MMOL_PER_MG = Object.freeze({ rocuronium: 1 / MW.rocuronium, sugammadex: MW.SUGAMMADEX_SALT_PER_MG / MW.sugammadex });
 
 // IV crystalloid bolus (non-drug action `fluid_bolus[:<mL>]`). ILLUSTRATIVE volume-restoration
 // model — every constant is an author estimate (not sourced, not validated):
@@ -32,8 +37,14 @@ export const MW = Object.freeze({ rocuronium: 609.7, sugammadex: 2178 });
 //    loss (ongoing bleeding needs surgical control) — this is the documented cap;
 //  * a direct MAP effect + DIRECT_MAP_FRAC × r: small when euvolaemic, larger with the
 //    hypovolemia or sepsis condition.
+//  * 2026-11 additions: fluid TYPE (lactated Ringer's / 0.9% sodium chloride, data/drugs.js FLUIDS)
+//    and a maintenance infusion in mL/h. A maintenance infusion adds its volume straight to R at its
+//    rate; boluses still run in at RUN_ML_PER_MIN. Both types use the SAME constants (no
+//    type-specific physiology). DEFAULT_FLUID, MAINTENANCE_DEFAULT_ML_H and MAINTENANCE_MAX_ML_H are
+//    UI choices (simulator convention; the labels give no fixed dose).
 export const FLUID_MODEL = Object.freeze({
   ALLOWED_ML: Object.freeze([250, 500]), DEFAULT_ML: 500,
+  DEFAULT_FLUID: 'lactated_ringers', MAINTENANCE_DEFAULT_ML_H: 100, MAINTENANCE_MAX_ML_H: 1000,
   RUN_ML_PER_MIN: 50, RETENTION_TAU_MIN: 40, RESTORE_SCALE_ML: 750, EVENT_COUNTER_MAX: 0.8,
   DIRECT_MAP_FRAC: Object.freeze({ euvolaemic: 0.04, depleted: 0.10 }),
   DEPLETED_CONDITIONS: Object.freeze(['hypovolemia', 'sepsis']),
@@ -41,6 +52,13 @@ export const FLUID_MODEL = Object.freeze({
 });
 
 const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
+
+// Lidocaine pretreatment before propofol (2026-11 additions). Every lidocaine dose counts toward the
+// cumulative lidocaine total. OVERLAP_WINDOW_SEC: an IV lidocaine analgesic dose (Foo loading
+// bolus or infusion) within this time of a pretreatment dose gives a warning (LOW alarm + log).
+// 4 h is the Foo 2021 separation between local-anaesthetic interventions and IV lidocaine (S1),
+// applied here to pretreatment — a simulator mapping of the guideline rule.
+export const LIDOCAINE_RULES = Object.freeze({ OVERLAP_WINDOW_SEC: 4 * 3600, OVERLAP_ALARM_PRIORITY: 'low', PRETREATMENT_REGIMEN: 'pretreatment' });
 
 // Simulator alarm thresholds (SPEC §5.2 'Additional simulator alarms'; author/SPEC choices, not
 // clinical standards) and extubation-readiness criteria. TOFR 0.9 is from Thilen 2023; the
@@ -54,18 +72,37 @@ export const STIMULUS = Object.freeze({
   INCISION: 0.9, INCISION_SEC: 120, MAINTENANCE: 0.55, CLOSING: 0.3, CLOSING_SEC: 300,
   LARYNGOSCOPY_SEC: 150, LARYNGOSCOPY_DECAY_SEC: 70, TUBE_IN_SITU: 0.25,
   EXTUBATION: 0.6, EXTUBATION_SEC: 60, EXTUBATION_DECAY_SEC: 25,
-  SUGAMMADEX_ROC_KE0_MULT: 4, DES_RAPID_RISE_HR: 0.15, DES_RAPID_RISE_MAP: 0.1, DES_RAPID_RISE_START_MAC: 0.5,
+  SUGAMMADEX_KE0_MULT_MAX: 10, SUGAMMADEX_EXCESS_HALF: 1.5, SUGAMMADEX_EXCESS_HILL: 4, DES_RAPID_RISE_HR: 0.15, DES_RAPID_RISE_MAP: 0.1, DES_RAPID_RISE_START_MAC: 0.5,
 });
 export const EXTUBATION_CRITERIA = Object.freeze({ DEPTH_AWAKE: 80, RR_MIN: 8, CAPABILITY_MIN: 0.6, SPO2_MIN: 94, MAP_MIN: 65, MAP_MAX: 110, HR_MIN: 50, HR_MAX: 110 });
 
-export function createSimulation({ patient, plan = null, seed = 1, interlocks = true, library = null } = {}) {
-  return new Simulation({ patient, plan, seed, interlocks, library });
-}
-
+/**
+ * Normalise a plan. Raw step fields are copied first and the validated fields are written after,
+ * so a present-but-bad value never overrides the checks (2026-11 audit, finding 5):
+ *  - id: a non-empty string, unique in the plan (else `step<n>`, suffixed if duplicated);
+ *  - order: a finite number (else the list index);
+ *  - atSec: must be a finite number ≥ 0 when present (absent → 0). A step with any other value
+ *    (e.g. the string '30', NaN, undefined given explicitly) is marked `invalid` and never runs.
+ */
 function normalizePlan(plan) {
-  const p = plan || { mode: 'GA', sedationTarget: null, steps: [] };
-  const steps = (p.steps || []).map((s, i) => ({ id: s.id || `step${i + 1}`, order: isFiniteNumber(s.order) ? s.order : i, atSec: isFiniteNumber(s.atSec) ? s.atSec : 0, ...s }));
-  return { mode: p.mode === 'MAC' ? 'MAC' : 'GA', sedationTarget: p.sedationTarget || null, steps };
+  const p = plan && typeof plan === 'object' ? plan : { mode: 'GA', sedationTarget: null, steps: [] };
+  const seen = new Set();
+  const steps = (Array.isArray(p.steps) ? p.steps : []).map((raw, i) => {
+    const s0 = raw && typeof raw === 'object' ? raw : {};
+    let id = typeof s0.id === 'string' && s0.id ? s0.id : `step${i + 1}`;
+    while (seen.has(id)) id = `${id}_${i + 1}`;
+    seen.add(id);
+    const hasAt = Object.prototype.hasOwnProperty.call(s0, 'atSec');
+    const atOk = !hasAt || (isFiniteNumber(s0.atSec) && s0.atSec >= 0);
+    const hasBe = Object.prototype.hasOwnProperty.call(s0, 'beforeEndSec') && s0.beforeEndSec !== null && s0.beforeEndSec !== undefined;
+    const beOk = !hasBe || (isFiniteNumber(s0.beforeEndSec) && s0.beforeEndSec >= 0 && s0.kind === 'stop' && s0.phase === 'maintenance');
+    const invalid = !raw || typeof raw !== 'object' ? 'step is not an object' : !atOk ? `atSec must be a finite number ≥ 0 (got ${JSON.stringify(s0.atSec) ?? String(s0.atSec)})`
+      : !beOk ? 'beforeEndSec must be a finite number ≥ 0 on a maintenance-phase stop step' : null;
+    return { ...s0, id, order: isFiniteNumber(s0.order) ? s0.order : i, atSec: atOk && hasAt ? s0.atSec : 0, ...(invalid ? { invalid } : {}) };
+  });
+  // Antibiotic prophylaxis is "indicated" when the plan says so; without the flag, only when the plan has an antibiotic step.
+  const prophylaxisIndicated = typeof p.prophylaxisIndicated === 'boolean' ? p.prophylaxisIndicated : steps.some((s) => s.kind === 'antibiotic');
+  return { mode: p.mode === 'MAC' ? 'MAC' : 'GA', sedationTarget: typeof p.sedationTarget === 'string' ? p.sedationTarget : null, steps, prophylaxisIndicated };
 }
 
 class Simulation {
@@ -92,11 +129,18 @@ class Simulation {
     this.stim = { laryngoscopyAt: null, surgeryStartAt: null, surgeryEndAt: null, extubatedAt: null };
     this.phaseStart = { premed: 0 };
     this.executed = new Map();
-    this.stats = { timeMapBelow65Sec: 0, minSpo2: Infinity, maxHr: -Infinity, minHr: Infinity, interlockEvents: [], extubation: null };
+    this.autoRun = null; // set by engine/autorun.js while/after an automatic or guided run
+    this.rescueAdvisor = null; // set by engine/rescue.js createRescueAdvisor(); advisory only, never doses
+    this.stats = { depthOutOfBandSec: 0, timeMapBelow65Sec: 0, minSpo2: Infinity, maxHr: -Infinity, minHr: Infinity, interlockEvents: [], extubation: null };
     this.maskVentSec = 0;
     this.depots = [];
-    this.fluid = { retainedMl: 0, pendingMl: 0, sepsisNoteLogged: false };
-    this.sgxShownWarn = false;
+    this.fluid = { retainedMl: 0, pendingMl: 0, sepsisNoteLogged: false, cautionsLogged: new Set() };
+    this.lido = { pretreatAt: [], analgesicAt: [], warned: false };
+    this.checklist = { antibiotic: null };
+    // Timing review (engine/timing.js): every administered dose (for the live timing checks), planned
+    // steps held by a state condition, and time outside the GA processed-EEG band during surgery.
+    this.doseLog = []; this.timingHolds = []; this.waiting = new Map();
+    this.sgxShownWarn = false; this.sgxExcess = 0; this.lastRocBolus = null; this.bolusGiven = {};
     this.lastEffects = null;
     this.recCache = new Map();
     this.ceilings = {};
@@ -136,17 +180,24 @@ class Simulation {
       sensors: { hr: 'ok', map: 'ok', spo2: 'ok' },
       drugs,
       airway: { secured: false, ventilated: false, maskVentilation: false, fio2: 0.21, jawThrust: false },
-      fluids: { crystalloidMl: 0, infusingMl: 0, boluses: [] },
+      fluids: { crystalloidMl: 0, infusingMl: 0, boluses: [], byType: Object.fromEntries(listFluids(this.lib).map((f) => [f.id, { bolusMl: 0, maintenanceMl: 0 }])), maintenance: { fluidId: null, rateMlH: 0, sinceSec: null } },
+      prophylaxis: { indicated: this.plan.prophylaxisIndicated, doses: [], window: null, redose: { due: false, items: [] }, checklistAcknowledged: null },
       surgery: { stimulus: 'none' },
+      // Pre-op holding → OR and pre-incision verification (timing review): transfer time, WHO time out
+      // (clinician only), clinician acknowledgement of an index below the GA band, planned end of surgery.
+      periop: { transferAt: null, timeOut: null, depthAck: null, sedationAck: null, plannedSurgeryEndSec: null },
       alarms: [],
       interlocks: { enabled: !!interlocksEnabled, status: interlocksEnabled ? 'INITIALIZING' : 'DISABLED', holdLatched: false, heldDrugs: [], lockouts },
       log: [],
     };
     this._log('phase', 'Simulation created (premed). Educational simulation — fictional patient.');
+    for (const st of this.plan.steps) if (st.invalid) this._log('dose', `Plan step ${st.id} (${String(st.drugId)}) is invalid and will not run: ${st.invalid}`);
     for (const [id, r] of Object.entries(lockouts)) this._log('interlock', `Lockout: ${getDrug(this.lib, id).name} — ${r.join('; ')}`);
   }
 
   _log(kind, message) { this.state.log.push({ tSec: Math.round(this.state.tSec * 10) / 10, kind, message }); }
+  /** Public log entry for UI/automatic-runner notes (same format as engine entries). */
+  logNote(kind, message) { this._log(String(kind), String(message)); }
 
   // ------------------------------------------------------------------ models
   _model(drugId) {
@@ -157,14 +208,14 @@ class Simulation {
       const volumeWeightKg = rr && rr.reg.scalar ? scalarWeight(this.patient, rr.reg.scalar).weightKg : this.patient.weightKg;
       const concomitantOpioid = drug.pkModel === 'eleveld' ? this._concomitantForEleveld() : false;
       this.models[drugId] = createPkModel(drug, this.patient, { k10Mult, volumeWeightKg, concomitantOpioid });
-      if (this.models[drugId].type === 'eleveld') this._log('event', `${drug.name} PK: Eleveld 2018 published model (arterial), concomitant opioid/local-anaesthetic covariate ${concomitantOpioid ? 'ON' : 'OFF'} (fixed for the case). Illustrative depth/haemodynamic effects.`);
+      if (this.models[drugId].type === 'eleveld') this._log('event', `${drug.name} PK: Eleveld 2018 published model (arterial), concomitant-opioid covariate ${concomitantOpioid ? 'ON' : 'OFF'} (fixed for the case). Illustrative depth/haemodynamic effects.`);
     }
     return this.models[drugId];
   }
 
-  /** Eleveld covariate: opioid or IV local anaesthetic in the plan (any phase) or already given. */
+  /** Eleveld covariate (published: presence of opioids): an opioid in the plan (any phase) or already given. */
   _concomitantForEleveld() {
-    const isCo = (id) => { const d = getDrug(this.lib, id); return !!d && (d.cls === 'opioid' || d.cls === 'local'); };
+    const isCo = (id) => { const d = getDrug(this.lib, id); return !!d && d.cls === 'opioid'; };
     return this.plan.steps.some((s) => s.kind !== 'stop' && isCo(s.drugId)) || Object.keys(this.models).some(isCo);
   }
 
@@ -210,8 +261,40 @@ class Simulation {
         if (m.type === 'volatile' && cmd.rate - cur > 0.5 * m.macAgeAdjusted) out.push(`${r.message}${r.sources && r.sources.length ? ` [${r.sources.join(', ')}]` : ''}`);
       }
     }
+    // Surgery-timing rules (e.g. ketorolac): 'before' = surgery/procedure not yet started; 'during' = started, not ended.
+    const sx = this.stim;
+    const surgNow = sx.surgeryStartAt === null ? 'before' : sx.surgeryEndAt === null ? 'during' : 'after';
+    for (const r of rules) if (r.surgery && r.surgery === surgNow && this.state.phase !== 'emergence') out.push(`${r.message}${r.sources && r.sources.length ? ` [${r.sources.join(', ')}]` : ''}`);
+    for (const r of rules) {
+      if (r.id !== 'dose_vs_block_depth' || !cmd || !isFiniteNumber(cmd.amount)) continue;
+      const w = this.sugammadexTier(drug, cmd.amount);
+      if (w) out.push(`${r.message}${r.sources && r.sources.length ? ` [${r.sources.join(', ')}]` : ''} — ${w}`);
+    }
     if (!rules.length && drug.id === 'neostigmine' && notMinimal) out.push(`Neostigmine is effective only at minimal depth of block (TOFR ≥ 0.4); current TOF count ${tof.count}, TOFR ${tof.ratio.toFixed(2)}.`);
     return out;
+  }
+
+  /**
+   * Sugammadex label dose tier for the current block depth (byDepth in the library) versus the
+   * dose about to be given. Returns a warning string when the dose is below the tier, else null.
+   * Depth: TOF count ≥ 2 → 'shallow' (T2 has reappeared); TOF count 0–1 → 'deep' (the label tier
+   * is defined by 1–2 post-tetanic counts, which the simulator does not model); TOF count 0
+   * within `withinMin` of a rocuronium bolus ≥ `afterRocuroniumPerKg` → 'immediate'.
+   */
+  sugammadexTier(drug, amount) {
+    const reg = Object.values(drug.regimens || {}).find((x) => x && Array.isArray(x.byDepth));
+    if (!reg) return null;
+    const tiers = Object.fromEntries(reg.byDepth.map((b) => [b.depth, b]));
+    const w = scalarWeight(this.patient, reg.scalar || 'TBW').weightKg;
+    const perKg = amount / w;
+    const tof = this._tof(); const t = this.state.tSec; const roc = this.lastRocBolus;
+    const imm = tiers.immediate;
+    let tier;
+    if (imm && tof.count === 0 && roc && roc.perKg >= imm.afterRocuroniumPerKg - 1e-9 && t - roc.tSec <= imm.withinMin * 60 + 1e-9) tier = imm;
+    else if (tof.count >= 2) tier = tiers.shallow;
+    else tier = tiers.deep;
+    if (!tier || perKg >= tier.perKg - 1e-6) return null;
+    return `dose ${roundSig(perKg, 3)} mg/kg (${reg.scalar || 'TBW'} ${roundSig(w, 4)} kg) is below the label ${tier.perKg} mg/kg tier for the current block (TOF count ${tof.count}${tier === imm ? `, rocuronium ${roundSig(roc.perKg, 3)} mg/kg ${Math.round(t - roc.tSec)} s ago` : ''}; label criterion: ${tier.criterion}${tier.depth === 'deep' ? '; post-tetanic count is not modelled' : ''}). In this illustrative model the binding is 1:1 molar, so reversal may be slow or incomplete.`;
   }
 
   // ------------------------------------------------------------------ administration
@@ -227,6 +310,7 @@ class Simulation {
       return r;
     };
     if (!cmd || typeof cmd !== 'object') return res(false, true, ['Invalid command'], []);
+    if (getAntibiotic(this.lib, cmd.drugId)) return this._giveAntibiotic(cmd, meta);
     const drug = getDrug(this.lib, cmd.drugId);
     if (!drug) return res(false, true, [`Unknown drug '${cmd.drugId}'`], []);
     const ds = this.state.drugs[drug.id];
@@ -234,6 +318,7 @@ class Simulation {
     const warnings = [];
     if (kind === 'stop') {
       this._setRate(drug, 0, ds.rateUnit);
+      this._doseLog(drug, { kind: 'stop', regimenKey: null }, meta);
       this._log('dose', `${drug.name} stopped${meta.source === 'plan' ? ' (plan)' : ''}`);
       return res(true, false, [], []);
     }
@@ -245,22 +330,37 @@ class Simulation {
       if (!isFiniteNumber(cmd.amount) || cmd.amount <= 0) return res(false, true, ['Bolus amount must be a positive number'], []);
       const routes = Array.isArray(drug.bolusRoutes) && drug.bolusRoutes.length ? drug.bolusRoutes : ['IV'];
       const route = typeof cmd.route === 'string' && cmd.route ? cmd.route.toUpperCase() : routes[0];
-      if (!routes.includes(route)) return res(false, true, [`${drug.name}: no sourced ${route} bolus dose; sourced bolus route(s): ${routes.join(', ')}${drug.id === 'epinephrine' ? ' (push-dose IV epinephrine not included: no label/guideline dose verified)' : ''}`], []);
+      if (!routes.includes(route)) return res(false, true, [`${drug.name}: no sourced ${route} bolus dose; sourced bolus route(s): ${routes.join(', ')}`], []);
       let amt;
       try { amt = convertAmount(cmd.amount, cmd.amountUnit || drug.amountUnit, drug.amountUnit); } catch (e) { return res(false, true, [e.message], []); }
+      if (!isFiniteNumber(amt) || amt <= 0) return res(false, true, [`Bolus amount is not a usable number after unit conversion (${String(cmd.amountUnit)})`], []);
+      // "Give over" (IV only): blank/0 = push; ≥ 60 s = timed infusion of the bolus; anything else is rejected.
+      const hasOver = cmd.overSec !== undefined && cmd.overSec !== null && cmd.overSec !== 0;
+      if (hasOver && route === 'IV' && (!isFiniteNumber(cmd.overSec) || cmd.overSec < 60)) return res(false, true, [`"Give over" must be blank/0 (push) or at least 1 min (got ${String(cmd.overSec)} s); shorter timed injections are not modelled`], []);
       const pendingTimed = this.timed.filter((x) => x.drugId === drug.id).reduce((a, x) => a + x.remaining, 0);
       for (const L of limits) {
+        if (L.route && L.route !== route) continue;
         if (L.type === 'bolus' && amt > L.absolute + 1e-9) return res(false, true, [`Single dose above ${L.label}`], warnings);
-        if (L.type === 'cumulative' && ds.cumulative + pendingTimed + amt > L.absolute + 1e-9) return res(false, true, [`Cumulative dose would exceed ${L.label}${L.daily ? ' (daily limit applied to this session)' : ''}`], warnings);
+        if (L.type === 'cumulative' && L.bolusOnly && (this.bolusGiven[drug.id] || 0) + amt > L.absolute + 1e-9) return res(false, true, [`Total bolus dose would exceed ${L.label} (already given ${roundSig(this.bolusGiven[drug.id] || 0)} ${drug.amountUnit})`], warnings);
+        if (L.type === 'cumulative' && !L.bolusOnly && ds.cumulative + pendingTimed + amt > L.absolute + 1e-9) return res(false, true, [`Cumulative dose would exceed ${L.label}${L.daily ? ' (daily limit applied to this session)' : ''}`], warnings);
       }
-      warnings.push(...this._runtimeWarnings(drug));
+      const rtw = this._runtimeWarnings(drug, { amount: amt });
+      warnings.push(...rtw);
+      // State-gated repeat bolus (timing.js): a planned step never gets here while held; a manual dose is warned and recorded.
+      const hold = meta.source === 'plan' ? null : repeatBolusHold(this, drug.id);
+      if (hold) { warnings.push(`Repeat-bolus condition not met: ${hold.reason} [${hold.sources.join(', ')}]`); this.timingHolds.push({ tSec: this.state.tSec, drugId: drug.id, manual: true, reason: hold.reason, sources: hold.sources }); }
+      if (drug.id === 'sugammadex' && rtw.some((x) => /tier for the current block/.test(x))) this.alarmMgr.pulse(this.state.tSec, 'sugammadex_dose', 'medium', `Sugammadex dose below the label tier for the current block depth (see log)`);
       const rc = this._rangeCheck(drug, 'bolus', amt, drug.amountUnit);
       if (rc) { warnings.push(rc.message); this.alarmMgr.pulse(this.state.tSec, 'dose_range', rc.priority, rc.message); }
       const model = this._model(drug.id);
       const overSec = route === 'IV' && isFiniteNumber(cmd.overSec) && cmd.overSec >= 60 ? cmd.overSec : null;
+      this.bolusGiven[drug.id] = (this.bolusGiven[drug.id] || 0) + amt;
       if (route !== 'IV') { this.depots.push({ drugId: drug.id, remaining: amt, ka: ROUTE_KA_ILLUSTRATIVE[route] ?? ROUTE_KA_ILLUSTRATIVE.IM, route }); ds.cumulative += amt; }
       else if (overSec) this.timed.push({ drugId: drug.id, perMin: amt / (overSec / 60), remaining: amt });
       else { model.model.bolus(amt); ds.cumulative += amt; }
+      if (drug.id === 'rocuronium') this.lastRocBolus = { tSec: this.state.tSec, perKg: amt / this.patient.weightKg };
+      this._doseLog(drug, { kind: 'bolus', regimenKey: cmd.regimenKey || null, amount: amt, overSec, tierWarning: rtw.find((x) => /tier for the current block/.test(x)) || null }, meta);
+      if (drug.id === 'lidocaine') { const w = this._lidocaineOverlap(cmd.regimenKey === LIDOCAINE_RULES.PRETREATMENT_REGIMEN ? 'pretreatment' : 'analgesic', amt); if (w) warnings.push(w); }
       this._onDrugGiven(drug);
       this._log('dose', `${drug.name} ${roundSig(amt)} ${drug.amountUnit} ${route === 'IV' ? 'bolus' : `${route} injection (illustrative absorption)`}${overSec ? ` over ${Math.round(overSec / 60)} min` : ''}${meta.source === 'plan' ? ' (plan)' : ''}${warnings.length ? ` — warnings: ${warnings.join('; ')}` : ''}`);
       return res(true, false, [], warnings);
@@ -284,29 +384,98 @@ class Simulation {
           if (this.state.airway.fio2 > maxO2 + 1e-9) { this.state.airway.fio2 = Math.round(maxO2 * 100) / 100; warnings.push(`FiO2 reduced to ${this.state.airway.fio2} to make room for N2O ${rate}%`); }
         }
       } else {
-        try { rateToAmountPerMin(rate, unit, drug.amountUnit, this.rateWeight[drug.id]); } catch (e) { return res(false, true, [e.message], []); }
+        let perMin;
+        try { perMin = rateToAmountPerMin(rate, unit, drug.amountUnit, this.rateWeight[drug.id]); } catch (e) { return res(false, true, [e.message], []); }
+        if (!isFiniteNumber(perMin)) return res(false, true, [`Rate is not a usable number after unit conversion (${String(unit)})`], []);
         for (const L of limits) {
           if (L.type !== 'rate') continue;
           const cap = convertRateSafe(L.value, L.rateUnit, unit, L.weightKg ?? this.rateWeight[drug.id]);
           if (cap !== null && rate > cap + 1e-9) return res(false, true, [`Rate above ${L.label}`], warnings);
         }
-        for (const L of limits) if (L.type === 'cumulative' && rate > 0 && ds.cumulative >= L.absolute - 1e-9) return res(false, true, [`Cumulative ceiling already reached (${L.label})`], warnings);
+        for (const L of limits) if (L.type === 'cumulative' && !L.bolusOnly && rate > 0 && ds.cumulative >= L.absolute - 1e-9) return res(false, true, [`Cumulative ceiling already reached (${L.label})`], warnings);
         const py = SIM_TO_PY_ID[drug.id];
         if (this.state.interlocks.enabled && py && CONTROLLED.includes(py)) {
           if (this.core.holdLatched && this.core.heldDrugs.has(py) && rate > 0) return res(false, true, [`${drug.name} is held by a latched interlock; use resume_hold first`], warnings);
           const pyRate = convertRateSafe(rate, unit, PY_RATE_UNITS[py], this.rateWeight[drug.id]);
           const ceil = NOA_CONFIG.simulation_rate_ceilings[py];
-          if (pyRate === null || pyRate > ceil + 1e-12) return res(false, true, [`Rate above the Python simulation ceiling ${ceil} ${PY_RATE_UNITS[py]} (config.yaml simulation_rate_ceilings; applies while interlocks are on)`], warnings);
+          if (pyRate === null || aboveCeiling(pyRate, ceil)) return res(false, true, [`Rate above the Python simulation ceiling ${ceil} ${PY_RATE_UNITS[py]} (config.yaml simulation_rate_ceilings; applies while interlocks are on)`], warnings);
         }
       }
       const rc = this._rangeCheck(drug, kind, rate, unit);
       if (rc) { warnings.push(rc.message); this.alarmMgr.pulse(this.state.tSec, 'dose_range', rc.priority, rc.message); }
       this._setRate(drug, rate, unit);
+      this._doseLog(drug, { kind, regimenKey: cmd.regimenKey || null, rate, rateUnit: unit }, meta);
+      if (rate > 0 && drug.id === 'lidocaine') { const w = this._lidocaineOverlap('analgesic', null); if (w) warnings.push(w); }
       if (rate > 0) this._onDrugGiven(drug);
       this._log('dose', `${drug.name} ${kind === 'inhaled' ? 'dial' : 'infusion'} ${rate} ${unit}${meta.source === 'plan' ? ' (plan)' : ''}${warnings.length ? ` — warnings: ${warnings.join('; ')}` : ''}`);
       return res(true, false, [], warnings);
     }
     return res(false, true, [`Unknown administration kind '${kind}'`], []);
+  }
+
+  /** Record a dose for the live timing checks (engine/timing.js liveTimingChecks). */
+  _doseLog(drug, x, meta) {
+    const agentsOn = listDrugs(this.lib).filter((d) => ['volatile', 'gas', 'hypnotic'].includes(d.cls) && this.state.drugs[d.id].infusionRate > 0).map((d) => d.id);
+    this.doseLog.push({ tSec: this.state.tSec, drugId: drug.id, phase: this.state.phase, source: meta.source || 'user', tofCount: this.state.vitals.tofCount, agentsOn, ...x });
+  }
+
+  /** Full demonstration: planned end of surgery (anchors "stop X min before the end of surgery" steps). */
+  setPlannedSurgeryEnd(tSec) {
+    if (tSec !== null && !isFiniteNumber(tSec)) return { ok: false, message: 'Planned end must be a number of seconds or null' };
+    this.state.periop.plannedSurgeryEndSec = tSec;
+    if (tSec !== null) this._log('action', `Planned end of surgery set to ${fmtSec(tSec)} (anchors stop-before-end plan steps)`);
+    return { ok: true, message: 'Planned end of surgery set' };
+  }
+
+  /**
+   * Lidocaine pretreatment vs IV lidocaine analgesic dosing (Foo 2021 overlap rule, simulator
+   * mapping): records the dose type and returns a warning string (also logged as a LOW alarm) when a
+   * pretreatment dose and an analgesic dose fall within LIDOCAINE_RULES.OVERLAP_WINDOW_SEC.
+   */
+  _lidocaineOverlap(type, amt) {
+    const t = this.state.tSec; const L = this.lido;
+    (type === 'pretreatment' ? L.pretreatAt : L.analgesicAt).push({ tSec: t, amount: amt });
+    const other = type === 'pretreatment' ? L.analgesicAt : L.pretreatAt;
+    if (!other.some((x) => Math.abs(t - x.tSec) <= LIDOCAINE_RULES.OVERLAP_WINDOW_SEC + 1e-9)) return null;
+    const msg = `Lidocaine pretreatment and IV lidocaine analgesic dosing within ${LIDOCAINE_RULES.OVERLAP_WINDOW_SEC / 3600} h: every dose counts toward the cumulative lidocaine total (now ${roundSig(this.state.drugs.lidocaine.cumulative + (amt || 0))} mg incl. this dose; Foo 2021 loading ≤ 1.5 mg/kg IBW, infusion ≤ 1.5 mg/kg/h IBW, ≤ 120 mg/h) [S1]`;
+    this.alarmMgr.pulse(t, 'lidocaine_overlap', LIDOCAINE_RULES.OVERLAP_ALARM_PRIORITY, 'Lidocaine pretreatment + IV lidocaine analgesic dosing overlap (Foo 2021): check the cumulative dose');
+    L.warned = true;
+    return msg;
+  }
+
+  /** Antibiotic prophylaxis dose: timing only (no PK). Lockouts and the library dose range apply. */
+  _giveAntibiotic(cmd, meta = {}) {
+    const ab = getAntibiotic(this.lib, cmd.drugId); const t = this.state.tSec;
+    const blocked = (reasons) => { this._log('dose', `BLOCKED ${ab.name} (antibiotic prophylaxis): ${reasons.join('; ')}`); this.alarmMgr.pulse(t, 'dose_blocked', 'medium', `${ab.name} blocked: ${reasons[0]}`); return { ok: false, blocked: true, reasons, warnings: [] }; };
+    const locks = evaluateContraindications(this.patient, ab.id, this.lib).filter((c) => c.severity === 'lock');
+    if (locks.length) return blocked(locks.map((c) => c.message));
+    if (!isFiniteNumber(cmd.amount) || cmd.amount <= 0) return blocked(['Dose must be a positive number']);
+    let amt;
+    try { amt = convertAmount(cmd.amount, cmd.amountUnit || ab.amountUnit, ab.amountUnit); } catch (e) { return blocked([e.message]); }
+    if (!isFiniteNumber(amt) || amt <= 0) return blocked(['Dose is not a usable number after unit conversion']);
+    const warnings = [];
+    const rec = this._rec(ab.id, 'prophylaxis');
+    if (rec.dose && isFiniteNumber(rec.dose.range.min) && isFiniteNumber(rec.dose.range.max) && (amt < rec.dose.range.min - 1e-9 || amt > rec.dose.range.max + 1e-9)) {
+      const m = `${ab.name} ${roundSig(amt)} ${ab.amountUnit} differs from the guideline dose ${rec.dose.range.min === rec.dose.range.max ? rec.dose.range.min : `${rec.dose.range.min}–${rec.dose.range.max}`} ${ab.amountUnit} for this patient [${rec.sources.join(', ')}]`;
+      warnings.push(m); this.alarmMgr.pulse(t, 'dose_range', 'low', m);
+    }
+    const P = this.state.prophylaxis;
+    P.doses.push({ drugId: ab.id, tSec: t, amount: roundSig(amt), unit: ab.amountUnit, source: meta.source || 'user' });
+    P.redose = redoseStatus(P.doses, t, this.lib);
+    const sx = this.stim;
+    if (sx.surgeryStartAt !== null && sx.surgeryEndAt === null && P.doses.filter((d) => d.drugId === ab.id).length === 1) warnings.push('given after incision: does not satisfy the pre-incision window');
+    this._log('dose', `${ab.name} ${roundSig(amt)} ${ab.amountUnit} IV — antibiotic prophylaxis (timing only; pharmacology not modelled) [${(ab.prophylaxis.sources || []).join(', ')}]${meta.source === 'plan' ? ' (plan)' : ''}${warnings.length ? ` — warnings: ${warnings.join('; ')}` : ''}`);
+    return { ok: true, blocked: false, reasons: [], warnings };
+  }
+
+  /** Antibiotic checklist item for the "Start surgery" gate: satisfied, not indicated, or acknowledged. */
+  prophylaxisChecklist() {
+    const P = this.state.prophylaxis; const t = this.state.tSec;
+    if (!P.indicated) return { indicated: false, satisfied: true, acknowledged: false, message: 'Antibiotic prophylaxis not marked as indicated for this plan.', window: null };
+    const w = evaluateWindow(P.doses, t, this.lib);
+    const ack = this.checklist.antibiotic;
+    return { indicated: true, satisfied: w.ok || !!ack, acknowledged: !!ack, window: w, sources: w.sources,
+      message: w.ok ? `Antibiotic prophylaxis in window: ${w.message}.` : `Antibiotic prophylaxis not in the recommended window if surgery starts now: ${w.message}.${ack ? ' Warning acknowledged by the clinician.' : ' The clinician must acknowledge this warning (or give prophylaxis) before surgery starts.'}` };
   }
 
   _setRate(drug, rate, unit) {
@@ -351,19 +520,71 @@ class Simulation {
       a.fio2 = v; return ok(`FiO2 set to ${v}`);
     }
     if (id === 'fluid_bolus' || id.startsWith('fluid_bolus:')) {
-      const ml = id === 'fluid_bolus' ? FLUID_MODEL.DEFAULT_ML : Number(id.slice(12));
+      const parts = id.split(':');
+      const ml = parts.length < 2 ? FLUID_MODEL.DEFAULT_ML : Number(parts[1]);
       if (!FLUID_MODEL.ALLOWED_ML.includes(ml)) return no(`Fluid bolus must be ${FLUID_MODEL.ALLOWED_ML.join(' or ')} mL crystalloid`);
+      const ft = this._fluidType(parts[2]);
+      if (ft.error) return no(ft.error);
       const F = this.state.fluids;
       F.crystalloidMl += ml; this.fluid.pendingMl += ml; F.infusingMl = Math.round(this.fluid.pendingMl);
-      F.boluses.push({ tSec: t, ml, kind: 'crystalloid' });
+      F.boluses.push({ tSec: t, ml, kind: 'crystalloid', fluidId: ft.id });
+      if (ft.id && F.byType[ft.id]) F.byType[ft.id].bolusMl += ml;
       const perKg = F.crystalloidMl / this.patient.weightKg;
-      let msg = `Crystalloid bolus ${ml} mL started (cumulative ${F.crystalloidMl} mL, ${roundSig(perKg, 3)} mL/kg TBW; illustrative volume model)`;
+      let msg = `${ft.name} bolus ${ml} mL started (cumulative crystalloid ${roundSig(F.crystalloidMl)} mL, ${roundSig(perKg, 3)} mL/kg TBW; illustrative volume model)${ft.cautions}`;
       if ((this.patient.conditions || []).includes('sepsis') && perKg >= FLUID_MODEL.SEPSIS_CONTEXT_ML_PER_KG && !this.fluid.sepsisNoteLogged) {
         const src = (this.lib.SOURCE_IDS_ENGINE && this.lib.SOURCE_IDS_ENGINE.sepsisFluids) || null;
         this.fluid.sepsisNoteLogged = true;
         msg += ` — context: Surviving Sepsis Campaign 2021 suggests at least 30 mL/kg IV crystalloid within the first 3 h for sepsis-induced hypoperfusion or septic shock (weak recommendation)${src ? ` [${src}]` : ''}`;
       }
       return ok(msg);
+    }
+    if (id.startsWith('fluid_maintenance')) {
+      // fluid_maintenance:<fluidId>:<mL/h> (0 = stop) | fluid_maintenance_stop
+      const F = this.state.fluids; const M = F.maintenance;
+      if (id === 'fluid_maintenance_stop') { if (!M.rateMlH) return no('No maintenance infusion running'); const was = M.fluidId; M.rateMlH = 0; M.sinceSec = null; return ok(`Maintenance infusion stopped (${this._fluidType(was).name})`); }
+      const parts = id.split(':');
+      if (parts.length !== 3) return no('Use fluid_maintenance:<fluidId>:<mL/h>');
+      const ft = this._fluidType(parts[1]); if (ft.error) return no(ft.error);
+      const r = Number(parts[2]);
+      if (!isFiniteNumber(r) || r < 0 || r > FLUID_MODEL.MAINTENANCE_MAX_ML_H) return no(`Maintenance rate must be 0–${FLUID_MODEL.MAINTENANCE_MAX_ML_H} mL/h (simulator input limit)`);
+      if (r === 0) { M.rateMlH = 0; M.sinceSec = null; return ok(`Maintenance infusion stopped (${ft.name})`); }
+      const prev = M.rateMlH > 0 ? `${this._fluidType(M.fluidId).name} ${M.rateMlH} mL/h` : null;
+      M.fluidId = ft.id; M.rateMlH = r; M.sinceSec = t;
+      return ok(`Maintenance infusion ${ft.name} ${r} mL/h${prev ? ` (was ${prev})` : ''} — rate is a simulator choice, not a label dose; illustrative volume model${ft.cautions}`);
+    }
+    if (id === 'acknowledge_checklist:antibiotic') {
+      const c = this.prophylaxisChecklist();
+      if (!c.indicated) return no('Antibiotic prophylaxis is not marked as indicated for this plan');
+      if (c.window && c.window.ok) return no('Nothing to acknowledge: prophylaxis is in the window');
+      this.checklist.antibiotic = { tSec: t, message: c.window ? c.window.message : '' };
+      this.state.prophylaxis.checklistAcknowledged = { tSec: t, message: this.checklist.antibiotic.message };
+      return ok(`Clinician acknowledged the antibiotic checklist warning: ${this.checklist.antibiotic.message}`);
+    }
+    if (id === 'transfer_to_or') {
+      if (this.state.periop.transferAt !== null) return no('Patient already transferred to the OR');
+      this.state.periop.transferAt = t;
+      return ok('Patient transferred from pre-op holding to the OR (monitors applied next)');
+    }
+    if (id === 'confirm_time_out') {
+      if (this.state.periop.timeOut) return no('Time out already confirmed');
+      this.state.periop.timeOut = { tSec: t };
+      return ok(`WHO Surgical Safety Checklist time out confirmed by the clinician (patient, site and procedure; antibiotic prophylaxis checked)${this.lib.SOURCE_IDS_ENGINE && this.lib.SOURCE_IDS_ENGINE.whoChecklist ? ` [${this.lib.SOURCE_IDS_ENGINE.whoChecklist}]` : ''}`);
+    }
+    if (id === 'acknowledge_depth_below_band') {
+      const [lo] = TIMING_CONFIG.GA_DEPTH_BAND.value; const v = this.state.vitals.depthIndex;
+      if (!(v < lo)) return no(`Processed-EEG depth index ${v} is not below the GA band (${lo})`);
+      this.state.periop.depthAck = { tSec: t, index: v };
+      return ok(`Clinician acknowledged a processed-EEG depth index of ${v} (below the GA band ${lo}–${TIMING_CONFIG.GA_DEPTH_BAND.value[1]}) before incision`);
+    }
+    if (id === 'acknowledge_sedation_below_target') {
+      // MAC: the clinician accepts starting the procedure at a sedation level below the plan target
+      // (never automatic; guided/automatic modes only offer it). Logged with the level and target.
+      const tgt = this.plan.sedationTarget || 'moderate'; const lvl = this.state.vitals.sedationLevel;
+      if (this.plan.mode !== 'MAC') return no('Only for a MAC / sedation plan');
+      if (this.state.periop.sedationAck) return no('Sedation level already acknowledged');
+      if (!(SEDATION_RANK[lvl] < SEDATION_RANK[tgt])) return no(`Sedation level ${lvl} is not below the plan target (${tgt})`);
+      this.state.periop.sedationAck = { tSec: t, level: lvl, target: tgt };
+      return ok(`Clinician acknowledged sedation below the planned target (${lvl} vs ${tgt}) and chose to start the procedure at the current level`);
     }
     if (id.startsWith('acknowledge:')) {
       const aid = id.slice(12);
@@ -385,7 +606,19 @@ class Simulation {
       case 'release_jaw_thrust': a.jawThrust = false; return ok('Jaw thrust released');
       case 'start_ventilation': if (!a.secured) return no('Secure the airway before mechanical ventilation (or mask ventilate)'); a.ventilated = true; return ok('Mechanical ventilation started');
       case 'stop_ventilation': a.ventilated = false; return ok('Mechanical ventilation stopped');
-      case 'start_surgery': this.stim.surgeryStartAt = t; this.stim.surgeryEndAt = null; this.state.surgery.stimulus = 'incision'; return ok('Surgery started (incision)');
+      case 'start_surgery': {
+        this.stim.surgeryStartAt = t; this.stim.surgeryEndAt = null; this.state.surgery.stimulus = 'incision';
+        const P = this.state.prophylaxis; let extra = '';
+        if (P.indicated) {
+          P.window = { tSec: t, ...evaluateWindow(P.doses, t, this.lib) };
+          if (!P.window.ok) {
+            const src = P.window.sources && P.window.sources.length ? ` [${P.window.sources.join(', ')}]` : '';
+            this.alarmMgr.pulse(t, 'abx_window', PROPHYLAXIS_CONFIG.WINDOW_ALARM_PRIORITY.value, `Surgery started without antibiotic prophylaxis in the recommended window: ${P.window.message}${src}`);
+            extra = ` — antibiotic prophylaxis NOT in the recommended window (${P.window.message})${this.checklist.antibiotic ? '; checklist warning was acknowledged' : ''}`;
+          } else extra = ` — antibiotic prophylaxis in window (${P.window.message})`;
+        }
+        return ok(`Surgery started (incision)${extra}`);
+      }
       case 'end_surgery': this.stim.surgeryEndAt = t; this.state.surgery.stimulus = 'closing'; return ok('Surgery ended (closing)');
       case 'extubate': {
         if (!a.secured) return no('No tracheal tube to remove');
@@ -406,6 +639,22 @@ class Simulation {
       }
       default: return no(`Unknown action '${id}'`);
     }
+  }
+
+  /** Resolve a fluid id (default FLUID_MODEL.DEFAULT_FLUID); libraries without FLUIDS use a generic crystalloid. */
+  _fluidType(id) {
+    const fluids = listFluids(this.lib);
+    if (!fluids.length) return { id: null, name: 'Crystalloid', cautions: '' };
+    const fid = id || FLUID_MODEL.DEFAULT_FLUID;
+    const f = getFluid(this.lib, fid);
+    if (!f) return { error: `Unknown fluid '${fid}' (${fluids.map((x) => x.id).join(', ')})` };
+    let cautions = '';
+    for (const c of f.cautions || []) {
+      const key = `${f.id}|${c.when}`;
+      if (this.fluid.cautionsLogged.has(key) || !evaluateWhen(c.when, this.patient).value) continue;
+      this.fluid.cautionsLogged.add(key); cautions += ` — caution: ${c.message} [${(c.sources || []).join(', ')}]`;
+    }
+    return { id: f.id, name: f.name, cautions };
   }
 
   _n2oPct() { let s = 0; for (const d of listDrugs(this.lib)) if (isNitrous(d)) s += this.state.drugs[d.id].infusionRate || 0; return s; }
@@ -430,9 +679,32 @@ class Simulation {
     const p = e.def.perturbation; const dt = t - e.startSec;
     let I = p.rampSec > 0 ? clamp(dt / p.rampSec, 0, 1) : 1;
     const holdEnd = p.holdSec === null || p.holdSec === undefined ? Infinity : (p.rampSec || 0) + p.holdSec;
-    let endAt = e.resolved ? e.resolvedAt - e.startSec : holdEnd;
+    const endAt = e.resolved ? e.resolvedAt - e.startSec : holdEnd;
     if (dt > endAt) I *= p.resolveSec > 0 ? clamp(1 - (dt - endAt) / p.resolveSec, 0, 1) : 0;
     return I;
+  }
+
+  /** A premedication bolus step is pending or still running (timed bolus) at time t. */
+  _premedBolusBusy(t) {
+    return this.plan.steps.some((x) => x.phase === 'premed' && x.kind === 'bolus' && !x.invalid && (!this.executed.has(x.id) || (!this.executed.get(x.id).blocked && this.executed.get(x.id).tSec + (isFiniteNumber(x.overSec) ? x.overSec : 0) > t + 1e-9)));
+  }
+
+  /** Simulated time at which a plan step becomes due, or null if it is not schedulable yet. */
+  _dueAt(s) {
+    const ps = this.phaseStart[s.phase];
+    if (ps === undefined) return null;
+    let at = ps + s.atSec;
+    if (isFiniteNumber(s.beforeEndSec)) {
+      const cands = [this.stim.surgeryEndAt, this.phaseStart.emergence, isFiniteNumber(this.state.periop.plannedSurgeryEndSec) ? this.state.periop.plannedSurgeryEndSec - s.beforeEndSec : null].filter((x) => isFiniteNumber(x));
+      if (!cands.length) return null;
+      at = Math.max(at, Math.min(...cands));
+    }
+    if (typeof s.afterLoadingOf === 'string') {
+      const loads = this.plan.steps.filter((x) => x !== s && !x.invalid && x.drugId === s.afterLoadingOf && x.kind === 'bolus' && (x.loading || (isFiniteNumber(x.overSec) && x.overSec >= 60)));
+      if (loads.some((x) => !this.executed.has(x.id))) return null;
+      for (const x of loads) { const ex = this.executed.get(x.id); if (!ex.blocked) at = Math.max(at, ex.tSec + (x.overSec || 0)); }
+    }
+    return at;
   }
 
   // ------------------------------------------------------------------ stepping
@@ -441,6 +713,9 @@ class Simulation {
     const n = Math.ceil(dtSec - 1e-9);
     const h = dtSec / n;
     for (let i = 0; i < n; i++) this._substep(h);
+    // Advisory haemodynamic rescue (engine/rescue.js): re-evaluated after each step; it only records
+    // what is shown — a dose is given only by the clinician's explicit accept().
+    if (this.rescueAdvisor && typeof this.rescueAdvisor.update === 'function') this.rescueAdvisor.update();
     return this.state;
   }
 
@@ -449,11 +724,36 @@ class Simulation {
     S.tSec = Math.round((S.tSec + h) * 1e6) / 1e6;
     const t = S.tSec; const dtMin = h / 60;
 
-    // 1. plan scheduler (phase-relative atSec, then order)
-    const due = this.plan.steps.filter((s) => !this.executed.has(s.id) && this.phaseStart[s.phase] !== undefined && t >= this.phaseStart[s.phase] + s.atSec - 1e-9)
-      .sort((a, b) => (this.phaseStart[a.phase] + a.atSec) - (this.phaseStart[b.phase] + b.atSec) || a.order - b.order);
+    // 1. plan scheduler (phase-relative atSec, then order). Anchored steps (timing review): a stop
+    //    `beforeEndSec` before the end of surgery, and an infusion `afterLoadingOf` a loading dose.
+    //    State-gated repeat boluses (rocuronium top-up, repeat midazolam) wait until their label condition holds.
+    const due = this.plan.steps.filter((s) => !s.invalid && !this.executed.has(s.id)).map((s) => ({ s, at: this._dueAt(s) }))
+      .filter((x) => x.at !== null && t >= x.at - 1e-9).sort((a, b) => a.at - b.at || a.s.order - b.s.order).map((x) => x.s);
+    const premedBusy = (s) => ['induction', 'sedation'].includes(s.phase) && ['bolus', 'infusion', 'inhaled'].includes(s.kind) && this._premedBolusBusy(t);
     for (const s of due) {
-      const r = this.administer({ drugId: s.drugId, kind: s.kind, amount: s.amount, amountUnit: s.amountUnit, rate: s.rate, rateUnit: s.rateUnit, overSec: s.overSec, route: s.route }, { source: 'plan' });
+      if (premedBusy(s)) {
+        // Never overlap premedication with induction/sedation drugs: wait until every premed bolus has run and ended.
+        if (!this.waiting.has(s.id)) this._log('dose', `Plan step held: ${getDrug(lib, s.drugId) ? getDrug(lib, s.drugId).name : s.drugId} waits until the premedication bolus has finished (no overlap of premedication and ${s.phase})`);
+        this.waiting.set(s.id, 'waits until the premedication bolus has finished (no overlap)');
+        continue;
+      }
+      if (s.kind === 'bolus') {
+        const hold = repeatBolusHold(this, s.drugId);
+        if (hold) {
+          if (!this.waiting.has(s.id)) { this.waiting.set(s.id, hold.reason); this.timingHolds.push({ tSec: t, drugId: s.drugId, manual: false, reason: hold.reason, sources: hold.sources }); this._log('dose', `Plan step held: ${getDrug(lib, s.drugId) ? getDrug(lib, s.drugId).name : s.drugId} — ${hold.reason} [${hold.sources.join(', ')}]`); }
+          else this.waiting.set(s.id, hold.reason);
+          continue;
+        }
+        this.waiting.delete(s.id);
+      }
+      let r;
+      if (s.kind === 'fluid' || s.kind === 'fluid_bolus') {
+        const a = this.action(s.kind === 'fluid' ? `fluid_maintenance:${s.fluidId || s.drugId}:${s.rate}` : `fluid_bolus:${s.amount}:${s.fluidId || s.drugId}`);
+        if (!a.ok) this._log('dose', `BLOCKED plan fluid step ${s.id}: ${a.message}`);
+        r = { ok: a.ok, blocked: !a.ok, reasons: a.ok ? [] : [a.message], warnings: [] };
+      } else {
+        r = this.administer({ drugId: s.drugId, kind: s.kind, amount: s.amount, amountUnit: s.amountUnit, rate: s.rate, rateUnit: s.rateUnit, overSec: s.overSec, route: s.route, regimenKey: s.regimenKey }, { source: 'plan' });
+      }
       this.executed.set(s.id, { tSec: t, ...r });
     }
 
@@ -463,6 +763,12 @@ class Simulation {
       this.fluid.pendingMl -= run; this.fluid.retainedMl += run;
       if (this.fluid.pendingMl <= 1e-9) { this.fluid.pendingMl = 0; this._log('action', `Crystalloid bolus run-in complete (cumulative ${S.fluids.crystalloidMl} mL)`); }
       S.fluids.infusingMl = Math.round(this.fluid.pendingMl);
+    }
+    const M = S.fluids.maintenance;
+    if (M.rateMlH > 0) {
+      const v = M.rateMlH * dtMin / 60;
+      this.fluid.retainedMl += v; S.fluids.crystalloidMl += v;
+      if (M.fluidId && S.fluids.byType[M.fluidId]) S.fluids.byType[M.fluidId].maintenanceMl += v;
     }
     this.fluid.retainedMl *= Math.exp(-dtMin / FLUID_MODEL.RETENTION_TAU_MIN);
     const fluidR = 1 - Math.exp(-this.fluid.retainedMl / FLUID_MODEL.RESTORE_SCALE_ML);
@@ -525,13 +831,14 @@ class Simulation {
         if (ds && this.core.infusions[py] === 0 && ds.infusionRate !== 0) { this._setRate(getDrug(lib, id), 0, ds.rateUnit); this._log('interlock', `${getDrug(lib, id).name} set to zero by interlock`); }
       }
       const newHeld = [...this.core.heldDrugs].filter((d) => !prevHeld.has(d));
-      // Log/record decisions without flooding: an event code is recorded once per 60 s.
+      // Log/record decisions without flooding: each event code is recorded at most once per 60 s
+      // while it persists (and immediately when a new drug is held).
       for (const e of r.events) {
         const last = this._ilLast[e.code];
         if (last === undefined || t - last >= 60 || newHeld.length) {
           this._log('interlock', e.message); this.stats.interlockEvents.push({ tSec: t, code: e.code, message: e.message });
+          this._ilLast[e.code] = t;
         }
-        this._ilLast[e.code] = t;
       }
       if (r.status !== prevStatus && (r.status !== this._ilLoggedStatus) && (t - this._ilStatusT >= 30 || newHeld.length || r.status === 'GREEN')) {
         this._log('interlock', `Interlock status ${r.status}${this.core.holdLatched ? ` (hold latched: ${[...this.core.heldDrugs].map((x) => PY_TO_SIM_ID[x]).join(', ')})` : ''}`);
@@ -556,9 +863,11 @@ class Simulation {
       const m = this._model(tb.drugId); m.model.bolus(amt); tb.remaining -= amt; S.drugs[tb.drugId].cumulative += amt;
     }
     this.timed = this.timed.filter((x) => x.remaining > 1e-12);
-    // non-IV bolus depots (IM/SC): first-order absorption (illustrative ka, pk.js ROUTE_KA_ILLUSTRATIVE)
+    // non-IV bolus depots (IM/SC): first-order absorption (illustrative ka, pk.js ROUTE_KA_ILLUSTRATIVE),
+    // slowed when MAP is far below baseline (pk.js ROUTE_PERFUSION_ILLUSTRATIVE)
+    const perf = perfusionKaFactor(this.phys.out ? this.phys.out._true.map / this.phys.map0 : 1);
     for (const dp of this.depots) {
-      const amt = dp.remaining * (1 - Math.exp(-dp.ka * dtMin));
+      const amt = dp.remaining * (1 - Math.exp(-dp.ka * perf * dtMin));
       this._model(dp.drugId).model.bolus(amt); dp.remaining -= amt;
     }
     this.depots = this.depots.filter((x) => x.remaining > 1e-9);
@@ -568,22 +877,28 @@ class Simulation {
       if (m.type === 'volatile') { m.model.step(dtMin, veffPrev); continue; }
       const add = m.model.infusionPerMin * dtMin;
       if (add > 0) {
-        for (const L of this.ceilings[id]) if (L.type === 'cumulative' && ds.cumulative + add > L.absolute + 1e-9) {
+        for (const L of this.ceilings[id]) if (L.type === 'cumulative' && !L.bolusOnly && ds.cumulative + add > L.absolute + 1e-9) {
           this._setRate(drug, 0, ds.rateUnit); this._log('dose', `${drug.name} infusion stopped: cumulative ceiling reached (${L.label})`);
           this.alarmMgr.pulse(t, 'ceiling_reached', 'medium', `${drug.name}: cumulative ceiling reached`);
         }
       }
       ds.cumulative += m.model.infusionPerMin * dtMin;
-      let ke0Mult = 1;
-      if (id === 'rocuronium' && this.models.sugammadex && this.models.sugammadex.model.a1 > 1e-6) ke0Mult = STIMULUS.SUGAMMADEX_ROC_KE0_MULT;
+      // Effect-site rocuronium leaves faster while free sugammadex is in molar excess over the
+      // rocuronium still in the body; the speed-up saturates (ILLUSTRATIVE; STIMULUS constants).
+      const ke0Mult = id === 'rocuronium' ? sugammadexKe0Mult(this.sgxExcess) : 1;
       m.model.step(dtMin, { ke0Mult });
     }
-    // sugammadex encapsulation of rocuronium (1:1 molar, central compartment)
+    // sugammadex encapsulation of rocuronium: 1:1 molar, central compartment, label molecular
+    // weights. An insufficient dose is used up, then rocuronium returning from the peripheral
+    // compartment stays free, so reversal is slower or incomplete (illustrative).
+    this.sgxExcess = 0;
     if (this.models.sugammadex && this.models.rocuronium) {
       const sg = this.models.sugammadex.model, ro = this.models.rocuronium.model;
-      const ratio = MW.sugammadex / MW.rocuronium;
-      const bind = Math.min(ro.a1, sg.a1 / ratio);
-      if (bind > 0) { ro.removeCentral(bind); sg.removeCentral(bind * ratio); }
+      const bindMmol = Math.min(ro.a1 * MMOL_PER_MG.rocuronium, sg.a1 * MMOL_PER_MG.sugammadex);
+      if (bindMmol > 0) { ro.removeCentral(bindMmol / MMOL_PER_MG.rocuronium); sg.removeCentral(bindMmol / MMOL_PER_MG.sugammadex); }
+      const rocBodyMmol = (ro.a1 + ro.a2 + ro.a3 + ro.ce * ro.v1L) * MMOL_PER_MG.rocuronium;
+      const freeSgxMmol = (sg.a1 + sg.a2 + sg.a3) * MMOL_PER_MG.sugammadex;
+      this.sgxExcess = freeSgxMmol > 1e-12 ? freeSgxMmol / Math.max(rocBodyMmol, 1e-9) : 0;
     }
 
     // 7. PD
@@ -603,9 +918,11 @@ class Simulation {
     if (totalMac > 0) {
       // Total MAC (sum of agents' age-adjusted MAC fractions) drives hypnosis/immobility/respiratory effect;
       // hypotension is driven by the potent (non-N2O) agents' share.
-      const { map: _m, ...noMap } = PROFILES.sevoflurane;
-      entries.push({ drug: { id: '_volatile_total', cls: '_volatile', _profile: noMap }, u: totalMac });
-      entries.push({ drug: { id: '_volatile_potent', cls: '_volatile', _profile: { map: PROFILES.sevoflurane.map } }, u: potentMac });
+      // Hypnosis uses potent MAC + N2O MAC × N2O_HYPNOSIS_FRACTION (N2O is a weak hypnotic).
+      const { map: mapSpec, hyp: hypSpec, ...rest } = PROFILES.sevoflurane;
+      entries.push({ drug: { id: '_volatile_total', cls: '_volatile', _profile: rest }, u: totalMac });
+      entries.push({ drug: { id: '_volatile_hyp', cls: '_volatile', _profile: { hyp: hypSpec } }, u: potentMac + PATIENT_MODS.N2O_HYPNOSIS_FRACTION * (totalMac - potentMac) });
+      entries.push({ drug: { id: '_volatile_potent', cls: '_volatile', _profile: { map: mapSpec } }, u: potentMac });
     }
     const effects = combineEffects(entries, this.mods);
     this.lastEffects = effects;
@@ -642,6 +959,7 @@ class Simulation {
 
     // 10. statistics
     if (isFiniteNumber(V.map) && V.map < 65) this.stats.timeMapBelow65Sec += h;
+    { const [lo, hi] = TIMING_CONFIG.GA_DEPTH_BAND.value; if (this.plan.mode !== 'MAC' && S.phase === 'maintenance' && S.airway.secured && this.stim.surgeryStartAt !== null && (V.depthIndex < lo || V.depthIndex > hi)) this.stats.depthOutOfBandSec += h; }
     if (isFiniteNumber(V.spo2)) this.stats.minSpo2 = Math.min(this.stats.minSpo2, V.spo2);
     if (isFiniteNumber(V.hr)) { this.stats.maxHr = Math.max(this.stats.maxHr, V.hr); this.stats.minHr = Math.min(this.stats.minHr, V.hr); }
 
@@ -663,10 +981,21 @@ class Simulation {
       { id: 'sensor_fault_map', priority: 'high', message: 'MAP sensor fault (unusable reading)', active: S.sensors.map === 'fault' },
       { id: 'sensor_fault_spo2', priority: 'high', message: 'SpO2 probe off / sensor fault', active: S.sensors.spo2 === 'fault' },
       { id: 'depth_over_target', priority: 'medium', message: `Sedation deeper than ${target} target (${V.sedationLevel}): airway/ventilation risk`, active: !!target && SEDATION_RANK[V.sedationLevel] > SEDATION_RANK[target] },
+      ...this._prophylaxisAlarm(t),
       { id: 'interlock_hold', priority: 'medium', message: `Interlock hold latched (${S.interlocks.heldDrugs.join(', ') || 'no infusions running'}); resume_hold required`, active: S.interlocks.enabled && S.interlocks.holdLatched },
     ];
     this.alarmMgr.update(t, conds);
     S.alarms = this.alarmMgr.list();
+  }
+
+  _prophylaxisAlarm(t) {
+    const P = this.state.prophylaxis;
+    if (!P.doses.length) return [];
+    P.redose = redoseStatus(P.doses, t, this.lib);
+    const during = this.stim.surgeryStartAt !== null && this.stim.surgeryEndAt === null;
+    const due = P.redose.items.filter((x) => x.due);
+    return [{ id: 'abx_redose', priority: PROPHYLAXIS_CONFIG.REDOSE_ALARM_PRIORITY.value, active: during && due.length > 0,
+      message: due.length ? `Prophylaxis redose due: ${due.map((x) => `${x.name} every ${x.intervalMin / 60} h, last dose started ${Math.round((t - x.lastSec) / 60)} min ago [${x.sources.join(', ')}]`).join('; ')}` : 'Prophylaxis redose due' }];
   }
 
   _enforceLabelRate(d, t) {
@@ -704,7 +1033,8 @@ class Simulation {
   }
 
   planStatus() {
-    return this.plan.steps.map((s) => ({ id: s.id, phase: s.phase, drugId: s.drugId, kind: s.kind, status: this.executed.has(s.id) ? (this.executed.get(s.id).blocked ? 'blocked' : 'done') : 'pending', result: this.executed.get(s.id) || null }));
+    return this.plan.steps.map((s) => ({ id: s.id, phase: s.phase, drugId: s.drugId, kind: s.kind, status: s.invalid ? 'invalid' : this.executed.has(s.id) ? (this.executed.get(s.id).blocked ? 'blocked' : 'done') : 'pending', result: this.executed.get(s.id) || (s.invalid ? { invalid: s.invalid } : null),
+      ...(!this.executed.has(s.id) && this.waiting.has(s.id) ? { waiting: this.waiting.get(s.id) } : {}) }));
   }
 
   summary() {
@@ -721,7 +1051,17 @@ class Simulation {
       alarms: this.alarmMgr.history.map((a) => ({ ...a })),
       extubation: this.stats.extubation || { tSec: null, ...this.extubationReadiness(), note: 'not extubated; current readiness' },
       interlockEvents: this.stats.interlockEvents.slice(),
-      fluids: { crystalloidMl: this.state.fluids.crystalloidMl, perKg: roundSig(this.state.fluids.crystalloidMl / this.patient.weightKg, 3), perKgBasis: 'TBW', boluses: this.state.fluids.boluses.map((b) => ({ ...b })), model: 'illustrative volume-restoration model (author estimates)' },
+      periop: { ...this.state.periop, timeOut: this.state.periop.timeOut ? { ...this.state.periop.timeOut } : null, depthAck: this.state.periop.depthAck ? { ...this.state.periop.depthAck } : null, sedationAck: this.state.periop.sedationAck ? { ...this.state.periop.sedationAck } : null },
+      depthOutOfBandSec: Math.round(this.stats.depthOutOfBandSec),
+      timingChecks: liveTimingChecks(this),
+      fluids: { crystalloidMl: roundSig(this.state.fluids.crystalloidMl), perKg: roundSig(this.state.fluids.crystalloidMl / this.patient.weightKg, 3), perKgBasis: 'TBW', boluses: this.state.fluids.boluses.map((b) => ({ ...b })),
+        byType: Object.fromEntries(Object.entries(this.state.fluids.byType).map(([id, v]) => [id, { name: (getFluid(this.lib, id) || {}).name || id, bolusMl: roundSig(v.bolusMl), maintenanceMl: roundSig(v.maintenanceMl), totalMl: roundSig(v.bolusMl + v.maintenanceMl) }])),
+        maintenance: { ...this.state.fluids.maintenance }, model: 'illustrative volume-restoration model (author estimates); same model for every fluid type' },
+      prophylaxis: { indicated: this.state.prophylaxis.indicated, doses: this.state.prophylaxis.doses.map((d) => ({ ...d })), window: this.state.prophylaxis.window ? { ...this.state.prophylaxis.window } : null,
+        redose: redoseStatus(this.state.prophylaxis.doses, this.state.tSec, this.lib), checklistAcknowledged: this.state.prophylaxis.checklistAcknowledged, note: 'Timing only; antibiotic pharmacology is not modelled.' },
+      lidocaine: this.state.drugs.lidocaine ? { totalMg: roundSig(this.state.drugs.lidocaine.cumulative), perKgIbw: roundSig(this.state.drugs.lidocaine.cumulative / scalarWeight(this.patient, 'IBW').weightKg, 3), pretreatmentMg: roundSig(this.lido.pretreatAt.reduce((a, x) => a + (x.amount || 0), 0)), pretreatmentDoses: this.lido.pretreatAt.length, overlapWarning: this.lido.warned } : null,
+      automatic: this.autoRun && typeof this.autoRun.record === 'function' ? this.autoRun.record() : { used: false },
+      advisories: this.rescueAdvisor && typeof this.rescueAdvisor.record === 'function' ? this.rescueAdvisor.record() : { used: false, shown: 0, accepted: 0, dismissed: 0, entries: [] },
       modelNote: 'Illustrative model output — educational simulation, fictional patient; not a medical device.',
     };
   }
@@ -741,7 +1081,7 @@ class Simulation {
 
   /** Every model parameter: { component, drugId?, name, value, unit, provenance, sourceIds, note }. */
   parameterInventory() {
-    return buildParameterInventory({ lib: this.lib, patient: this.patient, mods: this.mods, models: this.models, fluidModel: FLUID_MODEL, mw: MW, minFio2WithN2O: MIN_FIO2_WITH_N2O, alarmThresholds: ALARM_THRESHOLDS, extubationCriteria: EXTUBATION_CRITERIA, stimulus: STIMULUS });
+    return buildParameterInventory({ lib: this.lib, patient: this.patient, mods: this.mods, models: this.models, fluidModel: FLUID_MODEL, lidocaineRules: LIDOCAINE_RULES, prophylaxisConfig: PROPHYLAXIS_CONFIG, mw: MW, minFio2WithN2O: MIN_FIO2_WITH_N2O, alarmThresholds: ALARM_THRESHOLDS, extubationCriteria: EXTUBATION_CRITERIA, stimulus: STIMULUS });
   }
 }
 
@@ -763,10 +1103,20 @@ function rateWeightFor(drug, p) {
   return p.weightKg;
 }
 
+/** ke0 multiplier for rocuronium given the free-sugammadex : rocuronium molar ratio (illustrative). */
+export function sugammadexKe0Mult(excess) {
+  if (!(excess > 0)) return 1;
+  const n = STIMULUS.SUGAMMADEX_EXCESS_HILL;
+  const x = Math.pow(excess, n); const hh = Math.pow(STIMULUS.SUGAMMADEX_EXCESS_HALF, n);
+  return 1 + (STIMULUS.SUGAMMADEX_KE0_MULT_MAX - 1) * x / (x + hh);
+}
+
 function libraryMentionsSympathetic(drug) {
   if (Array.isArray(drug.runtimeRules) && drug.runtimeRules.some((r) => /rapid_concentration_increase/.test(r.id || ''))) return true;
   return false;
 }
+
+function fmtSec(sec) { const s = Math.round(sec); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; }
 
 function describe(cmd) {
   if (!cmd) return '';
@@ -776,3 +1126,8 @@ function describe(cmd) {
 }
 
 export { Simulation };
+
+export function createSimulation({ patient, plan = null, seed = 1, interlocks = true, library = null } = {}) {
+  return new Simulation({ patient, plan, seed, interlocks, library });
+}
+

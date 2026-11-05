@@ -4,9 +4,20 @@ import { recommend, regimenKeyForPhase } from '../engine/dosing.js';
 import { SCENARIOS } from '../data/scenarios.js';
 import { drawChart, SERIES_COLORS, WINDOW_SEC } from './charts.js';
 import { srcTags } from './sources.js';
-import { CLASS_LABELS, CLASS_ORDER, PHASE_LABELS, PHASE_LABELS_MAC, PRIORITY_LABELS, PRIORITY_SHAPES, INTERLOCK_TEXT, KIND_LABELS } from './labels.js';
-import { getDrugById, isInhaledDrug, interlockCeiling, interlockNote } from './plan-model.js';
+import { CLASS_LABELS, CLASS_ORDER, PHASE_LABELS, PHASE_LABELS_MAC, PRIORITY_LABELS, PRIORITY_SHAPES, INTERLOCK_TEXT, KIND_LABELS, fluidCompositionText } from './labels.js';
+import { getDrugById, isInhaledDrug, interlockCeiling, interlockNote, exceedsInterlockCeiling } from './plan-model.js';
 import { interlockExplanation } from './plan-editor.js';
+import { CASE_ACTIONS, surgeryState } from '../engine/case-actions.js';
+import { createAutoRunner, BANNERS, MODE_LABELS } from '../engine/autorun.js';
+import { FLUID_MODEL } from '../engine/sim.js';
+import { selectProphylaxis } from '../engine/prophylaxis.js';
+import { TIMING_CONFIG, PREMED_TO_INDUCTION_MIN_SEC, premedStatus } from '../engine/timing.js';
+import { timingCheckItems } from './timing-view.js';
+import { createRescueAdvisor } from '../engine/rescue.js';
+import { advisoryCard } from './advisory.js';
+
+const GA_BAND = TIMING_CONFIG.GA_DEPTH_BAND.value;
+const DEPTH_LABEL = 'Processed-EEG depth index (BIS-style, simulated)';
 
 const SPEEDS = [1, 5, 20, 60];
 const TILE_ALARMS = {
@@ -15,6 +26,7 @@ const TILE_ALARMS = {
 };
 const RANK = { high: 3, medium: 2, low: 1 };
 const SAMPLE_SEC = 2;
+const GATE_COOLDOWN_MS = 600;
 
 export function tofDepthText(count, ratio) {
   if (count === 0) return 'deep block (TOF count 0)';
@@ -25,7 +37,7 @@ export function tofDepthText(count, ratio) {
 }
 
 export function newRunState() {
-  return { speed: 20, playing: false, hist: { t: [], hr: [], map: [], spo2: [], depth: [], mac: [], ce: {} }, lastSample: -Infinity, overrides: [], surgery: { started: false, ended: false }, seenAlarms: new Set(), uiLog: [] };
+  return { speed: 20, playing: false, hist: { t: [], hr: [], map: [], spo2: [], depth: [], mac: [], ce: {} }, lastSample: -Infinity, overrides: [], seenAlarms: new Set(), uiLog: [], auto: null, autoStart: null, autoListener: null };
 }
 
 export function renderMonitor(ctx, main) {
@@ -49,7 +61,7 @@ export function renderMonitor(ctx, main) {
     return b;
   });
   const speedBtns = SPEEDS.map((sp) => {
-    const b = h('button', { type: 'button', class: 'btn btn--hmi btn--speed', dataset: { speed: sp }, 'aria-pressed': String(run.speed === sp) }, `${sp}×`);
+    const b = h('button', { type: 'button', class: 'btn btn--hmi btn--speed', dataset: { speed: sp }, 'data-auto-safe': 'speed', 'aria-pressed': String(run.speed === sp) }, `${sp}×`);
     b.addEventListener('click', () => { run.speed = sp; for (const x of speedBtns) x.setAttribute('aria-pressed', String(Number(x.dataset.speed) === sp)); announce(`Speed ${sp} times.`); });
     return b;
   });
@@ -70,7 +82,7 @@ export function renderMonitor(ctx, main) {
   };
   const tileGrid = h('div', { class: 'tiles', id: 'mon-tiles' },
     tile('hr', 'HR', '/min', 'tile--hr'), tile('bp', 'BP (MAP)', 'mmHg', 'tile--bp'), tile('spo2', 'SpO2', '%', 'tile--spo2'),
-    tile('rr', 'RR', '/min'), tile('etco2', 'EtCO2', 'mmHg'), tile('depth', 'Simulated depth index', '0–100', 'tile--depth'),
+    tile('rr', 'RR', '/min'), tile('etco2', 'EtCO2', 'mmHg'), tile('depth', DEPTH_LABEL, '0–100', 'tile--depth'),
     tile('tof', 'TOF', ''), tile('mac', 'Total MAC', ''), tile('fio2', 'FiO2', ''));
 
   // ---------------- charts
@@ -78,7 +90,7 @@ export function renderMonitor(ctx, main) {
     { key: 'hr', title: 'HR (/min)', min: 30, max: 160, th: [{ v: 48, label: '48 interlock' }] },
     { key: 'map', title: 'MAP (mmHg)', min: 30, max: 140, th: [{ v: 65, label: '65' }, { v: 60, label: '60 interlock' }] },
     { key: 'spo2', title: 'SpO2 (%)', min: 50, max: 100, th: [{ v: 90, label: '90' }] },
-    { key: 'depth', title: 'Simulated depth index (illustrative; not BIS)', min: 0, max: 100, th: [{ v: 80, label: '80 awake' }] },
+    { key: 'depth', title: `${DEPTH_LABEL} — GA band ${GA_BAND[0]}–${GA_BAND[1]}`, min: 0, max: 100, th: [{ v: 80, label: '80 awake' }, { v: GA_BAND[1], label: `${GA_BAND[1]} GA band` }, { v: GA_BAND[0], label: `${GA_BAND[0]} GA band` }] },
     { key: 'ce', title: 'Total MAC / drug Ce (× reference peak, illustrative)', min: 0, max: 1.5, autoMax: true, th: [] },
   ].map((c) => {
     const canvas = h('canvas', { class: 'chart__canvas', id: `chart-${c.key}`, role: 'img', 'aria-label': c.title });
@@ -87,7 +99,8 @@ export function renderMonitor(ctx, main) {
     return { ...c, canvas, legend, el };
   });
   const chartGrid = h('div', { class: 'charts', id: 'mon-charts' }, charts.map((c) => c.el),
-    h('p', { class: 'hint hint--hmi' }, 'Last 15 simulated minutes · illustrative model output · dashed lines are alarm/interlock thresholds.'));
+    h('p', { class: 'hint hint--hmi' }, 'Last 15 simulated minutes · illustrative model output · dashed lines are alarm/interlock thresholds.'),
+    h('p', { class: 'hint hint--hmi', id: 'mon-depth-band' }, `${DEPTH_LABEL}: an illustrative model output, not a BIS value (BIS is a trademark of its owner). GA target band ${GA_BAND[0]}–${GA_BAND[1]} = the protocol target of the B-Unaware and BAG-RECALL trials `, srcTags([...TIMING_CONFIG.GA_DEPTH_BAND.sourceIds]), ' (neither showed the BIS protocol superior for preventing awareness). No sedation bands are shown: none was verified. In this model, 1 MAC of a volatile agent often reads just below 40.'));
 
   // ---------------- alarms
   const alarmList = h('ul', { class: 'alarm-list', id: 'mon-alarms' });
@@ -97,7 +110,7 @@ export function renderMonitor(ctx, main) {
   // ---------------- interlocks
   const ilStatus = h('p', { class: 'il-status', id: 'mon-il-status' });
   const ilHeld = h('p', { class: 'il-held', id: 'mon-il-held' });
-  const resumeBtn = h('button', { type: 'button', class: 'btn btn--hmi btn--warn', id: 'mon-resume' }, 'Resume hold');
+  const resumeBtn = h('button', { type: 'button', class: 'btn btn--hmi btn--warn', id: 'mon-resume', 'data-auto-safe': 'resume-hold' }, 'Resume hold');
   resumeBtn.addEventListener('click', () => { const r = sim.action('resume_hold'); feedback(r.ok ? 'Hold released (logged). Held infusions stay at zero — restart them yourself if appropriate.' : r.message, !r.ok); render(true); });
   const ilToggle = h('input', { type: 'checkbox', id: 'mon-il-toggle', checked: store.interlocks });
   const ilConfirm = h('div', { class: 'il-confirm', hidden: true });
@@ -123,19 +136,35 @@ export function renderMonitor(ctx, main) {
   const pbtn = (id, label, fn, hint = null) => { const b = h('button', { type: 'button', class: 'btn btn--hmi', id: `ph-${id}` }, label); b.addEventListener('click', () => { fn(); render(true); }); phaseBtns[id] = b; return hint ? h('span', { class: 'pbtn' }, b, h('span', { class: 'hint hint--hmi' }, hint)) : b; };
   const nextHint = h('p', { class: 'hint hint--hmi', id: 'mon-next' });
   const act = (id, okMsg = null) => { const r = sim.action(id); feedback(r.ok ? (okMsg || r.message) : r.message, !r.ok); return r; };
+  // Phase controls call the shared case actions (engine/case-actions.js) — the same calls the
+  // guided/automatic runner makes.
+  const caseAct = (id) => {
+    // Manual mode stays the clinician's choice, but starting induction/sedation inside the premedication
+    // interval is flagged (plan drugs still never overlap a running premedication bolus; engine/sim.js).
+    let warn = null;
+    if (id === 'start_induction' || id === 'start_sedation') {
+      const pm = premedStatus(sim); const min = id === 'start_induction' ? PREMED_TO_INDUCTION_MIN_SEC : PREMED_TO_INDUCTION_MIN_SEC - TIMING_CONFIG.PREOXYGENATION_SEC.value;
+      if (pm.pending || (pm.lastEndSec !== null && sim.state.tSec < pm.lastEndSec + min)) warn = `Timing warning: ${pm.pending ? 'premedication still pending' : `only ${fmtClock(sim.state.tSec - pm.lastEndSec)} after the premedication ended`} — the recommended minimum is ${min / 60} min (pre-op holding ${TIMING_CONFIG.PREMED_TO_TRANSFER_SEC.value / 60} min, OR setup${id === 'start_induction' ? ', preoxygenation' : ''}). Induction drugs wait until the premedication bolus has finished.`;
+    }
+    const r = CASE_ACTIONS[id](sim); feedback(warn && r.ok ? `${r.message} ${warn}` : r.message, !r.ok, !!warn); if (warn) announce(warn); return r;
+  };
   const phaseCtl = isGA ? [
-    pbtn('induction', 'Start induction', () => { sim.setPhase('induction'); feedback('Induction started — plan induction steps run from now.'); }),
-    pbtn('secure', 'Secure airway', () => { const r = act('secure_airway'); if (r.ok) { sim.action('start_ventilation'); feedback(`${r.message}. Mechanical ventilation started.`); } }),
-    pbtn('maintenance', 'Start maintenance', () => { sim.setPhase('maintenance'); feedback('Maintenance phase started.'); }),
-    pbtn('surgery', 'Start surgery', () => { const r = act('start_surgery'); if (r.ok) { run.surgery.started = true; run.surgery.ended = false; } }),
-    pbtn('endsurgery', 'End surgery', () => { const r = act('end_surgery'); if (r.ok) run.surgery.ended = true; }),
-    pbtn('emergence', 'Begin emergence', () => { sim.setPhase('emergence'); feedback('Emergence started — plan emergence steps run from now.'); }),
-    pbtn('extubate', 'Extubate…', () => ctx.openExtubation(sim, () => render(true))),
+    pbtn('induction', 'Start induction', () => caseAct('start_induction')),
+    pbtn('secure', 'Secure airway', () => caseAct('secure_airway')),
+    pbtn('maintenance', 'Start maintenance', () => caseAct('start_maintenance')),
+    pbtn('surgery', 'Start surgery', () => caseAct('start_surgery')),
+    pbtn('endsurgery', 'End surgery', () => caseAct('end_surgery')),
+    pbtn('emergence', 'Begin emergence', () => caseAct('begin_emergence')),
+    pbtn('extubate', 'Extubate…', () => {
+      // The clock is paused while the dialog is open and restored when it closes (2026-11 audit, finding 3).
+      let wasPlaying = false;
+      ctx.openExtubation(sim, { pause: () => { wasPlaying = run.playing; if (run.playing) setPlaying(false, true); }, resume: () => { if (wasPlaying && alive) setPlaying(true, true); }, after: () => render(true) });
+    }),
   ] : [
-    pbtn('sedation', 'Start sedation', () => { sim.setPhase('sedation'); feedback('Sedation started.'); }),
-    pbtn('surgery', 'Start procedure', () => { const r = act('start_surgery', 'Procedure started'); if (r.ok) { run.surgery.started = true; run.surgery.ended = false; } }),
-    pbtn('endsurgery', 'End procedure', () => { const r = act('end_surgery', 'Procedure ended'); if (r.ok) run.surgery.ended = true; }),
-    pbtn('emergence', 'End sedation / recovery', () => { sim.setPhase('emergence'); feedback('Recovery phase started — plan stop steps run from now.'); }),
+    pbtn('sedation', 'Start sedation', () => caseAct('start_sedation')),
+    pbtn('surgery', 'Start procedure', () => caseAct('start_procedure')),
+    pbtn('endsurgery', 'End procedure', () => caseAct('end_procedure')),
+    pbtn('emergence', 'End sedation / recovery', () => caseAct('end_sedation')),
   ];
   const phasePanel = h('section', { class: 'hmi-panel', 'aria-labelledby': 'mon-ph-h' }, h('h3', { id: 'mon-ph-h' }, 'Phase'), h('div', { class: 'btn-row' }, phaseCtl), nextHint);
 
@@ -161,7 +190,46 @@ export function renderMonitor(ctx, main) {
   // ---------------- interventions: fluids, complications, sensor faults
   const fluids = ctx.fluidsSupported();
   const fluidOut = h('span', { id: 'mon-fluids' });
-  const fluidBtns = [250, 500].map((ml) => { const b = h('button', { type: 'button', class: 'btn btn--hmi', id: `fl-${ml}`, disabled: !fluids }, `Fluid bolus ${ml} mL`); b.addEventListener('click', () => { act(`fluid_bolus:${ml}`, `Crystalloid ${ml} mL given`); render(true); }); return b; });
+  const FL = lib.FLUIDS || [];
+  const flType = h('select', { id: 'fl-type', class: 'input input--hmi', disabled: !fluids || !FL.length }, FL.map((f) => h('option', { value: f.id, selected: f.id === FLUID_MODEL.DEFAULT_FLUID }, f.name)));
+  const flName = () => (FL.find((f) => f.id === flType.value) || { name: 'Crystalloid' }).name;
+  const fluidBtns = [250, 500].map((ml) => { const b = h('button', { type: 'button', class: 'btn btn--hmi', id: `fl-${ml}`, disabled: !fluids }, `Bolus ${ml} mL`); b.addEventListener('click', () => { act(FL.length ? `fluid_bolus:${ml}:${flType.value}` : `fluid_bolus:${ml}`, `${flName()} ${ml} mL given`); render(true); }); return b; });
+  const flRate = h('input', { type: 'number', min: 0, max: FLUID_MODEL.MAINTENANCE_MAX_ML_H, step: 'any', id: 'fl-rate', class: 'input input--hmi input--num', value: FLUID_MODEL.MAINTENANCE_DEFAULT_ML_H, disabled: !fluids || !FL.length });
+  const flSet = h('button', { type: 'button', class: 'btn btn--hmi', id: 'fl-maint-set', disabled: !fluids || !FL.length }, 'Set maintenance');
+  flSet.addEventListener('click', () => { act(`fluid_maintenance:${flType.value}:${flRate.value === '' ? 'x' : Number(flRate.value)}`); render(true); });
+  const flStop = h('button', { type: 'button', class: 'btn btn--hmi btn--danger', id: 'fl-maint-stop', disabled: !fluids || !FL.length }, 'Stop maintenance');
+  flStop.addEventListener('click', () => { act('fluid_maintenance_stop'); render(true); });
+  const flMaint = h('p', { class: 'hint hint--hmi', id: 'fl-maint-state' });
+  const flTotals = h('tbody', { id: 'mon-fluid-totals' });
+  const flComp = h('p', { class: 'hint hint--hmi', id: 'fl-comp' });
+  const renderComp = () => { const f = FL.find((x) => x.id === flType.value); clear(flComp); if (f) flComp.append(`${f.name} (${f.type}): ${fluidCompositionText(f)} (approx., label) `, srcTags(f.sources), `. ${f.labelNotes.join(' ')}`); };
+  flType.addEventListener('change', renderComp); renderComp();
+  const fluidPanel = h('section', { class: 'hmi-panel', id: 'mon-fluids-panel', 'aria-labelledby': 'mon-fl-h' }, h('h3', { id: 'mon-fl-h' }, 'IV fluids'),
+    h('div', { class: 'inline-form' }, h('label', { for: 'fl-type', class: 'label' }, 'Fluid'), flType),
+    h('div', { class: 'btn-row' }, fluidBtns),
+    h('div', { class: 'inline-form' }, h('label', { for: 'fl-rate', class: 'label' }, 'Maintenance (mL/h)'), flRate, flSet, flStop), flMaint,
+    h('div', { class: 'table-wrap' }, h('table', { class: 'table table--hmi table--compact' }, h('caption', { class: 'sr-only' }, 'Fluid totals by type'),
+      h('thead', {}, h('tr', {}, h('th', { scope: 'col' }, 'Fluid'), h('th', { scope: 'col' }, 'Boluses'), h('th', { scope: 'col' }, 'Maintenance'), h('th', { scope: 'col' }, 'Total'))), flTotals)),
+    h('p', { class: 'hint hint--hmi' }, fluids ? ['Cumulative crystalloid: ', fluidOut, '. Rates and volumes are simulator choices (labels give no fixed dose); both fluids use the same illustrative volume model.'] : 'Fluids are not available in this engine version.'),
+    flComp,
+    lib.FLUID_EVIDENCE_NOTE ? h('p', { class: 'hint hint--hmi' }, lib.FLUID_EVIDENCE_NOTE.text, ' ', srcTags(lib.FLUID_EVIDENCE_NOTE.sources)) : null);
+
+  // ---------------- antibiotic prophylaxis (timing only; engine/prophylaxis.js)
+  const ABX = lib.ANTIBIOTICS || [];
+  const abxBest = selectProphylaxis(patient, lib);
+  const abxSel = h('select', { id: 'abx-drug', class: 'input input--hmi' }, ABX.map((a) => { const r = recommend(patient, 'prophylaxis', a.id, lib); return h('option', { value: a.id, disabled: r.locked, selected: a.id === abxBest.drugId }, `${a.name} ${r.locked ? '— LOCKED' : `${r.dose.value} ${r.dose.unit}`}`); }));
+  const abxGive = h('button', { type: 'button', class: 'btn btn--hmi', id: 'abx-give' }, 'Give prophylaxis dose');
+  abxGive.addEventListener('click', () => { const r0 = recommend(patient, 'prophylaxis', abxSel.value, lib); const r = sim.administer({ drugId: abxSel.value, kind: 'antibiotic', amount: r0.dose ? r0.dose.value : NaN, amountUnit: r0.dose ? r0.dose.unit : 'mg' }); const n = getDrugById(lib, abxSel.value).name; feedback(r.ok ? `${n} given (timing only).${r.warnings.length ? ` Warnings: ${r.warnings.join('; ')}` : ''}` : `BLOCKED: ${n} — ${r.reasons.join('; ')}`, !r.ok, r.warnings.length > 0); render(true); });
+  const abxState = h('p', { class: 'hint hint--hmi', id: 'abx-state' });
+  const abxCheck = h('div', { class: 'checklist', id: 'abx-checklist', role: 'group', 'aria-label': 'Antibiotic prophylaxis checklist', hidden: true });
+  const abxCheckMsg = h('p', { class: 'checklist__msg', id: 'abx-checklist-msg' });
+  const abxAck = h('button', { type: 'button', class: 'btn btn--hmi btn--warn', id: 'abx-ack', 'data-auto-safe': 'acknowledge' }, 'Acknowledge: proceed without prophylaxis in window');
+  abxAck.addEventListener('click', () => { const r = sim.action('acknowledge_checklist:antibiotic'); feedback(r.message, !r.ok); announce(r.message); render(true); });
+  abxCheck.append(h('p', { class: 'checklist__title' }, '☐ Checklist before Start surgery: antibiotic prophylaxis'), abxCheckMsg, abxAck);
+  const abxPanel = ABX.length ? h('section', { class: 'hmi-panel', id: 'abx-panel', 'aria-labelledby': 'abx-h' }, h('h3', { id: 'abx-h' }, 'Antibiotic prophylaxis'),
+    abxCheck,
+    h('div', { class: 'inline-form' }, h('label', { for: 'abx-drug', class: 'label' }, 'Agent'), abxSel, abxGive), abxState,
+    h('p', { class: 'hint hint--hmi' }, `Guideline (Bratzler 2013): start within 60 min before incision (vancomycin 120 min); redose cefazolin every 4 h, clindamycin every 6 h. ${abxBest.reason} Timing only — antibiotic pharmacology is not modelled. `, srcTags(abxBest.sources))) : null;
   const nonSensor = SCENARIOS.filter((s) => !s.perturbation.sensor);
   const sensor = SCENARIOS.filter((s) => s.perturbation.sensor);
   const cxSel = h('select', { id: 'cx-select', class: 'input input--hmi' }, h('option', { value: '' }, 'Choose a complication…'), nonSensor.map((s) => h('option', { value: s.id }, s.label)));
@@ -171,7 +239,6 @@ export function renderMonitor(ctx, main) {
   cxBtn.addEventListener('click', () => { if (!cxSel.value) { cxSel.focus(); return; } inject(cxSel.value); });
   const sensorBtns = sensor.map((s) => { const b = h('button', { type: 'button', class: 'btn btn--hmi', id: `sf-${s.id}` }, s.label); b.addEventListener('click', () => inject(s.id)); return b; });
   const intPanel = h('section', { class: 'hmi-panel', 'aria-labelledby': 'mon-int-h' }, h('h3', { id: 'mon-int-h' }, 'Interventions & complications'),
-    h('div', { class: 'btn-row' }, fluidBtns), h('p', { class: 'hint hint--hmi' }, fluids ? ['Cumulative crystalloid: ', fluidOut] : 'Fluid boluses are not available in this engine version.'),
     h('div', { class: 'inline-form' }, h('label', { for: 'cx-select', class: 'label' }, 'Complication'), cxSel, cxBtn),
     h('div', { class: 'btn-row' }, h('span', { class: 'label' }, 'Sensor faults:'), sensorBtns), teach);
 
@@ -188,30 +255,43 @@ export function renderMonitor(ctx, main) {
   const adDrug = h('select', { id: 'ad-drug', class: 'input input--hmi' }, h('option', { value: '' }, 'Choose drug…'),
     groupDrugs(lib).map(([cl, ds]) => h('optgroup', { label: CLASS_LABELS[cl] || cl }, ds.map((d) => h('option', { value: d.id, disabled: !!sim.state.interlocks.lockouts[d.id] }, `${d.name}${sim.state.interlocks.lockouts[d.id] ? ' — LOCKED' : ''}`)))));
   const adKind = h('select', { id: 'ad-kind', class: 'input input--hmi' });
+  const adRoute = h('select', { id: 'ad-route', class: 'input input--hmi' });
+  const adRouteWrap = h('div', { class: 'field field--sm', hidden: true }, h('label', { for: 'ad-route', class: 'label' }, 'Route'), adRoute);
   const adVal = h('input', { type: 'number', step: 'any', min: 0, id: 'ad-value', class: 'input input--hmi input--num' });
   const adUnit = h('span', { class: 'unit', id: 'ad-unit' });
   const adOver = h('input', { type: 'number', step: 'any', min: 0, id: 'ad-over', class: 'input input--hmi input--num', placeholder: 'push' });
-  const adOverWrap = h('div', { class: 'field field--sm' }, h('label', { for: 'ad-over', class: 'label' }, 'Over (min)'), adOver);
+  const adOverWrap = h('div', { class: 'field field--sm' }, h('label', { for: 'ad-over', class: 'label' }, 'Over (min)'), adOver, h('p', { class: 'hint hint--hmi', id: 'ad-over-hint' }, 'blank = push; ≥ 1 min'));
+  adOver.setAttribute('aria-describedby', 'ad-over-hint');
   const adInfo = h('div', { class: 'ad-info', id: 'ad-info' });
   const adGive = h('button', { type: 'button', class: 'btn btn--hmi btn--primary', id: 'ad-give' }, 'Give');
   let adCtx = null;
   adDrug.addEventListener('change', () => fillKinds());
-  adKind.addEventListener('change', () => prefill());
+  adKind.addEventListener('change', () => { syncRoutes(); prefill(); });
+  adRoute.addEventListener('change', () => prefill());
+  function syncRoutes() {
+    const d = getDrugById(lib, adDrug.value);
+    const routes = d && Array.isArray(d.bolusRoutes) && d.bolusRoutes.length > 1 ? d.bolusRoutes : null;
+    const show = !!routes && adKind.value === 'bolus';
+    adRouteWrap.hidden = !show; adRoute.hidden = !show;
+    if (show && [...adRoute.options].map((o) => o.value).join() !== routes.join()) { clear(adRoute).append(...routes.map((r) => h('option', { value: r }, r))); }
+  }
   function fillKinds(kindWanted = null) {
     clear(adKind); const d = getDrugById(lib, adDrug.value); if (!d) { clear(adInfo); return; }
     const kinds = [...new Set(Object.values(d.regimens || {}).flatMap((r) => (r.kind === 'infusion' && r.loading ? ['bolus', 'infusion'] : [r.kind])))];
     for (const k of kinds) adKind.append(h('option', { value: k, selected: k === kindWanted }, KIND_LABELS[k]));
+    syncRoutes();
     prefill();
   }
   function prefill() {
     const d = getDrugById(lib, adDrug.value); const kind = adKind.value; if (!d || !kind) return;
     const pk = regimenKeyForPhase(sim.state.phase, sim.plan.sedationTarget);
     const keys = [pk, 'rescue', ...Object.keys(d.regimens || {})];
-    let key = keys.find((k) => d.regimens[k] && (d.regimens[k].kind === kind || (kind === 'bolus' && d.regimens[k].loading)));
+    const route = adRoute.hidden ? null : adRoute.value;
+    const key = keys.find((k) => d.regimens[k] && (d.regimens[k].kind === kind || (kind === 'bolus' && d.regimens[k].loading)) && (!route || kind !== 'bolus' || (d.regimens[k].route || 'IV') === route));
     const rec = key ? recommend(patient, key, d.id, lib) : null;
     adCtx = { drug: d, kind, key, rec };
     clear(adInfo);
-    adOverWrap.hidden = kind !== 'bolus'; adOver.value = '';
+    adOverWrap.hidden = kind !== 'bolus' || (route && route !== 'IV'); adOver.value = '';
     const ds = sim.state.drugs[d.id];
     if (kind === 'bolus') {
       const dz = rec && (rec.kind === 'bolus' ? rec.dose : rec.loading);
@@ -223,7 +303,7 @@ export function renderMonitor(ctx, main) {
       let v = ds.infusionRate > 0 ? ds.infusionRate : r ? r.value : '';
       const unit = r ? r.unit : ds.rateUnit;
       const ic = kind === 'infusion' ? interlockCeiling(d, unit, patient) : null;
-      if (store.interlocks && ic && isNum(v) && v > ic.value + 1e-9) { v = ic.value; adInfo.append(h('p', { class: 'note note--interlock' }, interlockNote(rec, ic), ' ', srcTags([E.pythonConfig]))); }
+      if (store.interlocks && ic && isNum(v) && exceedsInterlockCeiling(d, v, unit, patient)) { v = ic.value; adInfo.append(h('p', { class: 'note note--interlock' }, interlockNote(rec, ic), ' ', srcTags([E.pythonConfig]))); }
       adVal.value = v; adUnit.textContent = unit || '';
       if (r) adInfo.append(h('p', {}, `Sourced ${key} range ${r.range.min ?? 0}–${r.range.max} ${r.unit}${r.unit.includes('/kg') ? ` · ${rec.weightUsedKg} kg ${rec.scalar}` : ''} `, srcTags(rec.sources)));
       if (r && r.ageAdjustedMac) adInfo.append(h('p', { class: 'hint hint--hmi' }, `1.0 × age-adjusted MAC = ${r.ageAdjustedMac.value} % `, srcTags(r.ageAdjustedMac.sources)));
@@ -234,10 +314,19 @@ export function renderMonitor(ctx, main) {
     if (!adCtx || !adCtx.drug) { adDrug.focus(); feedback('Choose a drug first.', true); return; }
     const v = Number(adVal.value); const { drug, kind } = adCtx;
     const cmd = { drugId: drug.id, kind };
-    if (kind === 'bolus') { cmd.amount = v; cmd.amountUnit = drug.amountUnit; const o = Number(adOver.value); if (adOver.value !== '' && o > 0) cmd.overSec = o * 60; }
+    if (kind === 'bolus') {
+      cmd.amount = v; cmd.amountUnit = drug.amountUnit;
+      if (!adRoute.hidden) cmd.route = adRoute.value;
+      const o = Number(adOver.value);
+      if (!adOverWrap.hidden && adOver.value !== '') {
+        if (!isNum(o) || o < 0) { feedback('“Over” must be a number of minutes (blank or 0 = push).', true); adOver.focus(); return; }
+        if (o > 0 && o < 1) { feedback('“Over” under 1 min is not modelled: leave it blank for a push, or use 1 min or more.', true); adOver.focus(); return; }
+        if (o >= 1) cmd.overSec = o * 60;
+      }
+    }
     else { cmd.rate = v; cmd.rateUnit = adUnit.textContent || sim.state.drugs[drug.id].rateUnit; }
     const r = sim.administer(cmd);
-    const what = kind === 'bolus' ? `${v} ${drug.amountUnit}` : `${v} ${cmd.rateUnit}`;
+    const what = kind === 'bolus' ? `${v} ${drug.amountUnit}${cmd.route ? ` ${cmd.route}` : ''}` : `${v} ${cmd.rateUnit}`;
     feedback(r.ok ? `${drug.name} ${what} ${kind === 'bolus' ? 'given' : 'set'}.${r.warnings.length ? ` Warnings: ${r.warnings.join('; ')}` : ''}` : `BLOCKED: ${drug.name} ${what} — ${r.reasons.join('; ')}`, !r.ok, r.warnings.length > 0);
     render(true);
   });
@@ -246,6 +335,7 @@ export function renderMonitor(ctx, main) {
     h('div', { class: 'admin-form__row' },
       h('div', { class: 'field field--sm' }, h('label', { for: 'ad-drug', class: 'label' }, 'Drug'), adDrug),
       h('div', { class: 'field field--sm' }, h('label', { for: 'ad-kind', class: 'label' }, 'How'), adKind),
+      adRouteWrap,
       h('div', { class: 'field field--sm' }, h('label', { for: 'ad-value', class: 'label' }, 'Amount / rate'), h('span', { class: 'with-unit' }, adVal, adUnit)),
       adOverWrap, adGive), adInfo);
   const fb = h('p', { class: 'feedback', id: 'mon-feedback', role: 'status' });
@@ -258,8 +348,199 @@ export function renderMonitor(ctx, main) {
   const readyPanel = isGA ? h('section', { class: 'hmi-panel', 'aria-labelledby': 'mon-ready-h' }, h('h3', { id: 'mon-ready-h' }, 'Extubation readiness (live)'), readyHead, readyList,
     h('p', { class: 'hint hint--hmi' }, 'TOFR ≥ 0.9 before extubation ', srcTags([E.tofExtubation]), '. Without reversal, rocuronium recovery is slow; sugammadex dose depends on block depth.')) : null;
 
+  // ---------------- advisory haemodynamic rescue (engine/rescue.js): suggestions only; a bolus is given
+  // only when the clinician presses "Give suggested bolus" (it does not end guided/automatic mode).
+  const advisor = createRescueAdvisor(sim);
+  let autoDirty = false; let inAdvance = false; let focusResume = false; // runner-event re-render state
+  const advAccept = (id) => { const r = advisor.accept(id); feedback(r.message, !r.ok, !!(r.warnings && r.warnings.length)); announce(r.message); render(true); };
+  const advDismiss = (id) => { const r = advisor.dismiss(id); feedback(r.message, !r.ok); announce(r.message); render(true); };
+  const advRun = advisoryCard({ prefix: 'adv', live: true, onAccept: advAccept, onDismiss: advDismiss });
+  const advAuto = advisoryCard({ prefix: 'auto-adv', live: false, onAccept: advAccept, onDismiss: advDismiss });
+
+  // ---------------- guided / automatic modes (engine/autorun.js; conditions in engine/autorun-config.js)
+  const autoStatus = h('p', { class: 'auto-status', id: 'auto-status' });
+  const autoBanner = h('p', { class: 'auto-banner', id: 'auto-banner', hidden: true });
+  // Paused banner (2026-11 fix): shown the moment the runner pauses itself, with the reason and the exact
+  // action needed; Resume is enabled while paused (it re-checks and lists anything still needed).
+  const autoPausedHead = h('p', { class: 'auto-paused__head', id: 'auto-paused-head' });
+  const autoPausedList = h('ul', { class: 'auto-paused__list', id: 'auto-paused-list' });
+  const autoPaused = h('div', { class: 'auto-paused', id: 'auto-paused', role: 'alert', hidden: true }, autoPausedHead, autoPausedList);
+  const autoGate = h('button', { type: 'button', class: 'btn btn--hmi btn--primary auto-gate', id: 'auto-gate', hidden: true });
+  const autoUnmet = h('ul', { class: 'auto-unmet', id: 'auto-unmet' });
+  // Countdown for time-gated transitions (pre-op holding → OR → preoxygenation → induction).
+  const autoCountdown = h('p', { class: 'auto-countdown', id: 'auto-countdown', 'aria-live': 'off', hidden: true });
+  // Pre-incision / pre-procedure verification (engine/timing.js preIncisionItems). Clinician-only items
+  // (WHO time out, an index below the GA band, missing prophylaxis) are satisfied ONLY by these buttons;
+  // they do not end guided/automatic mode and the runner never presses them.
+  const autoCkList = h('ul', { class: 'checklist__items', id: 'auto-checklist-items' });
+  const autoCkMsg = h('p', { class: 'checklist__msg', id: 'auto-checklist-msg' });
+  const clin = (id) => { const r = run.auto ? run.auto.clinicianAction(id) : { ok: false, message: 'Not running' }; feedback(r.message, !r.ok); announce(r.message); render(true); };
+  const autoTimeOut = h('button', { type: 'button', class: 'btn btn--hmi btn--primary', id: 'auto-timeout' }, 'Confirm WHO time out');
+  autoTimeOut.addEventListener('click', () => clin('confirm_time_out'));
+  const autoDepthAck = h('button', { type: 'button', class: 'btn btn--hmi btn--warn', id: 'auto-depth-ack', hidden: true }, `Acknowledge index below the GA band (${GA_BAND[0]})`);
+  autoDepthAck.addEventListener('click', () => clin('acknowledge_depth_below_band'));
+  const autoAbxGive = h('button', { type: 'button', class: 'btn btn--hmi btn--warn', id: 'auto-abx-give', hidden: true }, 'Give guideline prophylaxis now');
+  autoAbxGive.addEventListener('click', () => clin('give_prophylaxis'));
+  // Sedation below the plan target (MAC): (a) titrate within the label range (clinician-approved, logged), or
+  // (b) acknowledge and start the procedure at the current level. Never automatic.
+  const autoSedMsg = h('p', { class: 'checklist__msg auto-sed__msg', id: 'auto-sed-msg', hidden: true });
+  const autoSedTitrate = h('button', { type: 'button', class: 'btn btn--hmi btn--primary', id: 'auto-sed-titrate', hidden: true }, 'Titrate');
+  autoSedTitrate.addEventListener('click', () => clin('titrate_sedation'));
+  const autoSedAck = h('button', { type: 'button', class: 'btn btn--hmi btn--warn', id: 'auto-sed-ack', hidden: true }, 'Acknowledge and start procedure at current level');
+  autoSedAck.addEventListener('click', () => {
+    if (!run.auto) return;
+    const r = run.auto.clinicianAction('acknowledge_sedation_below_target');
+    let msg = r.message;
+    // Guided: the clinician's acknowledgement also presses "Start procedure" when every other item is met.
+    if (r.ok && run.auto.mode === 'guided' && run.auto.state === 'running') {
+      const st = run.auto.status();
+      if (st.current && st.current.id === 'start_procedure' && st.current.enabled) { const a = run.auto.approve('start_procedure'); msg = `${msg}. ${a.message}`; if (a.ok && !run.playing) setPlaying(true, true); }
+    }
+    feedback(msg, !r.ok); announce(msg); render(true);
+  });
+  const autoCk = h('div', { class: 'checklist', id: 'auto-checklist', role: 'group', 'aria-label': 'Verification before Start surgery / Start procedure', hidden: true },
+    h('p', { class: 'checklist__title' }, 'Verification before incision — every item must be met; you confirm the time out ', srcTags([...TIMING_CONFIG.TIME_OUT_REQUIRED.sourceIds])), autoCkList, autoCkMsg,
+    autoSedMsg, h('div', { class: 'btn-row' }, autoTimeOut, autoDepthAck, autoAbxGive, autoSedTitrate, autoSedAck));
+  // Live timing check (engine/timing.js liveTimingChecks): warnings stay visible before each gate.
+  const autoTiming = h('ul', { class: 'tchecks', id: 'auto-timing' });
+  const autoTimingBox = h('details', { class: 'auto-timing', id: 'auto-timing-box', open: true }, h('summary', {}, 'Timing check (live)'), autoTiming);
+  const autoSeq = h('ol', { class: 'auto-seq', id: 'auto-seq' });
+  const autoPause = h('button', { type: 'button', class: 'btn btn--hmi', id: 'auto-pause' }, 'Pause');
+  const autoResume = h('button', { type: 'button', class: 'btn btn--hmi', id: 'auto-resume' }, 'Resume');
+  const autoTake = h('button', { type: 'button', class: 'btn btn--hmi btn--warn', id: 'auto-takeover' }, 'Take over manually');
+  const autoGuided = h('button', { type: 'button', class: 'btn btn--hmi btn--primary', id: 'auto-guided' }, 'Start guided mode');
+  const autoFull = h('button', { type: 'button', class: 'btn btn--hmi', id: 'auto-full' }, 'Run full case automatically');
+  const autoStartRow = h('div', { class: 'btn-row', id: 'auto-start-row' }, autoGuided, autoFull);
+  const autoCtlRow = h('div', { class: 'btn-row', id: 'auto-ctl-row' }, autoPause, autoResume, autoTake);
+  const autoPanel = h('section', { class: 'hmi-panel auto-panel', id: 'auto-panel', 'aria-labelledby': 'auto-h', 'data-auto-safe': 'auto-panel' },
+    h('h3', { id: 'auto-h' }, 'Guided & automatic modes'), autoBanner,
+    h('p', { class: 'hint hint--hmi', id: 'auto-intro' }, `Use the patient and plan already entered (doses are not changed) and start the case from 00:00. Guided mode runs each phase from your plan and waits for you at every transition; the full demonstration walks the same sequence on fixed timings. Both pause for an interlock hold or a HIGH-priority alarm (never clearing or acknowledging it), never extubate unless the readiness checklist is met, and end as soon as you use any manual control. Every step is logged (log kind "auto").`),
+    autoStartRow, autoStatus, autoPaused, autoCtlRow, autoCountdown, autoGate, autoCk, autoUnmet, advAuto.el, autoTimingBox, autoSeq);
+  const startAuto = (mode) => {
+    if (sim.state.tSec > 0 || sim.state.phase !== 'premed') { ctx.restartSim(); store.run.autoStart = mode; ctx.rerender(); return; }
+    beginAuto(mode);
+  };
+  function beginAuto(mode) {
+    run.auto = createAutoRunner({ sim, mode, onEvent: (ev) => { if (run.autoListener) run.autoListener(ev); } });
+    run.autoListener = onAutoEvent;
+    const r = run.auto.start();
+    feedback(r.message, !r.ok); announce(`${MODE_LABELS[mode]} started. ${BANNERS[mode]}`);
+    if (r.ok) setPlaying(true, true);
+    render(true);
+  }
+  function onAutoEvent(ev) {
+    if (!alive) return;
+    const bad = ev.type === 'paused' || ev.type === 'stopped' || ev.type === 'still_paused' || ev.type === 'timeout_warning';
+    if (['paused', 'stopped', 'completed', 'still_paused'].includes(ev.type) && run.playing) setPlaying(false, true);
+    feedback(ev.message, bad && ev.type !== 'timeout_warning', ev.type === 'timeout_warning');
+    if (ev.type !== 'started') announce(ev.message, bad);
+    // Re-render the panel at once on every runner state change (2026-11 fix: the clock stops on a self-pause,
+    // so the animation loop no longer renders; the panel used to stay "running" with Resume disabled).
+    autoDirty = true;
+    if (!inAdvance) render(true);
+    if (ev.type === 'paused' && ev.reasons && ev.reasons.some((x) => x.kind !== 'user')) focusResume = true;
+  }
+  run.autoListener = run.auto ? onAutoEvent : null;
+  autoGuided.addEventListener('click', () => startAuto('guided'));
+  autoFull.addEventListener('click', () => startAuto('full'));
+  autoPause.addEventListener('click', () => { if (run.auto) { const r = run.auto.pause(); if (!r.ok) feedback(r.message, true); render(true); } });
+  autoResume.addEventListener('click', () => { if (!run.auto) return; const r = run.auto.resume(); if (r.ok) setPlaying(true, true); render(true); });
+  autoTake.addEventListener('click', () => { if (run.auto) { run.auto.takeOver('Take over manually button'); render(true); } });
+  // A gate click approves only the gate id that was rendered on the button (dataset.gate), and the
+  // button stays disabled while the approval is processed and for GATE_COOLDOWN_MS afterwards, so a
+  // double-click or key repeat cannot approve the next gate (2026-11 audit, finding 2).
+  let gateBusy = false; let gateTimer = null;
+  autoGate.addEventListener('click', () => {
+    if (gateBusy || autoGate.disabled || !run.auto) return;
+    const shownId = autoGate.dataset.gate; if (!shownId) return;
+    gateBusy = true; autoGate.disabled = true; autoGate.dataset.busy = '1';
+    let r;
+    try { r = run.auto.approve(shownId); } finally {
+      if (gateTimer) clearTimeout(gateTimer);
+      gateTimer = setTimeout(() => { gateBusy = false; gateTimer = null; delete autoGate.dataset.busy; if (alive) render(true); }, GATE_COOLDOWN_MS);
+    }
+    feedback(r.message, !r.ok);
+    if (r.ok && run.auto.state === 'running' && !run.playing) setPlaying(true, true);
+    render(true);
+  });
+  // Any manual control on the monitor (phase, airway, drug, fluid, complication, sensor, step,
+  // play, restart) ends guided/automatic mode first; speed, alarm acknowledge, "Resume hold" and
+  // the mode panel itself do not (data-auto-safe).
+  const describeControl = (b) => (b.getAttribute('aria-label') || b.textContent || b.id || 'control').trim().replace(/\s+/g, ' ');
+  function renderAuto() {
+    const A = run.auto; const st = A ? A.status() : null;
+    const active = !!(st && st.active);
+    autoStartRow.hidden = active; autoCtlRow.hidden = !active;
+    autoBanner.hidden = !st; if (st) setText(autoBanner, st.banner);
+    autoPanel.classList.toggle('auto-panel--active', active);
+    autoPanel.classList.toggle('auto-panel--paused', !!st && st.state === 'paused');
+    if (!st) { setText(autoStatus, ''); autoGate.hidden = true; autoPaused.hidden = true; clear(autoUnmet); clear(autoSeq); return; }
+    const stateText = { running: 'running', paused: 'PAUSED', completed: 'complete', stopped: 'STOPPED', manual: 'ended (manual control)' }[st.state] || st.state;
+    setText(autoStatus, `${st.modeLabel} — ${stateText}. ${st.message}`);
+    autoPause.disabled = st.state !== 'running'; autoResume.disabled = st.state !== 'paused';
+    autoDirty = false;
+    const paused = st.state === 'paused';
+    autoPaused.hidden = !paused;
+    if (paused) {
+      const det = st.pauseDetails || [];
+      const head = det.length ? `Paused — ${det.map((d) => String(d.headline).replace(/[.\s]+$/, '')).join('; ')}. ${det.length === 1 ? det[0].action : 'Do each action below, then press Resume.'}` : `Paused — ${st.message}`;
+      setText(autoPausedHead, head);
+      const psig = det.map((d) => d.headline + d.action).join('|');
+      if (autoPausedList.dataset.sig !== psig) { autoPausedList.dataset.sig = psig; clear(autoPausedList).append(...(det.length > 1 ? det.map((d) => h('li', {}, h('strong', {}, d.headline), ` — ${d.action}`)) : [])); }
+    }
+    if (focusResume && paused) { focusResume = false; announce(autoPausedHead.textContent, true); if (!autoResume.disabled) autoResume.focus({ preventScroll: true }); }
+    const c = st.current;
+    const showGate = active && st.mode === 'guided' && c && c.gate;
+    autoGate.hidden = !showGate;
+    if (showGate) { setText(autoGate, c.gateLabel); autoGate.disabled = !c.enabled || gateBusy; autoGate.dataset.gate = c.id; }
+    else delete autoGate.dataset.gate;
+    const cd = active && c && c.countdownSec > 0 ? c.countdownSec : null;
+    autoCountdown.hidden = cd === null;
+    if (cd !== null) setText(autoCountdown, `⏱ ${c.gateLabel || c.label}: available in ${fmtClock(cd)} — ${(c.unmet[0] || '').replace(/ — \d+ s to go.*$/, '')}`);
+    const items = active && c && c.items ? c.items : null;
+    autoCk.hidden = !items;
+    if (items) {
+      const isig = items.map((x) => `${x.id}${x.met}${x.detail}`).join('|');
+      if (autoCkList.dataset.sig !== isig) {
+        autoCkList.dataset.sig = isig;
+        clear(autoCkList).append(...items.map((x) => h('li', { class: x.met ? 'ready--met' : 'ready--no', dataset: { item: x.id, met: String(x.met) } }, h('span', { class: 'ready__mark', 'aria-hidden': 'true' }, x.met ? '✓' : '✗'),
+          h('span', {}, h('span', { class: 'sr-only' }, x.met ? 'Met: ' : 'Not met: '), x.label, ` — ${x.detail} `, x.sources.length ? srcTags(x.sources) : h('span', { class: 'badge badge--illustrative' }, 'convention')))));
+      }
+      const need = (id) => items.some((x) => x.id === id && !x.met && (x.clinician || id === 'antibiotic'));
+      autoTimeOut.hidden = !items.some((x) => x.id === 'time_out' && !x.met); autoDepthAck.hidden = !need('depth'); autoAbxGive.hidden = !need('antibiotic');
+      const sedIt = items.find((x) => x.id === 'sedation' && !x.met && x.clinician && x.belowTarget);
+      autoSedMsg.hidden = !sedIt; autoSedAck.hidden = !sedIt; autoSedTitrate.hidden = !sedIt;
+      if (sedIt) {
+        const tz = st.titration;
+        setText(autoSedMsg, `Sedation below the planned target (${sedIt.belowTarget.level} vs ${sedIt.belowTarget.target}). Choose: titrate within the label range, or acknowledge and start the procedure at the current level. Nothing is done automatically.`);
+        if (!tz || tz.none) { setText(autoSedTitrate, 'Titrate: no further step within the label range'); autoSedTitrate.disabled = true; }
+        else { setText(autoSedTitrate, `Titrate: ${tz.label} [${tz.sources.join(', ')}]${tz.waitSec > 0 ? ` — reassess, allowed in ${fmtClock(tz.waitSec)}` : ''}`); autoSedTitrate.disabled = tz.waitSec > 0; }
+      }
+      setText(autoCkMsg, c.checklist ? `Antibiotic: ${c.checklist}` : '');
+    }
+    if (active && run.auto) {
+      const tc = run.auto.timingChecks(); const tsig = tc.map((x) => `${x.id}${x.status}${x.message}`).join('|');
+      if (autoTiming.dataset.sig !== tsig) { autoTiming.dataset.sig = tsig; clear(autoTiming).append(...(tc.length ? timingCheckItems(tc) : [h('li', { class: 'hint' }, 'No timing events yet.')])); }
+    }
+    autoTimingBox.hidden = !active;
+    const unmet = st.state === 'stopped' ? st.unmetAtStop : active && c && !c.conditionsMet ? c.unmet : [];
+    const usig = unmet.join('|') + st.state;
+    if (autoUnmet.dataset.sig !== usig) {
+      autoUnmet.dataset.sig = usig;
+      clear(autoUnmet).append(...(unmet.length ? [h('li', { class: 'auto-unmet__head' }, st.state === 'stopped' ? 'Unmet when stopped:' : `Waiting for${c && c.timedOut ? ' (time limit passed)' : ''}:`), ...unmet.map((u) => h('li', {}, '✗ ', u))] : []));
+    }
+    const ssig = st.sequence.map((x) => `${x.done}${x.current}`).join('') + st.state;
+    if (autoSeq.dataset.sig !== ssig) {
+      autoSeq.dataset.sig = ssig;
+      clear(autoSeq).append(...st.sequence.map((x) => h('li', { class: x.done ? 'is-done' : x.current ? 'is-current' : '' },
+        h('span', { class: 'auto-seq__mark', 'aria-hidden': 'true' }, x.done ? '✓' : x.current ? '▶' : '○'),
+        h('span', { class: 'sr-only' }, x.done ? 'Done: ' : x.current ? 'Current: ' : 'Pending: '),
+        `${x.label}${x.gate && st.mode === 'guided' ? ' (you confirm)' : x.gate ? '' : ' (automatic)'}`, h('span', { class: 'hint hint--hmi' }, ` — ${x.describe}`))));
+    }
+  }
+
   // ---------------- log
-  const logFilter = h('select', { id: 'log-filter', class: 'input input--hmi' }, ['all', 'dose', 'alarm', 'interlock', 'action', 'phase', 'event'].map((k) => h('option', { value: k }, k === 'all' ? 'All entries' : k)));
+  const logFilter = h('select', { id: 'log-filter', class: 'input input--hmi' }, ['all', 'dose', 'alarm', 'interlock', 'action', 'phase', 'event', 'auto', 'advisory'].map((k) => h('option', { value: k }, k === 'all' ? 'All entries' : k === 'auto' ? 'auto (guided / automatic steps)' : k === 'advisory' ? 'advisory (rescue suggestions)' : k)));
   const logList = h('ol', { class: 'log', id: 'mon-log', reversed: true });
   let logLen = -1;
   logFilter.addEventListener('change', () => { logLen = -1; renderLog(); });
@@ -278,19 +559,28 @@ export function renderMonitor(ctx, main) {
         h('div', { class: 'hmi-toolbar__group', role: 'group', 'aria-label': 'Playback' }, playBtn, stepBtns),
         h('div', { class: 'hmi-toolbar__group', role: 'group', 'aria-label': 'Speed' }, h('span', { class: 'label' }, 'Speed'), speedBtns),
         h('div', { class: 'hmi-toolbar__group' }, ilBadge, restartBtn)),
-      fb,
+      fb, autoPanel, advRun.el,
       h('div', { class: 'hmi-grid' },
         h('div', { class: 'hmi-main' }, tileGrid, chartGrid, drugPanel),
-        h('div', { class: 'hmi-side' }, alarmPanel, ilPanel, phasePanel, readyPanel, airwayPanel, intPanel)),
+        h('div', { class: 'hmi-side' }, alarmPanel, ilPanel, abxPanel, phasePanel, readyPanel, airwayPanel, fluidPanel, intPanel)),
       logPanel),
     h('div', { class: 'actions' }, h('button', { type: 'button', class: 'btn', onclick: () => ctx.go(3) }, '← Back to plan'), toDebrief));
 
+  // Buttons that only show information or pre-fill a form (source tags, drug-row Bolus/Adjust)
+  // are not manual control and do not end guided/automatic mode (2026-11 audit, finding 6).
+  document.getElementById('hmi').addEventListener('click', (e) => {
+    const b = e.target.closest('button');
+    if (!b || b.disabled || !run.auto || !run.auto.active || b.closest('[data-auto-safe]') || b.classList.contains('src-tag')) return;
+    run.auto.takeOver(describeControl(b));
+    feedback(run.auto.message, false, true); announce(run.auto.message);
+  }, true);
+
   // ---------------- behaviour
-  function setPlaying(p) {
+  function setPlaying(p, quiet = false) {
     run.playing = p; if (p) sim.play(); else sim.pause();
     playBtn.textContent = p ? '❚❚ Pause' : '▶ Play'; playBtn.setAttribute('aria-pressed', String(p));
     if (p) { lastTs = null; if (!raf) raf = requestAnimationFrame(frame); }
-    announce(p ? `Playing at ${run.speed} times.` : 'Paused.');
+    if (!quiet) announce(p ? `Playing at ${run.speed} times.` : 'Paused.');
   }
   function sample() {
     const S = sim.state; const H = run.hist;
@@ -307,11 +597,21 @@ export function renderMonitor(ctx, main) {
     const cut = H.t.findIndex((t) => t >= S.tSec - WINDOW_SEC - 30);
     if (cut > 200) { for (const k of ['t', 'hr', 'map', 'spo2', 'depth', 'mac']) H[k].splice(0, cut); for (const k of Object.keys(H.ce)) H.ce[k].splice(0, cut); }
   }
-  function advance(sec) { for (let i = 0; i < sec; i++) { sim.step(1); sample(); } }
+  function advance(sec) {
+    inAdvance = true;
+    try {
+      for (let i = 0; i < sec; i++) {
+        sim.step(1); sample();
+        const A = run.auto;
+        if (A && A.state === 'running') { A.tick(); if (A.state !== 'running') break; }
+      }
+    } finally { inAdvance = false; }
+    if (autoDirty) render(true);
+  }
   function frame(ts) {
     raf = null;
     if (!alive || !run.playing) return;
-    if (lastTs !== null) {
+    if (lastTs !== null && !run.testClock) {
       acc += Math.min(0.25, (ts - lastTs) / 1000) * run.speed;
       const n = Math.min(240, Math.floor(acc)); acc -= n;
       if (n > 0) advance(n);
@@ -336,7 +636,7 @@ export function renderMonitor(ctx, main) {
     setText(t.alarm, a ? `${PRIORITY_SHAPES[a.priority]} ${PRIORITY_LABELS[a.priority]}${a.active ? '' : ' (latched)'}: ${a.message}` : '');
   }
 
-  function render(force = false) {
+  function render() {
     if (!alive) return;
     const S = sim.state; const V = S.vitals; const A = S.airway;
     setText(clock, fmtClock(S.tSec)); setText(phaseEl, phaseLabel(S.phase));
@@ -348,8 +648,9 @@ export function renderMonitor(ctx, main) {
     const supported = (A.secured && A.ventilated) || A.maskVentilation;
     const noBreaths = !(V.rr > 0) && !supported;
     setTile('rr', String(V.rr), noBreaths ? 'APNOEA — no breaths' : A.secured && A.ventilated ? 'ventilator' : A.maskVentilation ? 'bag-mask' : 'spontaneous');
-    setTile('etco2', noBreaths ? '—' : String(V.etco2), noBreaths ? '(no breaths)' : 'illustrative');
-    setTile('depth', String(V.depthIndex), `${V.sedationLevel} · illustrative; not BIS`);
+    const noEt = noBreaths || !isNum(V.etco2); // engine reports null without exhaled gas (no capnography signal)
+    setTile('etco2', noEt ? '—' : String(V.etco2), noEt ? '(no breaths)' : 'illustrative');
+    setTile('depth', String(V.depthIndex), `${V.sedationLevel} · GA band ${GA_BAND[0]}–${GA_BAND[1]}: ${V.depthIndex < GA_BAND[0] ? 'below band' : V.depthIndex > GA_BAND[1] ? 'above band' : 'in band'} · simulated`);
     setTile('tof', `${V.tofCount}/4`, V.tofCount === 4 ? `TOFR ${V.tofRatio.toFixed(2)} · ${tofDepthText(V.tofCount, V.tofRatio)}` : `TOFR n/a · ${tofDepthText(V.tofCount, V.tofRatio)}`);
     let mac = 0; const agents = [];
     for (const d of lib.DRUGS) if (isInhaledDrug(d)) { const ds = S.drugs[d.id]; if (ds && (ds.unitConc > 0.005 || ds.infusionRate > 0)) { mac += ds.unitConc; agents.push(`${d.name} Et ${fmtNum(ds.cp, 1)} % (${fmtNum(ds.unitConc, 2)})`); } }
@@ -365,16 +666,16 @@ export function renderMonitor(ctx, main) {
     // alarms
     renderAlarms();
     // phase buttons
-    const ph = S.phase;
+    const ph = S.phase; const surg = surgeryState(sim);
     const en = (id, on) => { if (phaseBtns[id]) phaseBtns[id].disabled = !on; };
     if (isGA) {
       en('induction', ph === 'premed'); en('secure', !A.secured && (ph === 'induction' || ph === 'maintenance' || ph === 'emergence') && !run.extubated);
-      en('maintenance', ph === 'induction'); en('surgery', !run.surgery.started || run.surgery.ended); en('endsurgery', run.surgery.started && !run.surgery.ended);
+      en('maintenance', ph === 'induction'); en('surgery', !surg.started || surg.ended); en('endsurgery', surg.started && !surg.ended);
       en('emergence', ph === 'maintenance'); en('extubate', A.secured);
-      setText(nextHint, ph === 'premed' ? 'Next: Start induction.' : ph === 'induction' && !A.secured ? 'Next: when the patient is asleep and paralysed (TOF count 0–1), Secure airway (starts the ventilator).' : ph === 'induction' ? 'Next: Start maintenance.' : ph === 'maintenance' && !run.surgery.started ? 'Next: Start surgery.' : ph === 'maintenance' && !run.surgery.ended ? 'Surgery in progress. End surgery when done.' : ph === 'maintenance' ? 'Next: Begin emergence.' : A.secured ? 'Emergence: reverse block if needed, wait for the readiness checklist, then Extubate.' : 'Extubated. Observe, then Finish → Debrief.');
+      setText(nextHint, ph === 'premed' ? 'Next: Start induction.' : ph === 'induction' && !A.secured ? 'Next: when the patient is asleep and paralysed (TOF count 0–1), Secure airway (starts the ventilator).' : ph === 'induction' ? 'Next: Start maintenance.' : ph === 'maintenance' && !surg.started ? 'Next: Start surgery.' : ph === 'maintenance' && !surg.ended ? 'Surgery in progress. End surgery when done.' : ph === 'maintenance' ? 'Next: Begin emergence.' : A.secured ? 'Emergence: reverse block if needed, wait for the readiness checklist, then Extubate.' : 'Extubated. Observe, then Finish → Debrief.');
     } else {
-      en('sedation', ph === 'premed'); en('surgery', ph === 'sedation' && (!run.surgery.started || run.surgery.ended)); en('endsurgery', run.surgery.started && !run.surgery.ended); en('emergence', ph === 'sedation');
-      setText(nextHint, ph === 'premed' ? 'Next: Start sedation.' : ph === 'sedation' && !run.surgery.started ? 'Next: Start procedure when the target depth is reached.' : ph === 'sedation' ? 'Procedure in progress; watch depth vs target, SpO2 and EtCO2.' : 'Recovery. Finish → Debrief when done.');
+      en('sedation', ph === 'premed'); en('surgery', ph === 'sedation' && (!surg.started || surg.ended)); en('endsurgery', surg.started && !surg.ended); en('emergence', ph === 'sedation');
+      setText(nextHint, ph === 'premed' ? 'Next: Start sedation.' : ph === 'sedation' && !surg.started ? 'Next: Start procedure when the target depth is reached.' : ph === 'sedation' ? 'Procedure in progress; watch depth vs target, SpO2 and EtCO2.' : 'Recovery. Finish → Debrief when done.');
     }
     // airway
     setText(awState, `${A.secured ? 'Tracheal tube in place' : 'Natural airway'} · ${A.secured && A.ventilated ? 'mechanical ventilation' : A.maskVentilation ? 'bag-mask ventilation' : 'no ventilatory support'}${A.jawThrust ? ' · jaw thrust' : ''} · FiO2 ${A.fio2.toFixed(2)}`);
@@ -382,7 +683,8 @@ export function renderMonitor(ctx, main) {
     jawBtn.setAttribute('aria-pressed', String(!!A.jawThrust)); jawBtn.textContent = A.jawThrust ? 'Release jaw thrust' : 'Jaw thrust';
     secBtn.disabled = A.secured; ventOn.disabled = !A.secured || A.ventilated; ventOff.disabled = !A.ventilated;
     if (document.activeElement !== fio2Sel) fio2Sel.value = String([0.21, 0.3, 0.4, 0.5, 0.6, 0.8, 1].find((v) => Math.abs(v - A.fio2) < 1e-6) ?? fio2Sel.value);
-    if (fluids) setText(fluidOut, S.fluids && isNum(S.fluids.crystalloidMl) ? `${S.fluids.crystalloidMl} mL` : '0 mL');
+    if (fluids) setText(fluidOut, S.fluids && isNum(S.fluids.crystalloidMl) ? `${fmtNum(S.fluids.crystalloidMl, 0)} mL` : '0 mL');
+    renderFluids(); renderAbx();
     // drugs
     renderDrugs();
     // readiness
@@ -393,8 +695,34 @@ export function renderMonitor(ctx, main) {
       const sig = r.criteria.map((c) => `${c.id}${c.met}${JSON.stringify(c.value)}`).join('|');
       if (sig !== readyList.dataset.sig) { readyList.dataset.sig = sig; clear(readyList).append(...r.criteria.map((c) => readinessItem(c))); }
     }
+    renderAuto();
+    const av = advisor.view();
+    advRun.update(av); advAuto.update(run.auto && run.auto.active ? av : null);
     renderLog();
     drawCharts();
+  }
+
+  function renderFluids() {
+    const F = sim.state.fluids; if (!F || !F.byType) return;
+    const M = F.maintenance;
+    setText(flMaint, M && M.rateMlH > 0 ? `Maintenance running: ${(FL.find((f) => f.id === M.fluidId) || {}).name} ${M.rateMlH} mL/h (continues across phases)` : 'No maintenance infusion running.');
+    flStop.disabled = !(M && M.rateMlH > 0);
+    const rows = Object.entries(F.byType).map(([id, v]) => `${id}:${Math.round(v.bolusMl)}:${Math.round(v.maintenanceMl)}`).join('|');
+    if (flTotals.dataset.sig === rows) return; flTotals.dataset.sig = rows;
+    clear(flTotals).append(...Object.entries(F.byType).map(([id, v]) => h('tr', { dataset: { fluid: id } }, h('th', { scope: 'row' }, (FL.find((f) => f.id === id) || {}).name || id),
+      h('td', { class: 'mono' }, `${fmtNum(v.bolusMl, 0)} mL`), h('td', { class: 'mono' }, `${fmtNum(v.maintenanceMl, 0)} mL`), h('td', { class: 'mono' }, `${fmtNum(v.bolusMl + v.maintenanceMl, 0)} mL`))));
+  }
+  function renderAbx() {
+    if (!abxPanel) return;
+    const P = sim.state.prophylaxis; const surg = surgeryState(sim);
+    const ck = sim.prophylaxisChecklist();
+    const showCk = ck.indicated && !surg.started && (!ck.window || !ck.window.ok);
+    abxCheck.hidden = !showCk;
+    abxCheck.classList.toggle('checklist--ack', !!ck.acknowledged);
+    if (showCk) { setText(abxCheckMsg, ck.message); abxAck.disabled = !!ck.acknowledged; setText(abxAck, ck.acknowledged ? 'Warning acknowledged' : 'Acknowledge: proceed without prophylaxis in window'); }
+    const last = P.doses[P.doses.length - 1];
+    const red = P.redose && P.redose.items ? P.redose.items.filter((x) => x.drugId) : [];
+    setText(abxState, `${ck.indicated ? 'Indicated for this plan.' : 'Not marked as indicated for this plan.'} ${last ? `Last dose: ${(getDrugById(lib, last.drugId) || {}).name} ${last.amount} ${last.unit} at ${fmtClock(last.tSec)}.` : 'No dose given.'}${red.length ? ` Next redose: ${red.map((x) => `${x.name} at ${fmtClock(x.dueAtSec)}`).join('; ')}.` : ''}${P.window ? ` At incision: ${P.window.ok ? 'in window' : 'NOT in window'} (${P.window.message}).` : ''}`);
   }
 
   function renderAlarms() {
@@ -409,7 +737,7 @@ export function renderMonitor(ctx, main) {
     clear(alarmList);
     if (!list.length) { alarmList.append(h('li', { class: 'alarm alarm--none' }, 'No alarms.')); }
     for (const a of list) {
-      const b = h('button', { type: 'button', class: 'btn btn--hmi btn--small', dataset: { ack: a.id }, disabled: a.acknowledged, 'aria-label': `Acknowledge ${PRIORITY_LABELS[a.priority]} alarm: ${a.message}` }, a.acknowledged ? 'Acknowledged' : 'Acknowledge');
+      const b = h('button', { type: 'button', class: 'btn btn--hmi btn--small', dataset: { ack: a.id }, 'data-auto-safe': 'acknowledge', disabled: a.acknowledged, 'aria-label': `Acknowledge ${PRIORITY_LABELS[a.priority]} alarm: ${a.message}` }, a.acknowledged ? 'Acknowledged' : 'Acknowledge');
       b.addEventListener('click', () => { sim.action(`acknowledge:${a.id}`); render(true); const nb = alarmList.querySelector('button:not([disabled])'); (nb || alarmPanel.querySelector('h3')).focus?.(); });
       alarmList.append(h('li', { class: `alarm alarm--${a.priority}${a.active ? '' : ' alarm--latched'}` },
         h('span', { class: `prio prio--${a.priority}` }, `${PRIORITY_SHAPES[a.priority]} ${PRIORITY_LABELS[a.priority]}`),
@@ -427,8 +755,8 @@ export function renderMonitor(ctx, main) {
       drugSig = sig; clear(drugBody);
       for (const d of active) {
         const rate = h('td', { class: 'mono' }); const ce = h('td', { class: 'mono' }); const cum = h('td', { class: 'mono' });
-        const bol = h('button', { type: 'button', class: 'btn btn--hmi btn--small', 'aria-label': `Bolus ${d.name}` }, 'Bolus');
-        const adj = h('button', { type: 'button', class: 'btn btn--hmi btn--small', 'aria-label': `Adjust ${d.name} rate` }, 'Adjust');
+        const bol = h('button', { type: 'button', class: 'btn btn--hmi btn--small', 'data-auto-safe': 'prefill', 'aria-label': `Bolus ${d.name}` }, 'Bolus');
+        const adj = h('button', { type: 'button', class: 'btn btn--hmi btn--small', 'data-auto-safe': 'prefill', 'aria-label': `Adjust ${d.name} rate` }, 'Adjust');
         const stop = h('button', { type: 'button', class: 'btn btn--hmi btn--small btn--danger', 'aria-label': `Stop ${d.name}` }, 'Stop');
         const kinds = new Set(Object.values(d.regimens || {}).map((r) => r.kind));
         bol.hidden = !(kinds.has('bolus') || Object.values(d.regimens || {}).some((r) => r.loading));
@@ -483,11 +811,16 @@ export function renderMonitor(ctx, main) {
   if (ro) for (const c of charts) ro.observe(c.canvas);
 
   if (!run.hist.t.length) sample();
+  // Test hook (only used by app.js when the page URL has ?test=1): advance simulated time
+  // synchronously (with the guided/automatic runner ticking) and re-render. With run.testClock on,
+  // the requestAnimationFrame loop never advances time, so browser tests are step-driven.
+  run.testAdvance = (sec) => { if (!alive) return false; advance(Math.max(0, Math.round(sec))); render(true); return true; };
   render(true);
-  if (run.playing) setPlaying(true);
+  if (run.autoStart) { const m = run.autoStart; run.autoStart = null; beginAuto(m); }
+  else if (run.playing) setPlaying(true);
 
   return {
-    leave() { alive = false; if (raf) cancelAnimationFrame(raf); raf = null; if (ro) ro.disconnect(); if (run.playing) { run.playing = false; sim.pause(); } },
+    leave() { if (run.auto && run.auto.state === 'running') run.auto.pause('Paused: left the Run screen.'); run.autoListener = null; alive = false; if (raf) cancelAnimationFrame(raf); raf = null; if (ro) ro.disconnect(); if (run.playing) { run.playing = false; sim.pause(); } },
   };
 }
 

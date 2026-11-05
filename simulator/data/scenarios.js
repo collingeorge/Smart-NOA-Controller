@@ -4,8 +4,10 @@
 // NO dose numbers: amounts/rates are filled at runtime from recommend() (data/drugs.js).
 
 import { recommend } from '../engine/dosing.js';
-import { getDrug } from '../engine/library.js';
+import { getDrug, getAntibiotic, getFluid } from '../engine/library.js';
+import { selectProphylaxis } from '../engine/prophylaxis.js';
 import { macForAge, createPkModel } from '../engine/pk.js';
+import { TECHNIQUE_TEMPLATES } from './templates.js';
 
 // Perturbation fields (applied × intensity 0..1; intensity ramps up over rampSec,
 // holds for holdSec (null = until the end of the case), then resolves over resolveSec):
@@ -77,7 +79,7 @@ export const SCENARIOS = [
     id: 'anaphylaxis_hypotension', label: 'Anaphylaxis with hypotension',
     description: 'Severe vasodilatory hypotension, tachycardia and bronchospasm developing over 2 minutes.',
     perturbation: { rampSec: 120, holdSec: 900, resolveSec: 300, mapFrac: -0.5, hrFrac: 0.4, ventFactor: 0.6, aaAdd: 40, etco2GapAdd: 6, counteredBy: { _bronchodilation: 0.7 } },
-    teachingPoint: 'Stop the suspected trigger and call for help. Epinephrine is the expected response (labelled for anaphylaxis by intramuscular injection; see the Sources panel for the dose); in this model it raises MAP and HR and reverses the bronchospasm. Phenylephrine or ephedrine only partially temporise.',
+    teachingPoint: 'Stop the suspected trigger and call for help. In an anaesthetised, monitored patient with IV access, UK perioperative guidance gives epinephrine (adrenaline) as titrated IV boluses — adult 50 micrograms, repeated as needed, then an infusion if several doses are required — with IV crystalloid [S44, S45]; choose Epinephrine, How: Bolus, Route: IV (rescue_iv). The FDA-labelled IM dose (0.3–0.5 mg) is the route without IV access; in this model IM absorption is slower when MAP is very low. Phenylephrine or ephedrine only partially temporise. Illustrative model output.',
   },
 ];
 
@@ -123,15 +125,16 @@ export const EXAMPLE_PATIENTS = [
 // amount/rate from recommend(). `dial:'mac1'` selects a vaporizer setting of 1.0 ×
 // age-adjusted MAC (Mapleson 1996, library MAC40) clamped to the regimen's sourced range.
 
-export const EXAMPLE_PLANS = [
+const EXAMPLE_PLANS_RAW = [
   {
     id: 'ga_healthy', label: 'GA: propofol / fentanyl / rocuronium + sevoflurane', patientId: 'healthy_adult', mode: 'GA', sedationTarget: null,
     steps: [
+      { phase: 'premed', atSec: 0, drugId: 'auto', kind: 'antibiotic' },
       { phase: 'premed', atSec: 0, drugId: 'midazolam', regimenKey: 'premed', kind: 'bolus' },
       { phase: 'induction', atSec: 0, drugId: 'fentanyl', regimenKey: 'induction', kind: 'bolus' },
       { phase: 'induction', atSec: 0, drugId: 'dexamethasone', regimenKey: 'induction', kind: 'bolus' },
-      { phase: 'induction', atSec: 60, drugId: 'propofol', regimenKey: 'induction', kind: 'bolus' },
-      { phase: 'induction', atSec: 90, drugId: 'rocuronium', regimenKey: 'induction', kind: 'bolus' },
+      { phase: 'induction', atSec: 180, drugId: 'propofol', regimenKey: 'induction', kind: 'bolus' },
+      { phase: 'induction', atSec: 240, drugId: 'rocuronium', regimenKey: 'induction', kind: 'bolus' },
       { phase: 'maintenance', atSec: 0, drugId: 'sevoflurane', regimenKey: 'maintenance', kind: 'inhaled', dial: 'mac1' },
       { phase: 'maintenance', atSec: 900, drugId: 'fentanyl', regimenKey: 'maintenance', kind: 'bolus' },
       { phase: 'emergence', atSec: 0, drugId: 'sevoflurane', kind: 'stop' },
@@ -142,9 +145,10 @@ export const EXAMPLE_PLANS = [
   {
     id: 'ga_elderly_cad_ckd', label: 'GA: elderly CAD/CKD — reduced propofol, sevoflurane, phenylephrine available', patientId: 'elderly_cad_ckd', mode: 'GA', sedationTarget: null,
     steps: [
+      { phase: 'premed', atSec: 0, drugId: 'auto', kind: 'antibiotic' },
       { phase: 'induction', atSec: 0, drugId: 'fentanyl', regimenKey: 'induction', kind: 'bolus' },
-      { phase: 'induction', atSec: 60, drugId: 'propofol', regimenKey: 'induction', kind: 'bolus' },
-      { phase: 'induction', atSec: 90, drugId: 'rocuronium', regimenKey: 'induction', kind: 'bolus' },
+      { phase: 'induction', atSec: 180, drugId: 'propofol', regimenKey: 'induction', kind: 'bolus' },
+      { phase: 'induction', atSec: 240, drugId: 'rocuronium', regimenKey: 'induction', kind: 'bolus' },
       { phase: 'maintenance', atSec: 0, drugId: 'sevoflurane', regimenKey: 'maintenance', kind: 'inhaled', dial: 'mac1' },
       { phase: 'maintenance', atSec: 120, drugId: 'phenylephrine', regimenKey: 'rescue', kind: 'bolus' },
       { phase: 'emergence', atSec: 0, drugId: 'sevoflurane', kind: 'stop' },
@@ -156,16 +160,17 @@ export const EXAMPLE_PLANS = [
     id: 'mac_obese_osa', label: 'MAC moderate sedation: obese OSA — midazolam + propofol infusion', patientId: 'obese_osa', mode: 'MAC', sedationTarget: 'moderate',
     steps: [
       { phase: 'sedation', atSec: 0, drugId: 'midazolam', regimenKey: 'sedation_moderate', kind: 'bolus' },
-      { phase: 'sedation', atSec: 120, drugId: 'propofol', regimenKey: 'sedation_moderate', kind: 'infusion' },
+      { phase: 'sedation', atSec: 240, drugId: 'propofol', regimenKey: 'sedation_moderate', kind: 'infusion' }, // after midazolam over ≥ 2 min + ≥ 2 min to evaluate (S17, S32; timing cross-check 2026-11)
       { phase: 'emergence', atSec: 0, drugId: 'propofol', kind: 'stop' },
     ],
   },
   {
     id: 'tiva_mh', label: 'TIVA for MH-susceptible patient — no succinylcholine, no volatile', patientId: 'mh_susceptible', mode: 'GA', sedationTarget: null,
     steps: [
+      { phase: 'premed', atSec: 0, drugId: 'auto', kind: 'antibiotic' },
       { phase: 'induction', atSec: 0, drugId: 'fentanyl', regimenKey: 'induction', kind: 'bolus' },
-      { phase: 'induction', atSec: 60, drugId: 'propofol', regimenKey: 'induction', kind: 'bolus' },
-      { phase: 'induction', atSec: 90, drugId: 'rocuronium', regimenKey: 'induction', kind: 'bolus' },
+      { phase: 'induction', atSec: 180, drugId: 'propofol', regimenKey: 'induction', kind: 'bolus' },
+      { phase: 'induction', atSec: 240, drugId: 'rocuronium', regimenKey: 'induction', kind: 'bolus' },
       { phase: 'maintenance', atSec: 0, drugId: 'propofol', regimenKey: 'maintenance', kind: 'infusion' },
       { phase: 'emergence', atSec: 0, drugId: 'propofol', kind: 'stop' },
       { phase: 'emergence', atSec: 0, drugId: 'ondansetron', regimenKey: 'emergence', kind: 'bolus' },
@@ -174,27 +179,81 @@ export const EXAMPLE_PLANS = [
   },
 ];
 
+/** Fallback "Why this time" for an example-plan step that matches no technique-template step. */
+export const EXAMPLE_TIMING_FALLBACK = Object.freeze({ text: 'Example plan timing (simulator convention).', provenance: 'simulator convention', sources: Object.freeze([]) });
+
 /**
- * buildPlan(template, patientDerived[, library]) -> { plan, skipped:[{drugId, reason}] }
+ * "Why this time" for example-plan steps: the rationale of the matching step (same phase, offset, drug and
+ * kind; antibiotic 'auto' = the template's guideline antibiotic step) in the technique template of the
+ * same mode that shares the most steps with the example plan; otherwise EXAMPLE_TIMING_FALLBACK.
+ */
+const sameStep = (a, b) => a.phase === b.phase && a.atSec === b.atSec && a.drugId === b.drugId && a.kind === b.kind && a.beforeEndSec === undefined && b.beforeEndSec === undefined;
+export function exampleTimingRationales(plan) {
+  const cands = TECHNIQUE_TEMPLATES.filter((t) => t.mode === plan.mode)
+    .map((t) => ({ t, n: plan.steps.filter((s) => t.steps.some((ts) => sameStep(ts, s))).length }))
+    .sort((a, b) => b.n - a.n);
+  return plan.steps.map((s) => {
+    for (const { t } of cands) { const ts = t.steps.find((x) => x.timingRationale && sameStep(x, s)); if (ts) return ts.timingRationale; }
+    return EXAMPLE_TIMING_FALLBACK;
+  });
+}
+
+export const EXAMPLE_PLANS = EXAMPLE_PLANS_RAW.map((p) => { const why = exampleTimingRationales(p); return Object.freeze({ ...p, steps: p.steps.map((s, i) => (s.timingRationale ? s : { ...s, timingRationale: why[i] })) }); });
+
+/**
+ * buildPlan(template, patientDerived[, library][, options]) -> { plan, skipped:[{drugId, reason}] }
+ * Step kinds (2026-11 additions):
+ *   'antibiotic' — drugId 'auto' selects the guideline agent (engine/prophylaxis.js); the dose comes
+ *                  from recommend(patient, 'prophylaxis', id). Skipped if the library has no antibiotics.
+ *   'fluid'      — maintenance infusion { fluidId, rate (mL/h) | 'default' (options.fluidDefaultMlH) }.
+ *   'fluid_bolus'— { fluidId, amount (mL) }.
+ * A plan built from a template with an antibiotic step is marked prophylaxisIndicated.
  * Fills each step from recommend(). Locked or unavailable drugs are skipped (with the reason).
  * A loading dose of an infusion regimen becomes a separate timed bolus step before the infusion.
  */
-export function buildPlan(template, patient, library = null) {
+export function buildPlan(template, patient, library = null, options = {}) {
   const steps = []; const skipped = [];
   let order = 0;
   for (const s of template.steps) {
-    const base = { phase: s.phase, atSec: s.atSec, drugId: s.drugId };
+    const extra = { ...(s.timingRationale ? { timingRationale: s.timingRationale } : {}), ...(s.afterLoadingOf ? { afterLoadingOf: s.afterLoadingOf } : {}) };
+    const base = { phase: s.phase, atSec: s.atSec, drugId: s.drugId, ...extra };
+    if (s.kind === 'fluid' || s.kind === 'fluid_bolus') {
+      const f = getFluid(library, s.fluidId);
+      if (!f) { skipped.push({ drugId: s.fluidId, reason: 'Fluid not in library' }); continue; }
+      const rate = s.rate === 'default' ? options.fluidDefaultMlH : s.rate;
+      if (s.kind === 'fluid') {
+        if (!(typeof rate === 'number' && Number.isFinite(rate) && rate >= 0)) { skipped.push({ drugId: s.fluidId, reason: 'No maintenance rate given' }); continue; }
+        steps.push({ phase: s.phase, atSec: s.atSec, drugId: f.id, fluidId: f.id, id: `s${++order}`, order, kind: 'fluid', rate, rateUnit: 'mL/h', sources: [...f.sources], ...extra });
+      } else steps.push({ phase: s.phase, atSec: s.atSec, drugId: f.id, fluidId: f.id, id: `s${++order}`, order, kind: 'fluid_bolus', amount: s.amount, amountUnit: 'mL', sources: [...f.sources], ...extra });
+      continue;
+    }
+    if (s.kind === 'antibiotic') {
+      const sel = s.drugId === 'auto' ? selectProphylaxis(patient, library) : { drugId: s.drugId };
+      if (!sel.drugId || !getAntibiotic(library, sel.drugId)) { skipped.push({ drugId: s.drugId === 'auto' ? 'antibiotic prophylaxis' : s.drugId, reason: sel.reason || 'Antibiotic not in library' }); continue; }
+      const rec = recommend(patient, 'prophylaxis', sel.drugId, library);
+      if (rec.locked) { skipped.push({ drugId: sel.drugId, reason: rec.lockReasons.join('; ') }); continue; }
+      steps.push({ phase: s.phase, atSec: s.atSec, drugId: sel.drugId, regimenKey: 'prophylaxis', sources: rec.sources, id: `s${++order}`, order, kind: 'antibiotic', amount: rec.dose.value, amountUnit: rec.dose.unit, ...(sel.reason ? { selection: sel.reason } : {}), ...extra });
+      continue;
+    }
     if (!getDrug(library, s.drugId)) { skipped.push({ drugId: s.drugId, reason: 'Drug not in library' }); continue; }
-    if (s.kind === 'stop') { steps.push({ ...base, id: `s${++order}`, order, kind: 'stop' }); continue; }
+    if (s.kind === 'stop') { steps.push({ ...base, id: `s${++order}`, order, kind: 'stop', ...(typeof s.beforeEndSec === 'number' ? { beforeEndSec: s.beforeEndSec } : {}) }); continue; }
     const rec = recommend(patient, s.regimenKey, s.drugId, library);
     if (rec.locked) { skipped.push({ drugId: s.drugId, reason: rec.lockReasons.join('; ') }); continue; }
     if (!rec.available) { skipped.push({ drugId: s.drugId, reason: rec.warnings.join('; ') }); continue; }
     const src = { regimenKey: s.regimenKey, sources: rec.sources };
     if (s.kind === 'bolus' && rec.dose) {
-      steps.push({ ...base, ...src, id: `s${++order}`, order, kind: 'bolus', amount: rec.dose.value, amountUnit: rec.dose.unit, overSec: rec.route && rec.route !== 'IV' ? null : overSecFromTiming(rec.timing), ...(rec.route && rec.route !== 'IV' ? { route: rec.route } : {}) });
+      steps.push({ ...base, ...src, id: `s${++order}`, order, kind: 'bolus', amount: rec.dose.value, amountUnit: rec.dose.unit, overSec: rec.route && rec.route !== 'IV' ? null : overSecFromTiming(rec.timing), ...(rec.route ? { route: rec.route } : {}) });
     } else if (s.kind === 'infusion' && rec.rate) {
-      if (rec.loading && rec.loading.value) steps.push({ ...base, ...src, id: `s${++order}`, order, kind: 'bolus', amount: rec.loading.value, amountUnit: rec.loading.unit, overSec: rec.loading.overSec || null, loading: true });
-      steps.push({ ...base, ...src, id: `s${++order}`, order, kind: 'infusion', rate: rec.rate.value, rateUnit: rec.rate.unit });
+      // Loading dose, then the maintenance infusion WHEN THE LOADING ENDS (label sequence: dexmedetomidine
+      // loading over 10 min "followed by" maintenance; propofol MAC initiation over 3–5 min, then maintenance).
+      let infAt = s.atSec;
+      if (rec.loading && rec.loading.value) {
+        const ov = rec.loading.overSec || null;
+        steps.push({ ...base, ...src, id: `s${++order}`, order, kind: 'bolus', amount: rec.loading.value, amountUnit: rec.loading.unit, overSec: ov, loading: true });
+        if (ov) infAt = (s.atSec || 0) + ov;
+      }
+      // afterLoadingOf: the engine also waits for the loading dose actually given to finish (1-Hz stepping).
+      steps.push({ ...base, ...src, atSec: infAt, id: `s${++order}`, order, kind: 'infusion', rate: rec.rate.value, rateUnit: rec.rate.unit, ...(infAt !== s.atSec ? { afterLoadingOf: s.drugId } : {}) });
     } else if (s.kind === 'inhaled' && rec.rate) {
       let dial = rec.rate.value;
       if (s.dial === 'mac1') {
@@ -208,13 +267,16 @@ export function buildPlan(template, patient, library = null) {
       skipped.push({ drugId: s.drugId, reason: `No ${s.kind} value in ${s.regimenKey} regimen` });
     }
   }
-  return { plan: { mode: template.mode, sedationTarget: template.sedationTarget, steps }, skipped };
+  const plan = { mode: template.mode, sedationTarget: template.sedationTarget, steps };
+  if (typeof template.prophylaxisIndicated === 'boolean') plan.prophylaxisIndicated = template.prophylaxisIndicated;
+  else if (steps.some((x) => x.kind === 'antibiotic')) plan.prophylaxisIndicated = true;
+  return { plan, skipped };
 }
 
-/** "give over 30–60 s" / "over 10 min" -> seconds (upper bound) if ≥ 60 s, else null (instant). */
+/** "give over 30–60 s" / "over 10 min" / "over at least 2 minutes" -> seconds (upper bound) if ≥ 60 s, else null (instant). */
 export function overSecFromTiming(timing) {
   if (typeof timing !== 'string') return null;
-  const m = /over\s+(?:about\s+)?(\d+(?:\.\d+)?)(?:\s*[–-]\s*(\d+(?:\.\d+)?))?\s*(min|minutes|s|sec|seconds)\b/i.exec(timing);
+  const m = /over\s+(?:about\s+|at\s+least\s+|no\s+less\s+than\s+)?(\d+(?:\.\d+)?)(?:\s*[–-]\s*(\d+(?:\.\d+)?))?\s*(min|minutes|s|sec|seconds)\b/i.exec(timing);
   if (!m) return null;
   const v = Number(m[2] || m[1]); const sec = /^m/i.test(m[3]) ? v * 60 : v;
   return sec >= 60 ? sec : null;

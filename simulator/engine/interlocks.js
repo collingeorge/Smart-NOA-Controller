@@ -29,6 +29,15 @@ export const NOA_CONFIG = Object.freeze({
 });
 
 export const CONTROLLED = ['Dexmedetomidine', 'Ketamine', 'Lidocaine'];
+/**
+ * Absolute tolerance for "rate above the simulation ceiling", in the ceiling's own (Python) unit.
+ * Mirrors RATE_CEILING_TOLERANCE in smart_noa_controller.py (a parity test keeps them equal).
+ * A rate exactly at the ceiling (or within float noise of it) is allowed; admission in sim.js and
+ * the per-step check here use the same unit and the same tolerance (2026-11 audit, finding 1).
+ */
+export const RATE_CEILING_EPS = 1e-9;
+/** True if `rate` (already in the Python unit) is above `ceiling` beyond the shared tolerance. */
+export function aboveCeiling(rate, ceiling) { return rate > ceiling + RATE_CEILING_EPS; }
 export const PY_TO_SIM_ID = Object.freeze({ Dexmedetomidine: 'dexmedetomidine', Ketamine: 'ketamine', Lidocaine: 'lidocaine', Ketorolac: 'ketorolac' });
 export const SIM_TO_PY_ID = Object.freeze(Object.fromEntries(Object.entries(PY_TO_SIM_ID).map(([k, v]) => [v, k])));
 /** Units of drug_dosing / simulation_rate_ceilings (EXAMPLE_RESULTS.json rate_units). */
@@ -74,7 +83,7 @@ export class InterlockCore {
     for (const [d, r] of Object.entries(this.infusions)) {
       const ceiling = this.config.simulation_rate_ceilings[d];
       const valid = typeof r === 'number' && Number.isFinite(r) && r >= 0;
-      if (!valid || ceiling === undefined || ceiling === null || r > ceiling) out.push(d);
+      if (!valid || ceiling === undefined || ceiling === null || aboveCeiling(r, ceiling)) out.push(d);
     }
     return out;
   }
@@ -200,7 +209,9 @@ export class SmartNoaControllerPort {
     if (!Array.isArray(readings)) throw new Error('readings must be an array of [hr, map]');
     const trace = [];
     for (let i = 0; i < readings.length; i++) {
-      const [hr, map] = readings[i];
+      // A malformed reading (missing, not a pair) fails safe like an unusable value (Python parity).
+      const pair = readings[i];
+      const [hr, map] = Array.isArray(pair) && pair.length === 2 ? pair : [null, null];
       const before = { ...this.core.infusions };
       const r = this.core.evaluate(hr, map, () => {
         const rate = (this.core.infusions.Dexmedetomidine || 0) * this.patient.weight_kg / 60;

@@ -101,9 +101,8 @@ if (REAL) {
   test('real library: ceiling scopes (per bolus, rate, hardMax, lesser-of, adjusted daily)', () => {
     const p = R();
     const phe = interpretCeilings(REAL.DRUGS.find((x) => x.id === 'phenylephrine'), p);
-    assert.ok(phe.some((l) => l.type === 'bolus' && l.absolute === 200));
+    assert.ok(phe.some((l) => l.type === 'cumulative' && l.bolusOnly && l.absolute === 200), 'phenylephrine 200 mcg = total bolus dosage (conservative reading)');
     assert.ok(phe.some((l) => l.type === 'rate' && l.value === 200 && l.rateUnit === 'mcg/min'));
-    assert.ok(!phe.some((l) => l.type === 'cumulative'));
     const lido = interpretCeilings(REAL.DRUGS.find((x) => x.id === 'lidocaine'), p);
     assert.equal(lido.filter((l) => l.type === 'rate').length, 2);
     const big = R({ heightCm: 200, weightKg: 130 });

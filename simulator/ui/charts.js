@@ -20,7 +20,7 @@ export function drawChart(canvas, cfg) {
   const padL = 34, padR = 6, padT = 6, padB = 16;
   const W = cssW - padL - padR, H = cssH - padT - padB;
   const t1 = Math.max(cfg.nowSec, WINDOW_SEC); const t0 = t1 - WINDOW_SEC;
-  let lo = cfg.min, hi = cfg.max;
+  const lo = cfg.min; let hi = cfg.max;
   if (cfg.autoMax) { const m = Math.max(hi, ...cfg.series.flatMap((s) => s.data.filter(Number.isFinite))); hi = Math.ceil(m * 1.1 * 10) / 10 || hi; }
   const x = (t) => padL + ((t - t0) / WINDOW_SEC) * W;
   const y = (v) => padT + H - ((Math.min(hi, Math.max(lo, v)) - lo) / (hi - lo)) * H;

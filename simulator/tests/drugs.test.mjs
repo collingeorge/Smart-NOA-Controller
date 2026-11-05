@@ -1,5 +1,6 @@
 // Schema-integrity tests for simulator/data/drugs.js (node:test, no dependencies).
 // Run: node --test simulator/tests/drugs.test.mjs
+import { PALLIATIVE_SOURCE_IDS } from '../data/palliative.js';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
@@ -10,7 +11,7 @@ const CLASSES = new Set(['hypnotic', 'opioid', 'nmb', 'reversal', 'alpha2', 'nmd
   'vasopressor', 'anticholinergic', 'benzodiazepine', 'volatile', 'gas', 'nsaid', 'analgesic']);
 const AMOUNT_UNITS = new Set(['mg', 'mcg', 'units', '%']);
 const REGIMEN_KEYS = new Set(['premed', 'sedation_minimal', 'sedation_moderate', 'sedation_deep',
-  'induction', 'maintenance', 'emergence', 'rescue']);
+  'induction', 'maintenance', 'emergence', 'rescue', 'rescue_iv', 'pretreatment']);
 const KINDS = new Set(['bolus', 'infusion', 'inhaled']);
 const SCALARS = new Set(['TBW', 'IBW', 'LBW', 'ABW']);
 
@@ -23,7 +24,7 @@ const ids = {
 
 // Returns null if valid, else an error string.
 function checkToken(tok, { extended }) {
-  let m = /^(condition|allergy|medication|flag):([A-Za-z0-9_]+)$/.exec(tok);
+  const m = /^(condition|allergy|medication|flag):([A-Za-z0-9_]+)$/.exec(tok);
   if (m) return ids[m[1]].has(m[2]) ? null : `unknown ${m[1]} id "${m[2]}"`;
   if (/^egfr<\d+(\.\d+)?$/.test(tok)) return null;
   if (/^age>=\d+$/.test(tok)) return null;
@@ -185,7 +186,7 @@ test('required contraindication rules from SPEC §4 are present', () => {
     ['ketorolac', 'egfr<30', 'lock'],
     ['ketorolac', 'allergy:nsaid', 'lock'],
     ['ketamine', 'condition:psychosis_history', 'warn'],
-    ['ketamine', 'condition:uncontrolled_htn', 'warn'],
+    ['ketamine', 'condition:uncontrolled_htn', 'lock'], // label CONTRAINDICATIONS (2026-11 owner decision; SPEC §4 listed WARN)
     ['etomidate', 'condition:adrenal_insufficiency', 'warn'],
     ['etomidate', 'condition:sepsis', 'warn'],
     ['propofol', 'allergy:propofol', 'lock'],
@@ -193,7 +194,7 @@ test('required contraindication rules from SPEC §4 are present', () => {
     ['sugammadex', 'allergy:sugammadex', 'lock'],
     ['lidocaine', 'condition:regional_block_planned', 'warn'],
     ['lidocaine', 'condition:liver_disease', 'warn'],
-    ['lidocaine', 'condition:heart_block', 'warn'],
+    ['lidocaine', 'condition:heart_block', 'lock'], // label CONTRAINDICATIONS (2026-11 owner decision; SPEC §4 listed WARN)
   ];
   for (const [drug, when, sev] of need) {
     assert.ok(byId[drug], `drug ${drug} present`);
@@ -210,7 +211,7 @@ test('SOURCE_IDS_USED is frozen and matches the references exactly', () => {
   assert.deepEqual([...refs].sort(), [...SOURCE_IDS_USED].sort());
   for (const s of Object.values(SOURCE_IDS_ENGINE)) assert.ok(SOURCES[s], `engine source ${s} exists`);
   // Every registered source is used by a drug or by the engine.
-  const all = new Set([...SOURCE_IDS_USED, ...Object.values(SOURCE_IDS_ENGINE)]);
+  const all = new Set([...SOURCE_IDS_USED, ...Object.values(SOURCE_IDS_ENGINE), ...PALLIATIVE_SOURCE_IDS]);
   for (const s of Object.keys(SOURCES)) assert.ok(all.has(s), `${s} is used somewhere`);
 });
 

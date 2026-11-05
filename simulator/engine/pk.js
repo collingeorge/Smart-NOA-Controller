@@ -28,7 +28,7 @@
 //    BJA table. The primary PDF could not be opened from this build environment.
 //    Simulator choices (NOT part of the published model): arterial-sampling form; the
 //    concomitant-drug switch is set once, when the propofol model is created (true if an
-//    opioid or IV local anaesthetic is in the plan or already given); the Eleveld BIS
+//    opioid is in the plan or already given; opioids only, as published); the Eleveld BIS
 //    PD model is NOT used — the depth index stays the illustrative PD in pd.js, driven by
 //    Ce normalised to the peak Ce of a 2 mg/kg bolus in the Eleveld reference individual.
 //
@@ -109,12 +109,27 @@ export function eleveldPropofol(cov) {
 // whose qualitative kinetics matter for teaching (min^-1). NOT published, NOT fitted.
 //   epinephrine: short plasma half-life (k10 0.3 → t½ ≈ 2.3 min) so infusion effects fade within
 //   minutes of stopping; fast effect-site equilibration (ke0 1.0).
+//   sugammadex: slow elimination (k10 0.006 → t½ ≈ 2 h) so free drug persists on the time scale
+//   of emergence and the 1:1 molar binding in sim.js decides whether the dose is sufficient
+//   (added 2026-11 audit; the generic constants eliminated free sugammadex in ≈ 7 min).
 export const ILLUSTRATIVE_PK = Object.freeze({
   epinephrine: Object.freeze({ k10: 0.3, k12: 0.05, k21: 0.01, ke0: 1.0, illustrative: true }),
+  sugammadex: Object.freeze({ k10: 0.006, k12: 0.02, k21: 0.02, ke0: 0.3, illustrative: true }),
 });
 // ILLUSTRATIVE first-order absorption rate constants (min^-1) for non-IV bolus routes
 // (author estimates; not from labels): IM epinephrine ka 0.15 (absorption t½ ≈ 4.6 min).
 export const ROUTE_KA_ILLUSTRATIVE = Object.freeze({ IM: 0.15, SC: 0.07 });
+// ILLUSTRATIVE (2026-11 audit): IM/SC absorption slows when tissue perfusion is poor. The
+// absorption rate is multiplied by a factor that falls linearly from 1 (MAP ≥ MAP_FRAC_FULL × the
+// patient's baseline MAP) to KA_FACTOR_MIN (MAP ≤ MAP_FRAC_MIN × baseline). Author estimates.
+export const ROUTE_PERFUSION_ILLUSTRATIVE = Object.freeze({ MAP_FRAC_FULL: 0.8, MAP_FRAC_MIN: 0.4, KA_FACTOR_MIN: 0.1 });
+export function perfusionKaFactor(mapFrac) {
+  const P = ROUTE_PERFUSION_ILLUSTRATIVE;
+  if (!Number.isFinite(mapFrac)) return 1;
+  if (mapFrac >= P.MAP_FRAC_FULL) return 1;
+  if (mapFrac <= P.MAP_FRAC_MIN) return P.KA_FACTOR_MIN;
+  return P.KA_FACTOR_MIN + (1 - P.KA_FACTOR_MIN) * (mapFrac - P.MAP_FRAC_MIN) / (P.MAP_FRAC_FULL - P.MAP_FRAC_MIN);
+}
 export const GENERIC_ILLUSTRATIVE = Object.freeze({ k10: 0.1, k12: 0.1, k21: 0.02, ke0: 0.3, illustrative: true });
 export const CALIBRATED_V1_PER_KG = 0.25;
 export const PERIPHERAL_RATIO = 5;
@@ -126,6 +141,10 @@ export const VOLATILE_TAU_MIN = Object.freeze({ desflurane: 1.5, nitrous_oxide: 
 export const isNitrous = (drug) => /nitrous|n2o/i.test(drug.id);
 export const isInhaled = (drug) => drug.cls === 'volatile' || drug.amountUnit === '%' || Object.values(drug.regimens || {}).some((r) => r && r.kind === 'inhaled');
 export const REFERENCE_WEIGHT_KG = 70;
+// Used ONLY if the drug library supplies no MAC40 for a volatile agent. Engine
+// author's recollection of the sevoflurane age-40 MAC in Mapleson 1996 (BJA
+// 76:179-185); NOT verified in this build. Treat any output using it as illustrative.
+export const FALLBACK_SEVO_MAC40 = 1.8;
 
 export function macForAge(mac40, ageYears) {
   return mac40 * Math.pow(10, -0.00269 * (ageYears - 40));
@@ -354,7 +373,7 @@ function buildCompartment(drug, weightKg, opts = {}) {
   if (drug.pkModel === 'eleveld') {
     const cov = opts.covariates || { ...ELEVELD_2018.REF, weightKg: ELEVELD_2018.REF.weightKg, opioids: false };
     const e = eleveldPropofol(cov);
-    return { type: 'eleveld', params: { ...e, covariates: { ...cov } }, model: new CompartmentModel({ v1L: e.v1, k10: e.k10, k12: e.k12, k21: e.k21, k13: e.k13, k31: e.k31, ke0: e.ke0 }), provenance: `Eleveld 2018 published population PK (arterial; concomitant opioid/local anaesthetic switch ${e.opioids ? 'ON' : 'OFF'}); ke0 Eleveld Table 3 arterial. Implementation verification only (reproduces published reference values); not validation of the simulator.` };
+    return { type: 'eleveld', params: { ...e, covariates: { ...cov } }, model: new CompartmentModel({ v1L: e.v1, k10: e.k10, k12: e.k12, k21: e.k21, k13: e.k13, k31: e.k31, ke0: e.ke0 }), provenance: `Eleveld 2018 published population PK (arterial; concomitant-opioid switch ${e.opioids ? 'ON' : 'OFF'}); ke0 Eleveld Table 3 arterial. Implementation verification only (reproduces published reference values); not validation of the simulator.` };
   }
   if (drug.pkModel === 'marsh') {
     const m = MARSH_1991;
@@ -419,7 +438,3 @@ export function createPkModel(drug, patient, opts = {}) {
   return { ...b, ref: referenceConcentration(drug, opts.refPrefs || []) };
 }
 
-// Used ONLY if the drug library supplies no MAC40 for a volatile agent. Engine
-// author's recollection of the sevoflurane age-40 MAC in Mapleson 1996 (BJA
-// 76:179-185); NOT verified in this build. Treat any output using it as illustrative.
-export const FALLBACK_SEVO_MAC40 = 1.8;

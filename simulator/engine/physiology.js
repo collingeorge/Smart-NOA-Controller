@@ -65,7 +65,10 @@ export class Physiology {
     if (s > 0) s = Math.min(1, s * (1 + Math.max(0, this.paco2 - 40) / 40 * 0.5 * (1 - D)));
     const capability = s; // for extubation readiness (independent of obstruction)
     if (!airway.secured) {
-      let obs = clamp((effects.H - GAINS.OBSTRUCTION_H_START) / GAINS.OBSTRUCTION_H_SPAN, 0, 1) * this.mods.obstruction;
+      // Airway obstruction follows the hypnotic effect, except the share that comes from drugs that
+      // relatively preserve airway tone (ketamine; effects.Hairway, see pd.js combineEffects).
+      const Hair = Number.isFinite(effects.Hairway) ? effects.Hairway : effects.H;
+      let obs = clamp((Hair - GAINS.OBSTRUCTION_H_START) / GAINS.OBSTRUCTION_H_SPAN, 0, 1) * this.mods.obstruction;
       obs = clamp(obs, 0, 1);
       if (airway.jawThrust) obs *= GAINS.JAW_THRUST_OBSTRUCTION_MULT;
       s *= 1 - 0.8 * obs;
@@ -140,12 +143,15 @@ export class Physiology {
     const depth = clamp(this.depth + ar('depth', 1), 0, 100);
     const rrOut = rr > 0 ? clamp(rr + (supported ? 0 : ar('rr', 0.5)), 0, 40) : 0;
     const gap = GAINS.ETCO2_GAP_MMHG + ev.etco2GapAdd;
-    // NOTE (per SPEC): EtCO2 shown tracks the rising CO2 during apnoea, although a real
-    // capnograph shows no waveform without exhaled gas.
-    const etco2 = clamp(this.paco2 - gap + ar('etco2', 0.4), 0, 120);
+    // Capnography: with no breaths and no ventilatory support there is no exhaled gas, so there
+    // is no EtCO2 reading (null; the UI shows "— (no breaths)"). The internal PaCO2 keeps rising
+    // during apnoea and drives physiology (2026-11 audit; previously EtCO2 tracked PaCO2).
+    const noBreaths = !supported && !(Math.round(rrOut) > 0);
+    const etco2Noise = ar('etco2', 0.4);
+    const etco2 = noBreaths ? null : clamp(this.paco2 - gap + etco2Noise, 0, 120);
     this.out = {
       hr: Math.round(hr), sbp: Math.round(map + (2 / 3) * pp), dbp: Math.round(map - pp / 3), map: Math.round(map),
-      spo2: Math.round(spo2), rr: Math.round(rrOut), etco2: Math.round(etco2),
+      spo2: Math.round(spo2), rr: Math.round(rrOut), etco2: etco2 === null ? null : Math.round(etco2),
       depthIndex: Math.round(depth), sedationLevel: sedationLevelFromDepth(depth),
       // internal (not part of state.vitals)
       _true: { hr: this.hr, map: this.map, spo2: this.spo2, sao2: this.sao2, pao2: this.pao2, paco2: this.paco2, veff, spontaneousCapability: sp.capability, spontaneousRr: sp.capability > 0.05 ? this.rr0 * (0.35 + 0.65 * Math.min(1, sp.capability)) : 0, apnoeic, apnoeaSec: this.apnoeaSec, supported, depth: this.depth },

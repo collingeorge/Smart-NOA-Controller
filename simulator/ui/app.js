@@ -3,6 +3,7 @@ import * as LIB from '../data/drugs.js';
 import { h, clear, announce, fmtClock } from './dom.js';
 import { derivePatient, validatePatient } from '../engine/patient.js';
 import { createSimulation } from '../engine/sim.js';
+import { CASE_ACTIONS } from '../engine/case-actions.js';
 import { EXAMPLE_PATIENTS, EXAMPLE_PLANS, buildPlan } from '../data/scenarios.js';
 import { initSources, srcTags } from './sources.js';
 import { renderPatient, defaultPatientInput } from './patient-form.js';
@@ -13,6 +14,7 @@ import { renderDebrief } from './debrief.js';
 import { exportPlan, planIssues, stepsFromBuiltPlan } from './plan-model.js';
 import { notModeled } from './labels.js';
 import { renderModelCard, loadModelAssumptions, assumptionsList, AI_DISCLOSURE, TOOL_DESCRIPTION } from './model-card.js';
+import { pal, renderPalliative, setPalModule, stop as stopPalliative, renderEthics, palSnapshot } from './palliative.js';
 
 const lib = LIB;
 const STEPS = [
@@ -21,6 +23,7 @@ const STEPS = [
 
 const store = {
   step: 1,
+  module: 'periop',
   patientInput: defaultPatientInput(),
   patientVersion: 1,
   exampleId: null,
@@ -58,7 +61,7 @@ function restartSim() {
   const p = getPatient();
   store.sim = createSimulation({ patient: p, plan: exportPlan(store.plan), seed: store.seed, interlocks: store.interlocks, library: lib });
   store.simKey = simKey();
-  store.run = newRunState();
+  store.run = { ...newRunState(), testClock: !!(store.run && store.run.testClock) };
   return store.sim;
 }
 function ensureSim() { if (!store.sim || store.simKey !== simKey()) restartSim(); return store.sim; }
@@ -75,6 +78,11 @@ function canGo(n) {
 }
 
 let current = null;
+// Context passed to every view (functions below are hoisted declarations).
+const ctx = { store, lib, go, rerender, refreshStepper, getPatient, loadExample, ensureSim, restartSim, openExtubation, fluidsSupported,
+  patientChanged() { store.patientVersion += 1; },
+  planChanged() { store.planVersion += 1; } };
+
 function go(n) {
   const c = canGo(n);
   if (!c.ok) { announce(c.why, true); refreshStepper(); return false; }
@@ -90,12 +98,31 @@ function go(n) {
 
 function render() {
   const main = document.getElementById('main');
+  if (store.module !== 'periop') { renderPalliative(main); main.dataset.step = `pal-${pal.step}`; return; }
   const views = { 1: renderPatient, 2: renderAssessment, 3: renderPlan, 4: renderMonitor, 5: renderDebrief };
   current = views[store.step](ctx, main) || null;
   main.dataset.step = String(store.step);
   refreshStepper();
 }
 function rerender() { if (current && current.leave) current.leave(); current = null; render(); }
+
+/** Module chooser: Perioperative (existing) | Palliative pain management | End-of-life care. */
+function setModule(m) {
+  if (!['periop', 'pain', 'eol'].includes(m)) return;
+  if (current && current.leave) current.leave();
+  current = null;
+  stopPalliative();
+  if (m !== 'periop') setPalModule(m);
+  store.module = m;
+  const palOn = m !== 'periop';
+  document.getElementById('pal-banner').hidden = !palOn;
+  document.getElementById('open-ethics').hidden = !palOn;
+  document.querySelector('.stepper').hidden = palOn;
+  for (const b of document.querySelectorAll('[data-module]')) b.setAttribute('aria-pressed', String(b.dataset.module === m));
+  render();
+  const t = document.getElementById('step-title'); if (t) t.focus();
+  announce(`Module: ${{ periop: 'Perioperative', pain: 'Palliative pain management', eol: 'End-of-life care' }[m]}.`);
+}
 
 function refreshStepper() {
   const ol = document.getElementById('stepper-list');
@@ -128,19 +155,46 @@ function loadExample(id) {
 }
 
 // ---------------------------------------------------------------- extubation dialog
-function openExtubation(sim, after) {
+/**
+ * Extubation dialog. `opts.pause()` is called when it opens and `opts.resume()` when it closes, so
+ * the simulation clock does not run while the clinician reads the checklist. Readiness is
+ * re-evaluated when a button is pressed: if it changed since the dialog was drawn, the dialog is
+ * redrawn with the current state instead of acting on a stale snapshot (2026-11 audit, finding 3).
+ */
+function openExtubation(sim, opts = {}) {
+  const o = typeof opts === 'function' ? { after: opts } : opts;
+  const after = o.after || (() => {});
   const dlg = document.getElementById('extubate-dialog');
+  if (!dlg.open) {
+    if (o.pause) o.pause();
+    dlg.addEventListener('close', () => { if (o.resume) o.resume(); after(); }, { once: true });
+  }
+  drawExtubation(sim, dlg);
+  if (!dlg.open) dlg.showModal();
+  const first = document.getElementById('extubate-body').querySelector('button'); if (first) first.focus();
+}
+
+function drawExtubation(sim, dlg) {
   const body = document.getElementById('extubate-body');
   const r = sim.extubationReadiness();
   const unmet = r.criteria.filter((c) => !c.met);
+  const sig = JSON.stringify(r.criteria.map((c) => c.met));
   const E = lib.SOURCE_IDS_ENGINE || {};
   const doIt = (override) => {
-    if (override) store.run.overrides.push({ tSec: sim.state.tSec, unmet: unmet.map((c) => c.label) });
-    const res = sim.action('extubate');
-    if (override) sim.state.log.push({ tSec: Math.round(sim.state.tSec * 10) / 10, kind: 'action', message: `User confirmed extubation despite unmet readiness criteria: ${unmet.map((c) => c.label).join(', ')}` });
+    const now = sim.extubationReadiness();
+    if (JSON.stringify(now.criteria.map((c) => c.met)) !== sig) {
+      // Readiness changed since the dialog was drawn: show the current checklist; do not act.
+      drawExtubation(sim, dlg);
+      announce('Readiness changed — the checklist was updated. Review it and confirm again.', true);
+      const b = body.querySelector('#ext-confirm, #ext-override'); if (b) b.focus();
+      return;
+    }
+    // Shared case actions (engine/case-actions.js); the guided/automatic runner never calls the override.
+    if (override) store.run.overrides.push({ tSec: sim.state.tSec, unmet: now.criteria.filter((c) => !c.met).map((c) => c.label) });
+    const res = override ? CASE_ACTIONS.extubateOverride(sim) : CASE_ACTIONS.extubateFromDialog(sim);
+    if (!res.ok && !override) { drawExtubation(sim, dlg); announce(res.message, true); return; }
+    announce(res.message, !now.ready);
     dlg.close();
-    announce(res.message, !r.ready);
-    after();
   };
   clear(body).append(
     h('p', {}, `Sim time ${fmtClock(sim.state.tSec)}. TOFR ≥ 0.9 must be confirmed before extubation `, srcTags([E.tofExtubation]), '; other criteria are illustrative simulator rules.'),
@@ -151,8 +205,6 @@ function openExtubation(sim, after) {
       h('button', { type: 'button', class: 'btn', onclick: () => dlg.close() }, 'Cancel — keep the tube'),
       r.ready ? h('button', { type: 'button', class: 'btn btn--primary', id: 'ext-confirm', onclick: () => doIt(false) }, 'Extubate')
         : h('button', { type: 'button', class: 'btn btn--danger', id: 'ext-override', onclick: () => doIt(true) }, 'Extubate anyway (logged)')));
-  dlg.showModal();
-  const first = body.querySelector('button'); if (first) first.focus();
 }
 
 // ---------------------------------------------------------------- about + model card
@@ -168,7 +220,7 @@ async function renderAbout() {
     h('h3', {}, 'Model limits'),
     h('ul', { class: 'list' },
       h('li', {}, 'Every displayed physiological value is illustrative model output; the simulator as a whole is not validated.'),
-      h('li', {}, 'The depth number is a simulated depth index (0–100, illustrative; not BIS).'),
+      h('li', {}, 'The depth number is a processed-EEG depth index (BIS-style, simulated; 0–100, illustrative). It is not a BIS value; BIS is a trademark of its owner.'),
       h('li', {}, 'Doses are label/guideline values; the auto-filled default within a range is a simulator convention, not a recommendation.')),
     h('h4', {}, 'Model assumptions recorded in SOURCES.md'), assumptionsList(assumptions),
     h('h4', {}, 'Engine model records for drugs used in the current case'),
@@ -188,22 +240,60 @@ async function renderModel() {
   renderModelCard(body, { lib, patient: store.sim ? store.sim.patient : p, sim: store.sim, assumptions });
 }
 
-const ctx = { store, lib, go, rerender, refreshStepper, getPatient, loadExample, ensureSim, restartSim, openExtubation, fluidsSupported,
-  patientChanged() { store.patientVersion += 1; },
-  planChanged() { store.planVersion += 1; } };
-
 function init() {
   initSources(lib);
   document.getElementById('loading')?.remove();
   document.getElementById('open-sources').addEventListener('click', (e) => { document.getElementById('sources-dialog').showModal(); const r = e.currentTarget; document.getElementById('sources-dialog').addEventListener('close', () => r.focus(), { once: true }); });
   document.getElementById('open-about').addEventListener('click', async (e) => { const r = e.currentTarget; await renderAbout(); const d = document.getElementById('about-dialog'); d.showModal(); d.addEventListener('close', () => r.focus(), { once: true }); });
+  document.getElementById('open-ethics').addEventListener('click', (e) => { const r = e.currentTarget; renderEthics(document.getElementById('ethics-body')); const d = document.getElementById('ethics-dialog'); d.showModal(); d.addEventListener('close', () => r.focus(), { once: true }); });
+  for (const b of document.querySelectorAll('[data-module]')) b.addEventListener('click', () => { if (store.module !== b.dataset.module) setModule(b.dataset.module); });
   document.getElementById('open-model').addEventListener('click', async (e) => { const r = e.currentTarget; await renderModel(); const d = document.getElementById('model-dialog'); d.showModal(); d.addEventListener('close', () => r.focus(), { once: true }); });
   document.addEventListener('click', (e) => { const b = e.target.closest('[data-close-dialog]'); if (b) b.closest('dialog').close(); });
   for (const d of document.querySelectorAll('dialog')) d.addEventListener('click', (e) => { if (e.target === d) d.close(); });
   render();
 }
 
-// Expose a read-only handle for automated smoke tests (no effect on the simulation).
-window.__smartNoa = { store, getPatient };
+// Test hook for the browser smoke test, only when the page URL has ?test=1. It exposes a
+// snapshot() function returning a deep copy of the state (plain data; nothing live or mutable).
+function testSnapshot() {
+  const sim = store.sim; const a = store.run.auto;
+  const copy = (x) => JSON.parse(JSON.stringify(x));
+  return copy({
+    step: store.step, interlocksOn: store.interlocks, overrides: store.run.overrides,
+    sim: sim ? { t: sim.state.tSec, phase: sim.state.phase, v: sim.state.vitals, il: sim.state.interlocks.status, interlocks: sim.state.interlocks,
+      airway: sim.state.airway, ready: sim.extubationReadiness().ready, readiness: sim.extubationReadiness(), log: sim.state.log, playing: store.run.playing,
+      fluids: sim.state.fluids, prophylaxis: sim.state.prophylaxis, checklist: sim.prophylaxisChecklist(), alarms: sim.state.alarms, drugs: { lidocaine: sim.state.drugs.lidocaine } } : null,
+    plan: { mode: store.plan.mode, sedationTarget: store.plan.sedationTarget, template: store.plan.template || null, steps: store.plan.steps.map((x) => ({ drugId: x.drugId, kind: x.kind, phase: x.phase, regimenKey: x.regimenKey, amount: x.amount, rate: x.rate, atSec: x.atSec })) },
+    auto: a ? { ...a.status(), idx: a.idx, history: a.history } : null,
+    periop: sim ? sim.state.periop : null, planStatus: sim ? sim.planStatus().map((x) => ({ id: x.id, phase: x.phase, drugId: x.drugId, kind: x.kind, status: x.status, waiting: x.waiting || null })) : null,
+  });
+}
+function testLite() {
+  const sim = store.sim; const a = store.run.auto; const st = a ? a.status() : null;
+  return JSON.parse(JSON.stringify({ t: sim ? sim.state.tSec : null, phase: sim ? sim.state.phase : null, v: sim ? sim.state.vitals : null, airway: sim ? sim.state.airway : null,
+    ready: sim ? sim.extubationReadiness().ready : null, playing: store.run.playing,
+    auto: st ? { state: st.state, message: st.message, current: st.current, historyIds: a.history.map((x) => x.id) } : null }));
+}
+try {
+  if (new URLSearchParams(window.location.search).get('test') === '1') {
+    window.__smartNoa = Object.freeze({
+      snapshot: testSnapshot,
+      /** Step-driven tests: true = the wall clock never advances simulated time (only advance() does). */
+      testClock: (on) => { store.run.testClock = !!on; return store.run.testClock; },
+      /** Advance simulated time synchronously by `sec` seconds on the Run screen (runner ticks each second). */
+      advance: (sec) => (store.run && typeof store.run.testAdvance === 'function' && store.run.testAdvance(sec) ? testLite() : null),
+      /** Small status object (cheap to poll): time, phase, vitals, airway, readiness, runner state. */
+      lite: () => testLite(),
+      /** Injects a scenario event directly into the engine (no UI control is clicked) — used to reproduce self-pauses. */
+      inject: (id) => (store.sim ? JSON.parse(JSON.stringify(store.sim.inject(id))) : null),
+      /** Advisory record (engine/rescue.js), plain data. */
+      advisories: () => (store.sim ? JSON.parse(JSON.stringify(store.sim.summary().advisories)) : null),
+      /** Palliative modules: plain-data snapshot, step-driven clock, synchronous advance by `min` simulated minutes. */
+      pal: () => palSnapshot(),
+      palTestClock: (on) => { pal.testClock = !!on; return pal.testClock; },
+      palAdvance: (min) => (typeof pal.testAdvance === 'function' && pal.step === 3 ? (pal.testAdvance(min), palSnapshot()) : null),
+    });
+  }
+} catch { /* no test hook */ }
 
 init();

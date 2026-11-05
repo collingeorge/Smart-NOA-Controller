@@ -44,11 +44,13 @@ export function fmtClock(sec) {
   return hh ? `${hh}:${p(mm)}:${p(ss)}` : `${p(mm)}:${p(ss)}`;
 }
 
-/** "mm:ss", "m:ss" or plain seconds -> seconds, or null if invalid. */
+/** "h:mm:ss" (as fmtClock prints times ≥ 1 h), "mm:ss", "m:ss" or plain seconds -> seconds, or null if invalid. */
 export function parseClock(text) {
   const t = String(text || '').trim();
   if (!t) return 0;
-  let m = /^(\d{1,3}):([0-5]\d)$/.exec(t);
+  let m = /^(\d{1,2}):([0-5]\d):([0-5]\d)$/.exec(t);
+  if (m) return Number(m[1]) * 3600 + Number(m[2]) * 60 + Number(m[3]);
+  m = /^(\d{1,3}):([0-5]\d)$/.exec(t);
   if (m) return Number(m[1]) * 60 + Number(m[2]);
   m = /^(\d{1,5})$/.exec(t);
   if (m) return Number(m[1]);

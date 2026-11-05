@@ -124,12 +124,15 @@ export function renderModelCard(container, { lib, patient, sim, assumptions }) {
     h('h3', {}, 'Model assumptions (from SOURCES.md)'), assumptionsList(assumptions),
     h('h3', {}, 'Verification'),
     h('p', {}, 'Automated tests (node --test simulator/tests) check unit conversions, dose arithmetic against the drug library, contraindication rules, determinism per seed, and decision parity with the Python Smart NOA controller (EXAMPLE_RESULTS.json statuses and zeroed infusions; NaN/missing fail-safe; direct-write bypass; rate ceilings). A browser smoke test exercises the user interface.'),
+    h('h3', {}, 'Timing evidence'),
+    h('p', {}, 'Every timed element (templates, guided-mode gates, full-auto settings, timing-validator thresholds) was cross-checked against FDA labels and guidelines in November 2026; what each source says, the agreement, the classification (label / guideline / owner practice / simulator convention) and a clinician-review checklist are in ',
+      h('a', { href: 'TIMING_EVIDENCE.md', id: 'model-timing-evidence' }, 'TIMING_EVIDENCE.md'), '. No clinician review of the timings has been recorded.'),
     h('h3', {}, 'Face validity'), h('p', {}, 'No expert anesthesiologist review has been recorded.'),
     h('h3', {}, 'External validation'), h('p', {}, 'None performed.'),
     h('h3', {}, 'Parts that cannot be validated with available sources'),
     h('ul', { class: 'list list--tight' },
       h('li', {}, 'Fitted compartment constants: labels give only onset/peak/duration statements, not concentration–time data.'),
-      h('li', {}, 'Effect-model shapes, drug interactions (synergy), haemodynamic and respiratory gains, and the simulated depth index (not BIS).'),
+      h('li', {}, 'Effect-model shapes, drug interactions (synergy), haemodynamic and respiratory gains, and the processed-EEG depth index (BIS-style, simulated; not a BIS value — BIS is a trademark of its owner).'),
       h('li', {}, 'Patient modifiers (age, obesity, OSA, organ dysfunction) and complication magnitudes.')),
     h('h3', {}, 'Intended use'), h('p', {}, 'Education only; not for clinical decisions or dosing. Fictional patients only.'));
 }

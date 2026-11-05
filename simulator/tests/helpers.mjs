@@ -21,3 +21,16 @@ export function basePatient(over = {}) {
 
 export function runFor(sim, sec) { for (let i = 0; i < sec; i++) sim.step(1); return sim.state; }
 export function track(sim, sec, fn) { const out = []; for (let i = 0; i < sec; i++) { sim.step(1); out.push(fn(sim.state)); } return out; }
+
+/**
+ * What the CLINICIAN does at a pre-incision / pre-procedure gate (timing review): confirm the WHO time out,
+ * acknowledge a processed-EEG index below the GA band, give guideline prophylaxis if it is missing.
+ * Uses runner.clinicianAction (the runner never does this on its own). Returns the actions taken.
+ */
+export function clinicianResolves(runner) {
+  const st = runner.status(); const items = st.current && st.current.items ? st.current.items : [];
+  const map = { time_out: 'confirm_time_out', depth: 'acknowledge_depth_below_band', antibiotic: 'give_prophylaxis' };
+  const done = [];
+  for (const it of items) if (!it.met && (it.clinician || it.id === 'antibiotic') && map[it.id]) { runner.clinicianAction(map[it.id]); done.push(map[it.id]); }
+  return done;
+}

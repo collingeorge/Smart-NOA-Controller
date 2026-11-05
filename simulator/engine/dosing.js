@@ -2,7 +2,7 @@
 // Every number returned comes from the drug library (data/drugs.js); this
 // module only selects a regimen/adjustment and multiplies by a weight scalar.
 
-import { resolveLibrary, getDrug } from './library.js';
+import { resolveLibrary, getDosable as getDrug } from './library.js';
 import { scalarWeight } from './patient.js';
 import { convertAmount, parseDoseUnit, parseRateUnit, rateToAmountPerMin, roundSig, isFiniteNumber } from './units.js';
 
@@ -22,7 +22,7 @@ const OPS = { '<': (a, b) => a < b, '<=': (a, b) => a <= b, '>': (a, b) => a > b
 export function isRuntimeAtom(atom) { return /^runtime:/i.test(atom) || /tof/i.test(atom); }
 
 function evalAtom(atom, p, ctx, unknown) {
-  let a = atom.trim();
+  const a = atom.trim();
   if (!a) return false;
   if (a.startsWith('!')) return !evalAtom(a.slice(1), p, ctx, unknown);
   if (isRuntimeAtom(a)) return ctx && typeof ctx.runtime === 'function' ? !!ctx.runtime(a) : false;
@@ -80,6 +80,8 @@ export function evaluateContraindications(patient, drugId, library = null, ctx =
   }
   return out;
 }
+
+const KNOWN_REGIMEN_KEYS = new Set(['defaultRule', 'kind', 'perKg', 'fixed', 'rate', 'unit', 'scalar', 'scalarBasis', 'adjust', 'timing', 'sources', 'note', 'loading', 'notes', 'route', 'byDepth']);
 
 const defaultOf = (x) => (x && isFiniteNumber(x.default) ? x.default : Infinity);
 
@@ -141,6 +143,7 @@ export function recommend(patient, regimenKey, drugId, library = null) {
   for (const a of matched) {
     addSources(a.sources);
     if (a.note) result.notes.push(`Adjustment (${a.when}): ${a.note}`);
+    if (a.warn && a.note) result.warnings.push(a.note);
     result.adjustmentsApplied.push({ when: a.when, applied: a === chosen });
   }
   const eff = { ...reg, ...(chosen ? Object.fromEntries(Object.entries(chosen).filter(([k]) => ['perKg', 'fixed', 'rate', 'scalar', 'unit', 'loading'].includes(k))) : {}) };
@@ -202,8 +205,7 @@ export function recommend(patient, regimenKey, drugId, library = null) {
   return result;
 }
 
-const KNOWN_REGIMEN_KEYS = new Set(['defaultRule', 'kind', 'perKg', 'fixed', 'rate', 'unit', 'scalar', 'scalarBasis', 'adjust', 'timing', 'sources', 'note', 'loading', 'notes', 'route']);
-const KNOWN_CEILING_KEYS = new Set(['value', 'unit', 'basis', 'sources', 'note', 'scope', 'infusion', 'adjusted', 'perKg', 'rule', 'appliesTo', 'scalar']);
+const KNOWN_CEILING_KEYS = new Set(['value', 'unit', 'basis', 'sources', 'note', 'scope', 'infusion', 'adjusted', 'perKg', 'rule', 'appliesTo', 'scalar', 'perDose']);
 const DEV_WARNED = new Set();
 function devWarn(msg) { if (!DEV_WARNED.has(msg)) DEV_WARNED.add(msg); }
 export function devWarnings() { return [...DEV_WARNED]; }
@@ -232,8 +234,10 @@ function limitFrom(drug, patient, value, unit, { scope = null, scalar = null, ba
   const weightKg = du.perKg ? scalarWeight(patient, ceilingScalar(drug, scalar)).weightKg : null;
   try {
     const absolute = convertAmount(du.perKg ? value * weightKg : value, du.amount, drug.amountUnit);
-    const perBolus = typeof scope === 'string' && /bolus|dose/i.test(scope);
-    return { ...base, type: perBolus ? 'bolus' : 'cumulative', absolute, absoluteUnit: drug.amountUnit, daily, weightKg };
+    // scope 'cumulative boluses': total of all boluses in the session (infusions not counted).
+    const bolusOnly = typeof scope === 'string' && /cumulative/i.test(scope) && /bolus/i.test(scope);
+    const perBolus = !bolusOnly && typeof scope === 'string' && /bolus|dose/i.test(scope);
+    return { ...base, type: perBolus ? 'bolus' : 'cumulative', bolusOnly, absolute, absoluteUnit: drug.amountUnit, daily, weightKg };
   } catch { devWarn(`${drug.id}: ceiling unit '${unit}' incompatible with amount unit`); return null; }
 }
 
@@ -252,16 +256,34 @@ export function interpretCeilings(drug, patient) {
     for (const k of Object.keys(c)) if (!KNOWN_CEILING_KEYS.has(k)) devWarn(`${drug.id}: unknown ceiling field '${k}' ignored`);
     const meta = { basis: c.basis || '', sources: c.sources || [] };
     let primary = { value: c.value, unit: c.unit, scope: c.scope || null, scalar: c.scalar || null };
+    let perDose = c.perDose && typeof c.perDose === 'object' ? c.perDose : null;
+    let extra = null; // second adjusted limit when both perKg and an absolute value are given (lesser applies)
     if (c.adjusted && typeof c.adjusted === 'object' && c.adjusted.when) {
       const r = evaluateWhen(c.adjusted.when, patient);
       if (r.value) {
-        if (isFiniteNumber(c.adjusted.value)) primary = { ...primary, value: c.adjusted.value, unit: c.adjusted.unit || c.unit };
-        else if (isFiniteNumber(c.adjusted.perKg)) primary = { ...primary, value: c.adjusted.perKg, unit: c.adjusted.unit || `${drug.amountUnit}/kg`, scalar: c.adjusted.scalar || null };
+        const A = c.adjusted;
+        if (isFiniteNumber(A.perKg)) {
+          primary = { ...primary, value: A.perKg, unit: A.unit || `${drug.amountUnit}/kg`, scalar: A.scalar || null };
+          if (isFiniteNumber(A.value)) extra = { value: A.value, unit: A.valueUnit || c.unit };
+        } else if (isFiniteNumber(A.value)) primary = { ...primary, value: A.value, unit: A.unit || c.unit };
+        if (A.perDose && typeof A.perDose === 'object') perDose = A.perDose;
         meta.basis = `${meta.basis}${meta.basis ? '; ' : ''}adjusted (${c.adjusted.when})`;
       }
     }
     const L = limitFrom(drug, patient, primary.value, primary.unit, { ...meta, scope: primary.scope, scalar: primary.scalar });
     if (L) out.push(L);
+    if (extra) {
+      const X = limitFrom(drug, patient, extra.value, extra.unit, { ...meta, scope: primary.scope, label: `${extra.value} ${extra.unit} (${meta.basis}; lesser applies)` });
+      if (X) out.push(X);
+    }
+    if (perDose && isFiniteNumber(perDose.value)) {
+      const D = limitFrom(drug, patient, perDose.value, perDose.unit || drug.amountUnit, { ...meta, scope: 'per dose', label: `${perDose.value} ${perDose.unit || drug.amountUnit} per dose (${meta.basis})` });
+      if (D) out.push(D);
+    }
+    for (const [route, rl] of Object.entries((drug && drug.routeBolusMax) || {})) {
+      const R = limitFrom(drug, patient, rl.value, rl.unit, { basis: rl.basis || '', sources: rl.sources || [], scope: 'per bolus', label: `${rl.value} ${rl.unit} per ${route} bolus (${rl.basis || ''})` });
+      if (R) out.push({ ...R, route });
+    }
     if (c.perKg && typeof c.perKg === 'object') {
       const P = limitFrom(drug, patient, c.perKg.value, c.perKg.unit, { ...meta, scope: primary.scope, scalar: c.perKg.scalar || null, label: `${c.perKg.value} ${c.perKg.unit}${c.perKg.scalar ? ` ${c.perKg.scalar}` : ''} (${meta.basis}; lesser applies)` });
       if (P) out.push(P);
@@ -288,6 +310,7 @@ function applyCeilingToRecommendation(drug, patient, result, weightKg) {
   const limits = interpretCeilings(drug, patient);
   for (const c of limits) {
     for (const s of c.sources) if (!result.sources.includes(s)) result.sources.push(s);
+    if (c.route && result.route !== c.route) continue; // route-specific limit (e.g. IV bolus) only for that route
     if ((c.type === 'cumulative' || c.type === 'bolus')) {
       for (const k of ['dose', 'loading']) {
         const d = result[k];
@@ -316,15 +339,23 @@ function applyCeilingToRecommendation(drug, patient, result, weightKg) {
   }
 }
 
+/**
+ * Convert a rate between units. Same unit → the value itself (no arithmetic, so a rate equal to
+ * a ceiling stays exactly equal). Otherwise the result is rounded to 12 significant figures so
+ * that a round trip (e.g. mcg/kg/h → mcg/min → mcg/kg/h) does not create float noise such as
+ * 0.5000000000000001 (2026-11 audit, code finding 1).
+ */
 function convertRateSafe(value, from, to, weightKg) {
   try {
+    if (!isFiniteNumber(value)) return null;
+    if (typeof from === 'string' && from === to) return parseRateUnit(from) && !parseRateUnit(from).dial ? value : null;
     const a = parseRateUnit(from), b = parseRateUnit(to);
     if (!a || !b || a.dial || b.dial) return null;
     // via mg/min absolute
     const absPerMin = rateToAmountPerMin(value, from, b.amount, weightKg);
     if ((a.perKg || b.perKg) && !(weightKg > 0)) return null;
     let v = absPerMin; if (b.perKg) v /= weightKg; if (b.time === 'h') v *= 60;
-    return v;
+    return roundSig(v, 12);
   } catch { return null; }
 }
 
