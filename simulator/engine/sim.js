@@ -130,6 +130,7 @@ class Simulation {
     this.phaseStart = { premed: 0 };
     this.executed = new Map();
     this.autoRun = null; // set by engine/autorun.js while/after an automatic or guided run
+    this.rescueAdvisor = null; // set by engine/rescue.js createRescueAdvisor(); advisory only, never doses
     this.stats = { depthOutOfBandSec: 0, timeMapBelow65Sec: 0, minSpo2: Infinity, maxHr: -Infinity, minHr: Infinity, interlockEvents: [], extubation: null };
     this.maskVentSec = 0;
     this.depots = [];
@@ -702,6 +703,9 @@ class Simulation {
     const n = Math.ceil(dtSec - 1e-9);
     const h = dtSec / n;
     for (let i = 0; i < n; i++) this._substep(h);
+    // Advisory haemodynamic rescue (engine/rescue.js): re-evaluated after each step; it only records
+    // what is shown — a dose is given only by the clinician's explicit accept().
+    if (this.rescueAdvisor && typeof this.rescueAdvisor.update === 'function') this.rescueAdvisor.update();
     return this.state;
   }
 
@@ -1047,6 +1051,7 @@ class Simulation {
         redose: redoseStatus(this.state.prophylaxis.doses, this.state.tSec, this.lib), checklistAcknowledged: this.state.prophylaxis.checklistAcknowledged, note: 'Timing only; antibiotic pharmacology is not modelled.' },
       lidocaine: this.state.drugs.lidocaine ? { totalMg: roundSig(this.state.drugs.lidocaine.cumulative), perKgIbw: roundSig(this.state.drugs.lidocaine.cumulative / scalarWeight(this.patient, 'IBW').weightKg, 3), pretreatmentMg: roundSig(this.lido.pretreatAt.reduce((a, x) => a + (x.amount || 0), 0)), pretreatmentDoses: this.lido.pretreatAt.length, overlapWarning: this.lido.warned } : null,
       automatic: this.autoRun && typeof this.autoRun.record === 'function' ? this.autoRun.record() : { used: false },
+      advisories: this.rescueAdvisor && typeof this.rescueAdvisor.record === 'function' ? this.rescueAdvisor.record() : { used: false, shown: 0, accepted: 0, dismissed: 0, entries: [] },
       modelNote: 'Illustrative model output — educational simulation, fictional patient; not a medical device.',
     };
   }

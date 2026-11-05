@@ -33,6 +33,7 @@ import { SCENARIOS } from '../data/scenarios.js';
 import { TECHNIQUE_TEMPLATES } from '../data/templates.js';
 import { AUTORUN_CONFIG, CONVENTION } from './autorun-config.js';
 import { TIMING_CONFIG } from './timing.js';
+import { RESCUE_CONFIG } from './rescue-config.js';
 
 export const PROVENANCE = Object.freeze(['fda_label', 'published_model', 'guideline', 'trial_or_physiology_study', 'project_config', 'author_estimate_unvalidated', 'simulator_convention', 'clinical_practice_convention_owner']);
 const AUTHOR = 'author_estimate_unvalidated';
@@ -201,6 +202,13 @@ export function buildParameterInventory({ lib, models = {}, fluidModel, mw, minF
   for (const [k, x] of Object.entries(AUTORUN_CONFIG)) {
     const prov = x.provenance === CONVENTION ? 'simulator_convention' : x.provenance;
     add('autorun', k, Array.isArray(x.value) ? x.value.join(', ') : x.value, x.unit, prov, [...x.sourceIds], `[${x.appliesTo === 'full' ? 'full demonstration only' : x.appliesTo === 'guided' ? 'guided mode only' : 'guided + full'}] ${x.rationale}`);
+  }
+  // ---------------------------------------------------------------- advisory haemodynamic rescue (engine/rescue-config.js)
+  // Thresholds with `ref` reuse sim.js ALARM_THRESHOLDS (resolved here, never redefined). Doses are not
+  // listed here: they are the drug-library rescue regimens (component pk/drug library, sources S18/S19).
+  for (const [k, x] of Object.entries(RESCUE_CONFIG)) {
+    const v = x.ref ? (alarmThresholds ? alarmThresholds[x.ref] : null) : x.value;
+    add('rescue', k, Array.isArray(v) ? v.join(', ') : v, x.unit, x.provenance, [...x.sourceIds], `${x.ref ? `[reuses ALARM_THRESHOLDS.${x.ref}] ` : ''}${x.rationale}`, x.drugId ? { drugId: x.drugId } : {});
   }
   return out;
 }
