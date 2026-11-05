@@ -266,6 +266,7 @@ function testSnapshot() {
       fluids: sim.state.fluids, prophylaxis: sim.state.prophylaxis, checklist: sim.prophylaxisChecklist(), alarms: sim.state.alarms, drugs: { lidocaine: sim.state.drugs.lidocaine } } : null,
     plan: { mode: store.plan.mode, sedationTarget: store.plan.sedationTarget, template: store.plan.template || null, steps: store.plan.steps.map((x) => ({ drugId: x.drugId, kind: x.kind, phase: x.phase, regimenKey: x.regimenKey, amount: x.amount, rate: x.rate, atSec: x.atSec })) },
     auto: a ? { ...a.status(), idx: a.idx, history: a.history } : null,
+    hist: store.run && store.run.hist ? { hr: store.run.hist.hr.slice(-3), map: store.run.hist.map.slice(-3), spo2: store.run.hist.spo2.slice(-3) } : null, // trend-chart samples (NaN gap → null)
     periop: sim ? sim.state.periop : null, planStatus: sim ? sim.planStatus().map((x) => ({ id: x.id, phase: x.phase, drugId: x.drugId, kind: x.kind, status: x.status, waiting: x.waiting || null })) : null,
   });
 }
