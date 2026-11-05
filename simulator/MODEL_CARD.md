@@ -8,14 +8,15 @@ Generated from `sim.parameterInventory()` and `engine/autorun-config.js` on 2026
 Education only: an educational, label-calibrated anesthesia pharmacology simulator with fictional adult patients. Not for clinical decisions or dosing. Not a medical device. No device, monitor, pump or patient-data interface.
 
 ## Verification and validation status
-- **Verification (does the code do what it is written to do):** automated tests — 124 engine/library tests (patient derivations, dosing and contraindications, PK/PD sanity, physiology sanity, Python-controller parity, determinism, full GA and MAC runs, model-implementation checks, guided/automatic sequence behaviour) and a 13-case browser smoke test.
+- **Verification (does the code do what it is written to do):** automated tests — 179 engine/library tests (patient derivations, dosing and contraindications, PK/PD sanity, physiology sanity, Python-controller parity, determinism, full GA and MAC runs, model-implementation checks, guided/automatic sequence behaviour, and the November 2026 additions: lidocaine pretreatment, IV fluids by type, antibiotic prophylaxis timing/alarms/checklist, technique templates in guided and full modes) and a 19-case browser smoke test.
 - **Implementation check of a published model:** propofol uses the published Eleveld 2018 model; tests reproduce its reference-patient parameter values as recorded in independent open-source implementations. The PK coefficients were not compared with the original paper's Table 2 in this session (publisher pages unreachable) — see SOURCES.md.
 - **Face validity:** no expert anesthesiologist review has been recorded.
 - **External validation:** none performed. Simulator outputs have not been compared with observed patient data.
+- **November 2026 additions:** antibiotic doses, windows and redosing intervals (Bratzler 2013, S46) and the lidocaine pretreatment dose (propofol label, S11) appear below as components `prophylaxis` and `pretreatment`; fluid label composition (S47, S48) and the fluid UI conventions under `fluids`; template definitions under `template` (no doses — filled by `recommend()`). Antibiotic pharmacology, propofol injection pain and type-specific fluid physiology are not modelled.
 - **Parts that cannot be validated with available sources:** all rows below marked *author estimate — unvalidated* (effect magnitudes, physiology constants, wash-in time constants, fluid-response constants).
 
-## Parameter inventory (496 parameters)
-Provenance counts: published_model: 29, author_estimate_unvalidated: 427, fda_label: 3, trial_or_physiology_study: 2, guideline: 4, project_config: 8, simulator_convention: 23.
+## Parameter inventory (531 parameters)
+Provenance counts: published_model: 29, author_estimate_unvalidated: 427, fda_label: 15, trial_or_physiology_study: 2, simulator_convention: 35, guideline: 15, project_config: 8.
 
 | Component | Drug | Parameter | Value | Unit | Provenance | Sources | Note |
 |---|---|---|---|---|---|---|---|
@@ -410,6 +411,9 @@ Provenance counts: published_model: 29, author_estimate_unvalidated: 427, fda_la
 | physiology |  | FiO2 maximum with N2O | 0.3 | fraction | author_estimate_unvalidated |  | Minimum FiO2 enforced with N2O (O2 + N2O ≤ 1 arithmetic; 0.30 floor is a simulator choice matching the ENIGMA-II 30% O2 arm). |
 | fluids |  | ALLOWED_ML | "250, 500" | mL | author_estimate_unvalidated |  | Simulator action sizes (owner-specified UI choice); not a recommendation. |
 | fluids |  | DEFAULT_ML | 500 | mL | author_estimate_unvalidated |  | Simulator action sizes (owner-specified UI choice); not a recommendation. |
+| fluids |  | DEFAULT_FLUID | "lactated_ringers" |  | simulator_convention |  | Fluid used when a bolus names no type (UI choice; lactated Ringer's). Not a recommendation. |
+| fluids |  | MAINTENANCE_DEFAULT_ML_H | 100 | mL/h | simulator_convention |  | Pre-filled maintenance-infusion rate in the plan editor and Run screen (editable). The FDA labels give no fixed dose; this is a UI choice, not a recommendation. |
+| fluids |  | MAINTENANCE_MAX_ML_H | 1000 | mL/h | simulator_convention |  | Input limit for the maintenance-infusion rate field (UI validation only). |
 | fluids |  | RUN_ML_PER_MIN | 50 | min | author_estimate_unvalidated |  | Illustrative volume-restoration model. |
 | fluids |  | RETENTION_TAU_MIN | 40 | min | author_estimate_unvalidated |  | Illustrative volume-restoration model. |
 | fluids |  | RESTORE_SCALE_ML | 750 | mL | author_estimate_unvalidated |  | Illustrative volume-restoration model. |
@@ -418,6 +422,38 @@ Provenance counts: published_model: 29, author_estimate_unvalidated: 427, fda_la
 | fluids |  | DIRECT_MAP_FRAC depleted | 0.1 | fraction of baseline MAP | author_estimate_unvalidated |  | Cap of direct MAP effect (hypovolemia/sepsis). |
 | fluids |  | DEPLETED_CONDITIONS | "hypovolemia, sepsis" |  | author_estimate_unvalidated |  | Conditions treated as volume depleted. |
 | fluids |  | SEPSIS_CONTEXT_ML_PER_KG | 30 | mL/kg | guideline | S43 | Surviving Sepsis Campaign 2021 statement shown as context text only; not used in the effect model. |
+| fluids |  | lactated_ringers composition sodiumMmol | 130 | mmol/L | fda_label | S47 | Lactated Ringer's label composition (per litre (approx.)); shown in the fluids panel. Not used by the volume model (no type-specific physiology). |
+| fluids |  | lactated_ringers composition potassiumMmol | 4 | mmol/L | fda_label | S47 | Lactated Ringer's label composition (per litre (approx.)); shown in the fluids panel. Not used by the volume model (no type-specific physiology). |
+| fluids |  | lactated_ringers composition calciumMmol | 1.4 | mmol/L | fda_label | S47 | Lactated Ringer's label composition (per litre (approx.)); shown in the fluids panel. Not used by the volume model (no type-specific physiology). |
+| fluids |  | lactated_ringers composition calciumMeq | 2.7 | mEq/L | fda_label | S47 | Lactated Ringer's label composition (per litre (approx.)); shown in the fluids panel. Not used by the volume model (no type-specific physiology). |
+| fluids |  | lactated_ringers composition chlorideMmol | 109 | mmol/L | fda_label | S47 | Lactated Ringer's label composition (per litre (approx.)); shown in the fluids panel. Not used by the volume model (no type-specific physiology). |
+| fluids |  | lactated_ringers composition lactateMmol | 28 | mmol/L | fda_label | S47 | Lactated Ringer's label composition (per litre (approx.)); shown in the fluids panel. Not used by the volume model (no type-specific physiology). |
+| fluids |  | lactated_ringers composition osmolarityMosmolL | 272 | mOsmol/L | fda_label | S47 | Lactated Ringer's label composition (per litre (approx.)); shown in the fluids panel. Not used by the volume model (no type-specific physiology). |
+| fluids |  | lactated_ringers composition pH | 6.5 |  | fda_label | S47 | Lactated Ringer's label composition (per litre (approx.)); shown in the fluids panel. Not used by the volume model (no type-specific physiology). |
+| fluids |  | sodium_chloride_0_9 composition sodiumMeq | 154 | mEq/L | fda_label | S48 | 0.9% sodium chloride label composition (per litre); shown in the fluids panel. Not used by the volume model (no type-specific physiology). |
+| fluids |  | sodium_chloride_0_9 composition chlorideMeq | 154 | mEq/L | fda_label | S48 | 0.9% sodium chloride label composition (per litre); shown in the fluids panel. Not used by the volume model (no type-specific physiology). |
+| fluids |  | sodium_chloride_0_9 composition osmolarityMosmolL | 308 | mOsmol/L | fda_label | S48 | 0.9% sodium chloride label composition (per litre); shown in the fluids panel. Not used by the volume model (no type-specific physiology). |
+| prophylaxis | cefazolin | cefazolin dose | 2000 | mg | guideline | S46 | Bratzler 2013 adult prophylaxis dose (fixed). |
+| prophylaxis | cefazolin | cefazolin dose (weight>=120) | 3000 | mg | guideline | S46 | Bratzler 2013: 3 g for patients weighing ≥ 120 kg. |
+| prophylaxis | cefazolin | cefazolin start window before incision | 60 | min | guideline | S46 | Dose must be STARTED within this time before incision (window alarm). |
+| prophylaxis | cefazolin | cefazolin redosing interval | 240 | min | guideline | S46 | Measured from the start of the last dose; "redose due" alarm during surgery. |
+| prophylaxis | clindamycin | clindamycin dose | 900 | mg | guideline | S46 | Bratzler 2013 adult prophylaxis dose (fixed). |
+| prophylaxis | clindamycin | clindamycin start window before incision | 60 | min | guideline | S46 | Dose must be STARTED within this time before incision (window alarm). |
+| prophylaxis | clindamycin | clindamycin redosing interval | 360 | min | guideline | S46 | Measured from the start of the last dose; "redose due" alarm during surgery. |
+| prophylaxis | vancomycin | vancomycin dose | 15 | mg/kg | guideline | S46 | Bratzler 2013 adult prophylaxis dose (TBW; weight basis = simulator convention). |
+| prophylaxis | vancomycin | vancomycin start window before incision | 120 | min | guideline | S46 | Dose must be STARTED within this time before incision (window alarm). |
+| prophylaxis | vancomycin | vancomycin redosing interval | "not applicable" |  | guideline | S46 | Measured from the start of the last dose; "redose due" alarm during surgery. |
+| prophylaxis |  | WINDOW_ALARM_PRIORITY | "medium" | alarm priority | simulator_convention |  | Alarm "Surgery started without antibiotic prophylaxis in the recommended window" (owner-approved additions spec). Latched until acknowledged. |
+| prophylaxis |  | REDOSE_ALARM_PRIORITY | "medium" | alarm priority | simulator_convention |  | Alarm "Prophylaxis redose due" once the guideline redosing interval has elapsed since the start of the last dose, while surgery is in progress. |
+| prophylaxis |  | CHECKLIST_REQUIRES_ACK | true | boolean | simulator_convention |  | Guided mode: before "Start surgery", an antibiotic checklist item that is not satisfied (no dose started within the window) is shown as a warning that the clinician must acknowledge; the full demonstration pauses for it. Neither mode ever acknowledges it. |
+| prophylaxis |  | INDICATED_DEFAULT_GA | true | boolean | simulator_convention |  | Plan screen: "Surgical antibiotic prophylaxis indicated" is ticked by default for GA plans and unticked for MAC plans (the simulator does not know the procedure). In the engine a plan without the flag counts as indicated only if it contains an antibiotic step. |
+| pretreatment | lidocaine | lidocaine pretreatment dose (before propofol) | 10 | mg | fda_label | S11 | Propofol label: prior IV lidocaine 1 mL of a 1% solution (= 10 mg). Counts toward cumulative lidocaine. |
+| pretreatment | lidocaine | lidocaine pretreatment / IV lidocaine overlap window | 14400 | s | guideline | S1 | Foo 2021 ~4 h separation between local-anaesthetic interventions and IV lidocaine, applied to pretreatment (simulator mapping). |
+| pretreatment |  | overlap alarm priority | "low" | alarm priority | simulator_convention |  | LOW alarm + log warning when pretreatment and IV lidocaine analgesic dosing overlap. |
+| template |  | ga_opioid steps | 12 | steps | simulator_convention |  | Template "GA — opioid-based (balanced)": drug/regimen/phase/offset choices only — every dose is filled at runtime by recommend() from the drug library. Offsets are simulator conventions. |
+| template |  | ga_opioid_free steps | 17 | steps | simulator_convention |  | Template "GA — opioid-free": drug/regimen/phase/offset choices only — every dose is filled at runtime by recommend() from the drug library. Offsets are simulator conventions. |
+| template |  | mac_dex steps | 6 | steps | simulator_convention |  | Template "MAC — dexmedetomidine": drug/regimen/phase/offset choices only — every dose is filled at runtime by recommend() from the drug library. Offsets are simulator conventions. |
+| template |  | mac_propofol steps | 3 | steps | simulator_convention |  | Template "MAC — propofol (existing technique)": drug/regimen/phase/offset choices only — every dose is filled at runtime by recommend() from the drug library. Offsets are simulator conventions. |
 | scenario |  | hemorrhage.rampSec | 600 | s | author_estimate_unvalidated |  | Illustrative perturbation magnitude/timing. |
 | scenario |  | hemorrhage.resolveSec | 0 | s | author_estimate_unvalidated |  | Illustrative perturbation magnitude/timing. |
 | scenario |  | hemorrhage.mapFrac | -0.35 |  | author_estimate_unvalidated |  | Illustrative perturbation magnitude/timing. |
@@ -526,7 +562,7 @@ While either mode runs, an on-screen banner (exact text: `BANNERS` in `engine/au
 1. **Start induction** — gate “Approve & start induction” (guided: you press it; full demonstration: passes automatically); FiO2 1 and bag-mask ventilation, then induction plan steps run at their offsets.
 2. **Secure airway** — gate “Intubate (secure airway)” (guided: you press it; full demonstration: passes automatically); enabled when intubating conditions are met; tube + mechanical ventilation.
 3. **Start maintenance** — gate “Enter maintenance mode” (guided: you press it; full demonstration: passes automatically); maintenance plan steps run at their offsets.
-4. **Start surgery** — automatic in both modes; automatic once maintenance has run long enough and depth is adequate.
+4. **Start surgery** — automatic in both modes; automatic once maintenance has run long enough and depth is adequate; if antibiotic prophylaxis is indicated but no dose was started within its window, the clinician must first acknowledge the checklist warning (guided: it waits; full demonstration: it pauses).
 5. **End surgery** — gate “End surgery” (guided: you press it; full demonstration: passes automatically); clinician-chosen end of surgery.
 6. **Begin emergence** — gate “Enter emergence / extubation mode” (guided: you press it; full demonstration: passes automatically); emergence plan steps run (agents off, antiemetic, reversal).
 7. **Extubate** — gate “Extubate” (guided: you press it; full demonstration: passes automatically); enabled only when sim.extubationReadiness() is met.
