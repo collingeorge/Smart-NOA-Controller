@@ -377,3 +377,23 @@ test('T17 timing config: one frozen block; every rule has value, unit, rationale
   assert.equal(TIMING_CONFIG.PREMED_TO_TRANSFER_SEC.provenance, 'clinical_practice_convention_owner');
 });
 
+
+if (REAL) {
+  test('T18 live timing checks of complete runs: opioid → hypnotic spacing and hypnotic → NMB pass for every GA template run (1-Hz stepping tolerance)', () => {
+    for (const ex of EXAMPLE_PATIENTS) {
+      const p = derivePatient(ex.patient, { library: REAL });
+      const { plan } = buildTemplatePlan('ga_opioid', p, { library: REAL });
+      const sim = createSimulation({ patient: p, plan, seed: 1, library: REAL }); const r = createAutoRunner({ sim, mode: 'full' }); r.start();
+      for (let i = 0; i < 14000 && !['completed', 'stopped', 'manual'].includes(r.state); i++) {
+        if (r.state === 'paused') { for (const a of sim.state.alarms) if (a.priority === 'high' && !a.acknowledged) sim.action(`acknowledge:${a.id}`); if (sim.core.holdLatched) sim.action('resume_hold'); clinicianResolves(r); r.resume(); continue; }
+        sim.step(1); r.tick();
+      }
+      const c = liveTimingChecks(sim);
+      for (const id of ['opioid_hypnotic', 'pretreatment', 'nmb_after_hypnotic', 'premed_interval', 'antibiotic_window', 'ponv_dexamethasone', 'ponv_ondansetron']) {
+        const x = c.find((y) => y.id === id); if (!x) continue; assert.equal(x.status, 'pass', `${ex.id} ${id}: ${x.message}`);
+      }
+      const o = sim.doseLog.find((d) => d.drugId === 'fentanyl'); const h = sim.doseLog.find((d) => d.drugId === 'propofol' && d.regimenKey === 'induction');
+      assert.ok(h.tSec - o.tSec >= TIMING_CONFIG.OPIOID_LEAD_SEC.value - 1, `${ex.id}: ${h.tSec - o.tSec} s`);
+    }
+  });
+}

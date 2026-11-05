@@ -477,6 +477,37 @@ Type: systematic review and meta-analysis
 - **Used by:** propofol injection-pain teaching note only
 - **Verified via:** WebSearch records (2026-11-05) of the bmj.com abstract page (bmj.d1110), the read.qxmd.com record (PMID 21406529) and library catalogue records (citation, abstract figures). Author list beyond the first three not re-verified (et al.). (date 2026-11-05)
 
+## 2026-11 timing review (S52–S54; additions to S9, S11, S12, S13)
+
+Verified by WebSearch records on 2026-11-05 (page fetches failed DNS: medlibrary.org, drugs.com). Timing statements added to existing entries: **S9** dexmedetomidine — "Initiate at one mcg/kg over 10 minutes, followed by a maintenance infusion initiated at 0.6 mcg/kg/hour" (DailyMed / labeling.pfizer.com records); **S11** propofol — MAC initiation over 3–5 min, then maintenance rates "during the first 10 to 15 minutes of sedation maintenance" (no "followed immediately" wording found for MAC); **S12** rocuronium — maintenance doses "administered at 25% recovery of control T1 (defined as 3 twitches of train-of-four)" (archived FDA-hosted Zemuron PI 2008; generic label); **S13** fentanyl — "the maximal analgesic and respiratory depressant effect may not be noted for several minutes" (archived DailyMed label). The full text of every entry is in `data/drugs.js` (`supports`, `verifiedVia`).
+
+### S52
+**Avidan MS, Zhang L, Burnside BA, et al. Anesthesia awareness and the bispectral index. N Engl J Med. 2008;358(11):1097-1108. (B-Unaware trial.)** https://pubmed.ncbi.nlm.nih.gov/18337600/  
+Identifiers: doi:10.1056/NEJMoa0707361; PMID 18337600  
+Type: randomized clinical trial
+
+- **Supports:** BIS-guided protocol with a target of 40 to 60 versus an end-tidal anaesthetic-gas protocol in about 2000 high-risk patients; definite awareness in 2 patients in each group; routine BIS monitoring not supported. Used only for the 40–60 GA band of the simulated processed-EEG index (a protocol target, not evidence of benefit).
+- **Used by:** `engine/timing.js` `GA_DEPTH_BAND` (pre-incision item, tile/chart band, live check)
+- **Verified via:** WebSearch records of PubMed 18337600, the ovid.com NEJM listing, the WashU news release and the BAG-RECALL protocol paper. Full text not opened. (date 2026-11-05)
+
+### S53
+**Avidan MS, Jacobsohn E, Glick D, et al. Prevention of intraoperative awareness in a high-risk surgical population. N Engl J Med. 2011;365(7):591-600. (BAG-RECALL trial.)** https://pmc.ncbi.nlm.nih.gov/articles/PMC3447261/  
+Identifiers: PMC3447261 (DOI and PMID not confirmed in a search record; not shown)  
+Type: randomized clinical trial
+
+- **Supports:** 6041 high-risk patients; BIS protocol with an audible alert below 40 or above 60 versus an end-tidal anaesthetic-concentration protocol; definite awareness 7/2861 (0.24%) vs 2/2852 (0.07%); superiority of the BIS protocol not demonstrated. Used only for the 40–60 GA band.
+- **Used by:** `engine/timing.js` `GA_DEPTH_BAND`
+- **Verified via:** WebSearch records of PMC3447261, digitalcommons.wustl.edu, aminer.org and the BAG-RECALL protocol (BMC Anesthesiol 2009;9:8, PMID 19948045). (date 2026-11-05)
+
+### S54
+**World Health Organization. WHO Guidelines for Safe Surgery 2009: Safe Surgery Saves Lives; and WHO Surgical Safety Checklist with Implementation Manual (2009). Geneva: WHO; 2009.** https://www.leapfroggroup.org/sites/default/files/Files/WHO_SafeSurgeryChecklistImplementationManual.pdf  
+Identifiers: none (ISBN not verified, not shown)  
+Type: guideline / checklist
+
+- **Supports:** Sign In, Time Out (before skin incision) and Sign Out. At the Time Out the team confirms patient, site and procedure; the checklist asks "Has antibiotic prophylaxis been given within the last 60 minutes?" (Yes / Not applicable). Not comprehensive; local modification encouraged.
+- **Used by:** `engine/timing.js` `TIME_OUT_REQUIRED` (pre-incision / pre-procedure item; only the clinician confirms it)
+- **Verified via:** WebSearch records of the Implementation Manual copy (leapfroggroup.org), checklist reproductions (caho.in, hqontario.ca), a PMC table and Wikipedia summaries; who.int originals not opened. (date 2026-11-05)
+
 ## Propofol PK model
 
 Propofol now uses the **Eleveld 2018** published population PK model (`pkModel: 'eleveld'`, arterial form, `engine/pk.js` `ELEVELD_2018` / `eleveldPropofol()`); `pkModelFallback: 'calibrated'` keeps the illustrative model available. Order tried: Eleveld 2018 → (Schnider 1998/1999, Marsh 1991 not needed). Eleveld was implemented because its full parameter set could be checked in more than two independent sources.
@@ -542,6 +573,15 @@ Cross-checking mattered: one implementation's Schnider function (tci 0.2.1 `pkmo
 | Ketorolac CONTRAINDICATIONS not modelled as rules: CABG setting, labour and delivery, probenecid, pentoxifylline, history (not active) of peptic ulcer/GI bleeding, cerebrovascular bleeding as a separate condition | CABG and obstetrics are out of scope (SPEC §0). Probenecid/pentoxifylline and the "history of" wording were not re-verified in the 2026-11 audit. Cerebrovascular bleeding is covered by the `bleeding_risk` condition. |
 | Desflurane: history of moderate-to-severe hepatic dysfunction after a halogenated anaesthetic | Verified (S36) but no matching patient condition exists in the simulator; listed here, not encoded. |
 | Midazolam with concomitant opioids/CNS depressants (label percentage reductions) | Not re-verified in the 2026-11 audit; kept as a note without a figure. |
+| A source for the 3-min fentanyl → propofol spacing | The fentanyl label says only that the maximal effect "may not be noted for several minutes" (S13); a 5–15 min peak respiratory-depression figure seen on a Pfizer page was not tied to the analgesic effect. The 3 min in the templates is a **simulator convention** anchored to "several minutes". |
+| A source for stopping dexmedetomidine a fixed time before the end of surgery | Search records showed opioid-free protocols that stop it about 30 min before the end (a spine case report; a secondary summary of POFA) and others 10–15 min before or at the end; the POFA primary paper's wording was not confirmed. The template uses 15 min as a **simulator convention** (it fits the 30-min automatic-demonstration surgery). |
+| "Foo 2021: lidocaine infusion stopped at end of surgery" (timing-review request) | Not found. Search records of Foo 2021 state an infusion of no more than 1.5 mg/kg/h for no longer than 24 h, subject to review. The template stops lidocaine at emergence only because the simulation ends there (**simulator convention**, labelled as such). |
+| Ketamine infusion stop time | The ketamine consensus (S10) gives doses, not an intraoperative stop time; stop at emergence = **simulator convention**. |
+| Preoxygenation duration (3 min) | Trials compare 3-min tidal breathing with 8 deep breaths, but no guideline giving a duration was verified (DAS 2015 text not retrieved). **Simulator convention**. |
+| OR setup time (2 min) | No source; **simulator convention**. |
+| Premedication 5 min before transfer to the OR | Practice stated by the project owner (**clinical practice convention (owner)**); label support for waiting ≥ 5 min: midazolam sedation within 3–5 min after IV injection (S17). |
+| Processed-EEG (BIS) sedation bands; agent-specific caveats (ketamine, nitrous oxide, dexmedetomidine) | Search records repeated them only in secondary material (manufacturer pocket guides, Wikipedia, single studies without a verified citation). Not shown; only the GA band 40–60 (S52, S53) is used. "BIS" is used only to say what the simulated index resembles; it is not a BIS value and BIS is a trademark of its owner. |
+| Surgical NMB depth target before incision (TOF count ≤ 2) | No label or guideline target verified; **simulator convention**. |
 | Fentanyl reduced dose in elderly/debilitated patients | The label gives no figure. The adjustment is a plan-time warning with the label wording; the auto-filled value stays the unreduced 2 mcg/kg low-dose tier. |
 | Epinephrine onset/peak/duration; IM absorption time course | No label timing statement was verified. The engine uses illustrative author estimates (`ILLUSTRATIVE_PK.epinephrine`, `ROUTE_KA_ILLUSTRATIVE`). |
 | Epinephrine label wording on hypovolaemia, hyperthyroidism, diabetes and Parkinson's disease | Not retrieved verbatim in this session, so no rule was added. Only the CAD/cardiomyopathy warning is used. |

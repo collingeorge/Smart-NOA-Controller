@@ -306,7 +306,8 @@ test('simulator UI smoke', { skip, timeout: 900000 }, async (t) => {
       await page.click('#mon-debrief'); await page.waitForSelector('#db-auto-note');
       assert.match(await page.textContent('#db-auto-note'), /ran in guided mode/);
       assert.match(await page.textContent('main'), /Extubated at .* readiness met/);
-      assert.match(await page.textContent('#db-timing'), /Premedication → induction/);
+      assert.match(await page.textContent('#db-timing'), /Opioid → hypnotic/); // the elderly example plan has no premedication
+      assert.equal(await page.getAttribute('#db-timing [data-check="opioid_hypnotic"]', 'data-status'), 'pass');
       await shot(page, 'auto-guided-debrief.png');
     });
 

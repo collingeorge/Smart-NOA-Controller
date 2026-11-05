@@ -70,6 +70,10 @@ export const TIMING_CONFIG = Object.freeze({
 });
 
 export const cfgv = (k) => TIMING_CONFIG[k].value;
+// Live comparisons allow one simulated second: the engine steps at 1 Hz and a plan step due exactly at
+// a phase start runs in that phase's first simulated second (offset-0 steps are 1 s "late").
+export const STEP_TOLERANCE_SEC = 1;
+const TOL = STEP_TOLERANCE_SEC;
 export const PREMED_TO_INDUCTION_MIN_SEC = cfgv('PREMED_TO_TRANSFER_SEC') + cfgv('OR_SETUP_SEC') + cfgv('PREOXYGENATION_SEC');
 
 const fmt = (sec) => { const s = Math.round(sec); const m = Math.floor(Math.abs(s) / 60); return `${s < 0 ? '−' : ''}${m}:${String(Math.abs(s) % 60).padStart(2, '0')}`; };
@@ -304,7 +308,7 @@ export function liveTimingChecks(sim) {
     const min = sim.plan.mode === 'MAC' ? PREMED_TO_INDUCTION_MIN_SEC - cfgv('PREOXYGENATION_SEC') : PREMED_TO_INDUCTION_MIN_SEC;
     const at = firstInd ? firstInd.tSec : indStart;
     if (at === undefined || at === null) out.push(check('premed_interval', 'Premedication → induction', 'info', `Premedication ended at ${fmt(pm.lastEndSec)}; ${sim.plan.mode === 'MAC' ? 'sedation' : 'induction'} allowed from ${fmt(pm.lastEndSec + min)} (${fmt(Math.max(0, pm.lastEndSec + min - t))} to go).`, src('PREMED_TO_TRANSFER_SEC'), OWNER_PRACTICE));
-    else { const gap = at - pm.lastEndSec; out.push(check('premed_interval', 'Premedication → induction', gap >= min - 1e-9 ? 'pass' : 'warn', `First ${sim.plan.mode === 'MAC' ? 'sedation' : 'induction'} drug ${fmt(gap)} after the premedication ended (minimum ${fmt(min)}).`, src('PREMED_TO_TRANSFER_SEC'), OWNER_PRACTICE)); }
+    else { const gap = at - pm.lastEndSec; out.push(check('premed_interval', 'Premedication → induction', gap >= min - TOL ? 'pass' : 'warn', `First ${sim.plan.mode === 'MAC' ? 'sedation' : 'induction'} drug ${fmt(gap)} after the premedication ended (minimum ${fmt(min)}).`, src('PREMED_TO_TRANSFER_SEC'), OWNER_PRACTICE)); }
   }
   // 2. loading → maintenance overlap
   for (const inf of log.filter((d) => d.kind === 'infusion' && d.rate > 0)) {
@@ -317,12 +321,12 @@ export function liveTimingChecks(sim) {
   // 3. opioid → hypnotic, 4. pretreatment, 5. NMB after hypnotic
   const op = first((d) => d.phase === 'induction' && d.kind === 'bolus' && cls(lib, d.drugId) === 'opioid');
   const hy = first((d) => d.phase === 'induction' && d.kind === 'bolus' && d.regimenKey === 'induction' && ['hypnotic', 'nmda'].includes(cls(lib, d.drugId)));
-  if (op && hy) { const g = hy.tSec - op.tSec; out.push(check('opioid_hypnotic', 'Opioid → hypnotic', g >= cfgv('OPIOID_LEAD_SEC') - 1e-9 ? 'pass' : 'warn', `${name(lib, hy.drugId)} ${fmt(g)} after ${name(lib, op.drugId)} (convention ≥ ${fmt(cfgv('OPIOID_LEAD_SEC'))}; label: maximal effect after several minutes [S13]).`, ['S13'], CONVENTION)); }
+  if (op && hy) { const g = hy.tSec - op.tSec; out.push(check('opioid_hypnotic', 'Opioid → hypnotic', g >= cfgv('OPIOID_LEAD_SEC') - TOL ? 'pass' : 'warn', `${name(lib, hy.drugId)} ${fmt(g)} after ${name(lib, op.drugId)} (convention ≥ ${fmt(cfgv('OPIOID_LEAD_SEC'))}; label: maximal effect after several minutes [S13]).`, ['S13'], CONVENTION)); }
   const pre = first((d) => d.drugId === 'lidocaine' && d.regimenKey === 'pretreatment');
   const pro = first((d) => d.drugId === 'propofol' && d.kind === 'bolus' && d.regimenKey === 'induction');
-  if (pre && pro) { const g = pro.tSec - pre.tSec; out.push(check('pretreatment', 'Lidocaine pretreatment → propofol', g >= 0 && g <= cfgv('PRETREATMENT_MAX_GAP_SEC') ? 'pass' : 'warn', `Pretreatment ${fmt(g)} before propofol (≤ ${fmt(cfgv('PRETREATMENT_MAX_GAP_SEC'))}) [S11].`, ['S11'], 'fda_label')); }
+  if (pre && pro) { const g = pro.tSec - pre.tSec; out.push(check('pretreatment', 'Lidocaine pretreatment → propofol', g >= 0 && g <= cfgv('PRETREATMENT_MAX_GAP_SEC') + TOL ? 'pass' : 'warn', `Pretreatment ${fmt(g)} before propofol (≤ ${fmt(cfgv('PRETREATMENT_MAX_GAP_SEC'))}) [S11].`, ['S11'], 'fda_label')); }
   const nb = first((d) => d.kind === 'bolus' && cls(lib, d.drugId) === 'nmb');
-  if (nb && hy) { const d = getDrug(lib, hy.drugId); const on = d && d.timing && isNum(d.timing.onsetMin) ? d.timing.onsetMin * 60 : 0; const g = nb.tSec - hy.tSec; out.push(check('nmb_after_hypnotic', 'Hypnotic → neuromuscular blocker', g >= on - 1e-9 ? 'pass' : 'warn', `${name(lib, nb.drugId)} ${fmt(g)} after ${name(lib, hy.drugId)} (label onset ${Math.round(on)} s).`, d && d.timing ? [...(d.timing.sources || [])] : [], 'fda_label')); }
+  if (nb && hy) { const d = getDrug(lib, hy.drugId); const on = d && d.timing && isNum(d.timing.onsetMin) ? d.timing.onsetMin * 60 : 0; const g = nb.tSec - hy.tSec; out.push(check('nmb_after_hypnotic', 'Hypnotic → neuromuscular blocker', g >= on - TOL ? 'pass' : 'warn', `${name(lib, nb.drugId)} ${fmt(g)} after ${name(lib, hy.drugId)} (label onset ${Math.round(on)} s).`, d && d.timing ? [...(d.timing.sources || [])] : [], 'fda_label')); }
   // 6. antibiotic window and redose
   const P = sim.state.prophylaxis;
   if (P.indicated) {
