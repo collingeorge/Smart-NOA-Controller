@@ -4,7 +4,8 @@
 // NO dose numbers: amounts/rates are filled at runtime from recommend() (data/drugs.js).
 
 import { recommend } from '../engine/dosing.js';
-import { getDrug } from '../engine/library.js';
+import { getDrug, getAntibiotic, getFluid } from '../engine/library.js';
+import { selectProphylaxis } from '../engine/prophylaxis.js';
 import { macForAge, createPkModel } from '../engine/pk.js';
 
 // Perturbation fields (applied × intensity 0..1; intensity ramps up over rampSec,
@@ -127,6 +128,7 @@ export const EXAMPLE_PLANS = [
   {
     id: 'ga_healthy', label: 'GA: propofol / fentanyl / rocuronium + sevoflurane', patientId: 'healthy_adult', mode: 'GA', sedationTarget: null,
     steps: [
+      { phase: 'premed', atSec: 0, drugId: 'auto', kind: 'antibiotic' },
       { phase: 'premed', atSec: 0, drugId: 'midazolam', regimenKey: 'premed', kind: 'bolus' },
       { phase: 'induction', atSec: 0, drugId: 'fentanyl', regimenKey: 'induction', kind: 'bolus' },
       { phase: 'induction', atSec: 0, drugId: 'dexamethasone', regimenKey: 'induction', kind: 'bolus' },
@@ -142,6 +144,7 @@ export const EXAMPLE_PLANS = [
   {
     id: 'ga_elderly_cad_ckd', label: 'GA: elderly CAD/CKD — reduced propofol, sevoflurane, phenylephrine available', patientId: 'elderly_cad_ckd', mode: 'GA', sedationTarget: null,
     steps: [
+      { phase: 'premed', atSec: 0, drugId: 'auto', kind: 'antibiotic' },
       { phase: 'induction', atSec: 0, drugId: 'fentanyl', regimenKey: 'induction', kind: 'bolus' },
       { phase: 'induction', atSec: 60, drugId: 'propofol', regimenKey: 'induction', kind: 'bolus' },
       { phase: 'induction', atSec: 90, drugId: 'rocuronium', regimenKey: 'induction', kind: 'bolus' },
@@ -163,6 +166,7 @@ export const EXAMPLE_PLANS = [
   {
     id: 'tiva_mh', label: 'TIVA for MH-susceptible patient — no succinylcholine, no volatile', patientId: 'mh_susceptible', mode: 'GA', sedationTarget: null,
     steps: [
+      { phase: 'premed', atSec: 0, drugId: 'auto', kind: 'antibiotic' },
       { phase: 'induction', atSec: 0, drugId: 'fentanyl', regimenKey: 'induction', kind: 'bolus' },
       { phase: 'induction', atSec: 60, drugId: 'propofol', regimenKey: 'induction', kind: 'bolus' },
       { phase: 'induction', atSec: 90, drugId: 'rocuronium', regimenKey: 'induction', kind: 'bolus' },
@@ -175,15 +179,39 @@ export const EXAMPLE_PLANS = [
 ];
 
 /**
- * buildPlan(template, patientDerived[, library]) -> { plan, skipped:[{drugId, reason}] }
+ * buildPlan(template, patientDerived[, library][, options]) -> { plan, skipped:[{drugId, reason}] }
+ * Step kinds (2026-11 additions):
+ *   'antibiotic' — drugId 'auto' selects the guideline agent (engine/prophylaxis.js); the dose comes
+ *                  from recommend(patient, 'prophylaxis', id). Skipped if the library has no antibiotics.
+ *   'fluid'      — maintenance infusion { fluidId, rate (mL/h) | 'default' (options.fluidDefaultMlH) }.
+ *   'fluid_bolus'— { fluidId, amount (mL) }.
+ * A plan built from a template with an antibiotic step is marked prophylaxisIndicated.
  * Fills each step from recommend(). Locked or unavailable drugs are skipped (with the reason).
  * A loading dose of an infusion regimen becomes a separate timed bolus step before the infusion.
  */
-export function buildPlan(template, patient, library = null) {
+export function buildPlan(template, patient, library = null, options = {}) {
   const steps = []; const skipped = [];
   let order = 0;
   for (const s of template.steps) {
     const base = { phase: s.phase, atSec: s.atSec, drugId: s.drugId };
+    if (s.kind === 'fluid' || s.kind === 'fluid_bolus') {
+      const f = getFluid(library, s.fluidId);
+      if (!f) { skipped.push({ drugId: s.fluidId, reason: 'Fluid not in library' }); continue; }
+      const rate = s.rate === 'default' ? options.fluidDefaultMlH : s.rate;
+      if (s.kind === 'fluid') {
+        if (!(typeof rate === 'number' && Number.isFinite(rate) && rate >= 0)) { skipped.push({ drugId: s.fluidId, reason: 'No maintenance rate given' }); continue; }
+        steps.push({ phase: s.phase, atSec: s.atSec, drugId: f.id, fluidId: f.id, id: `s${++order}`, order, kind: 'fluid', rate, rateUnit: 'mL/h', sources: [...f.sources] });
+      } else steps.push({ phase: s.phase, atSec: s.atSec, drugId: f.id, fluidId: f.id, id: `s${++order}`, order, kind: 'fluid_bolus', amount: s.amount, amountUnit: 'mL', sources: [...f.sources] });
+      continue;
+    }
+    if (s.kind === 'antibiotic') {
+      const sel = s.drugId === 'auto' ? selectProphylaxis(patient, library) : { drugId: s.drugId };
+      if (!sel.drugId || !getAntibiotic(library, sel.drugId)) { skipped.push({ drugId: s.drugId === 'auto' ? 'antibiotic prophylaxis' : s.drugId, reason: sel.reason || 'Antibiotic not in library' }); continue; }
+      const rec = recommend(patient, 'prophylaxis', sel.drugId, library);
+      if (rec.locked) { skipped.push({ drugId: sel.drugId, reason: rec.lockReasons.join('; ') }); continue; }
+      steps.push({ phase: s.phase, atSec: s.atSec, drugId: sel.drugId, regimenKey: 'prophylaxis', sources: rec.sources, id: `s${++order}`, order, kind: 'antibiotic', amount: rec.dose.value, amountUnit: rec.dose.unit, ...(sel.reason ? { selection: sel.reason } : {}) });
+      continue;
+    }
     if (!getDrug(library, s.drugId)) { skipped.push({ drugId: s.drugId, reason: 'Drug not in library' }); continue; }
     if (s.kind === 'stop') { steps.push({ ...base, id: `s${++order}`, order, kind: 'stop' }); continue; }
     const rec = recommend(patient, s.regimenKey, s.drugId, library);
@@ -208,7 +236,10 @@ export function buildPlan(template, patient, library = null) {
       skipped.push({ drugId: s.drugId, reason: `No ${s.kind} value in ${s.regimenKey} regimen` });
     }
   }
-  return { plan: { mode: template.mode, sedationTarget: template.sedationTarget, steps }, skipped };
+  const plan = { mode: template.mode, sedationTarget: template.sedationTarget, steps };
+  if (typeof template.prophylaxisIndicated === 'boolean') plan.prophylaxisIndicated = template.prophylaxisIndicated;
+  else if (steps.some((x) => x.kind === 'antibiotic')) plan.prophylaxisIndicated = true;
+  return { plan, skipped };
 }
 
 /** "give over 30–60 s" / "over 10 min" / "over at least 2 minutes" -> seconds (upper bound) if ≥ 60 s, else null (instant). */

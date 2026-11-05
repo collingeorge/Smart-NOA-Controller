@@ -26,12 +26,13 @@ import { PROFILES, PATIENT_MODS } from './pd.js';
 import { PHYS, GAINS } from './physiology.js';
 import { NOA_CONFIG } from './interlocks.js';
 import { SCENARIOS } from '../data/scenarios.js';
+import { TECHNIQUE_TEMPLATES } from '../data/templates.js';
 import { AUTORUN_CONFIG, CONVENTION } from './autorun-config.js';
 
 export const PROVENANCE = Object.freeze(['fda_label', 'published_model', 'guideline', 'trial_or_physiology_study', 'project_config', 'author_estimate_unvalidated', 'simulator_convention']);
 const AUTHOR = 'author_estimate_unvalidated';
 
-export function buildParameterInventory({ lib, models = {}, fluidModel, mw, minFio2WithN2O, alarmThresholds, extubationCriteria, stimulus }) {
+export function buildParameterInventory({ lib, models = {}, fluidModel, mw, minFio2WithN2O, alarmThresholds, extubationCriteria, stimulus, lidocaineRules = null, prophylaxisConfig = null }) {
   const out = [];
   const add = (component, name, value, unit, provenance, sourceIds = [], note = '', extra = {}) => out.push({ component, name, value, unit, provenance, sourceIds, note, ...extra });
   const eng = (lib && lib.SOURCE_IDS_ENGINE) || {};
@@ -125,11 +126,39 @@ export function buildParameterInventory({ lib, models = {}, fluidModel, mw, minF
     for (const [k, v] of Object.entries(fluidModel)) {
       if (k === 'SEPSIS_CONTEXT_ML_PER_KG') add('fluids', k, v, 'mL/kg', 'guideline', eng.sepsisFluids ? [eng.sepsisFluids] : [], 'Surviving Sepsis Campaign 2021 statement shown as context text only; not used in the effect model.');
       else if (k === 'ALLOWED_ML' || k === 'DEFAULT_ML') add('fluids', k, Array.isArray(v) ? v.join(', ') : v, 'mL', AUTHOR, [], 'Simulator action sizes (owner-specified UI choice); not a recommendation.');
+      else if (k === 'DEFAULT_FLUID') add('fluids', k, v, '', 'simulator_convention', [], 'Fluid used when a bolus names no type (UI choice; lactated Ringer\'s). Not a recommendation.');
+      else if (k === 'MAINTENANCE_DEFAULT_ML_H') add('fluids', k, v, 'mL/h', 'simulator_convention', [], 'Pre-filled maintenance-infusion rate in the plan editor and Run screen (editable). The FDA labels give no fixed dose; this is a UI choice, not a recommendation.');
+      else if (k === 'MAINTENANCE_MAX_ML_H') add('fluids', k, v, 'mL/h', 'simulator_convention', [], 'Input limit for the maintenance-infusion rate field (UI validation only).');
       else if (k === 'DEPLETED_CONDITIONS') add('fluids', k, v.join(', '), '', AUTHOR, [], 'Conditions treated as volume depleted.');
       else if (k === 'DIRECT_MAP_FRAC') { add('fluids', 'DIRECT_MAP_FRAC euvolaemic', v.euvolaemic, 'fraction of baseline MAP', AUTHOR, [], 'Cap of direct MAP effect.'); add('fluids', 'DIRECT_MAP_FRAC depleted', v.depleted, 'fraction of baseline MAP', AUTHOR, [], 'Cap of direct MAP effect (hypovolemia/sepsis).'); }
       else add('fluids', k, v, k.endsWith('_ML') ? 'mL' : k.endsWith('_MIN') ? 'min' : k.includes('PER_MIN') ? 'mL/min' : '', AUTHOR, [], 'Illustrative volume-restoration model.');
     }
   }
+
+  // ---------------------------------------------------------------- 2026-11 additions: fluid labels, prophylaxis, pretreatment, templates
+  for (const f of (lib && lib.FLUIDS) || []) {
+    for (const [k, v] of Object.entries(f.composition || {})) if (typeof v === 'number') add('fluids', `${f.id} composition ${k}`, v, k === 'pH' ? '' : /Mosmol/.test(k) ? 'mOsmol/L' : /Meq/.test(k) ? 'mEq/L' : 'mmol/L', 'fda_label', [...(f.sources || [])], `${f.name} label composition (${f.composition.unit}); shown in the fluids panel. Not used by the volume model (no type-specific physiology).`);
+  }
+  for (const a of (lib && lib.ANTIBIOTICS) || []) {
+    const r = a.regimens && a.regimens.prophylaxis; const src = [...((a.prophylaxis && a.prophylaxis.sources) || [])];
+    if (r && r.fixed) add('prophylaxis', `${a.id} dose`, r.fixed.default, r.fixed.unit, 'guideline', [...r.sources], 'Bratzler 2013 adult prophylaxis dose (fixed).', { drugId: a.id });
+    if (r && r.perKg) add('prophylaxis', `${a.id} dose`, r.perKg.default, r.unit, 'guideline', [...r.sources], `Bratzler 2013 adult prophylaxis dose (${r.scalar}; weight basis = simulator convention).`, { drugId: a.id });
+    for (const ad of (r && r.adjust) || []) if (ad.fixed) add('prophylaxis', `${a.id} dose (${ad.when})`, ad.fixed.default, ad.fixed.unit, 'guideline', [...ad.sources], ad.note || '', { drugId: a.id });
+    if (a.prophylaxis) {
+      add('prophylaxis', `${a.id} start window before incision`, a.prophylaxis.windowBeforeIncisionMin, 'min', 'guideline', src, 'Dose must be STARTED within this time before incision (window alarm).', { drugId: a.id });
+      add('prophylaxis', `${a.id} redosing interval`, a.prophylaxis.redoseIntervalMin === null ? 'not applicable' : a.prophylaxis.redoseIntervalMin, a.prophylaxis.redoseIntervalMin === null ? '' : 'min', 'guideline', src, 'Measured from the start of the last dose; "redose due" alarm during surgery.', { drugId: a.id });
+    }
+  }
+  if (prophylaxisConfig) for (const [k, x] of Object.entries(prophylaxisConfig)) add('prophylaxis', k, x.value, x.unit, x.provenance === 'simulator convention (unsourced)' ? 'simulator_convention' : x.provenance, [...x.sourceIds], x.rationale);
+  const lido = lib ? getDrug(lib, 'lidocaine') : null;
+  const pre = lido && lido.regimens && lido.regimens.pretreatment;
+  if (pre && pre.fixed) add('pretreatment', 'lidocaine pretreatment dose (before propofol)', pre.fixed.default, pre.fixed.unit, 'fda_label', [...pre.sources], 'Propofol label: prior IV lidocaine 1 mL of a 1% solution (= 10 mg). Counts toward cumulative lidocaine.', { drugId: 'lidocaine' });
+  if (lidocaineRules) {
+    const s1 = lido && lido.regimens && lido.regimens.induction ? [...lido.regimens.induction.sources] : [];
+    add('pretreatment', 'lidocaine pretreatment / IV lidocaine overlap window', lidocaineRules.OVERLAP_WINDOW_SEC, 's', 'guideline', s1, 'Foo 2021 ~4 h separation between local-anaesthetic interventions and IV lidocaine, applied to pretreatment (simulator mapping).', { drugId: 'lidocaine' });
+    add('pretreatment', 'overlap alarm priority', lidocaineRules.OVERLAP_ALARM_PRIORITY, 'alarm priority', 'simulator_convention', [], 'LOW alarm + log warning when pretreatment and IV lidocaine analgesic dosing overlap.');
+  }
+  for (const t of TECHNIQUE_TEMPLATES) add('template', `${t.id} steps`, t.steps.length, 'steps', 'simulator_convention', [], `Template "${t.label}": drug/regimen/phase/offset choices only — every dose is filled at runtime by recommend() from the drug library. Offsets are simulator conventions.`);
 
   // ---------------------------------------------------------------- scenarios
   for (const sc of SCENARIOS) {

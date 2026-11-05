@@ -10,7 +10,7 @@ const CLASSES = new Set(['hypnotic', 'opioid', 'nmb', 'reversal', 'alpha2', 'nmd
   'vasopressor', 'anticholinergic', 'benzodiazepine', 'volatile', 'gas', 'nsaid', 'analgesic']);
 const AMOUNT_UNITS = new Set(['mg', 'mcg', 'units', '%']);
 const REGIMEN_KEYS = new Set(['premed', 'sedation_minimal', 'sedation_moderate', 'sedation_deep',
-  'induction', 'maintenance', 'emergence', 'rescue', 'rescue_iv']);
+  'induction', 'maintenance', 'emergence', 'rescue', 'rescue_iv', 'pretreatment']);
 const KINDS = new Set(['bolus', 'infusion', 'inhaled']);
 const SCALARS = new Set(['TBW', 'IBW', 'LBW', 'ABW']);
 

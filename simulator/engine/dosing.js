@@ -2,7 +2,7 @@
 // Every number returned comes from the drug library (data/drugs.js); this
 // module only selects a regimen/adjustment and multiplies by a weight scalar.
 
-import { resolveLibrary, getDrug } from './library.js';
+import { resolveLibrary, getDosable as getDrug } from './library.js';
 import { scalarWeight } from './patient.js';
 import { convertAmount, parseDoseUnit, parseRateUnit, rateToAmountPerMin, roundSig, isFiniteNumber } from './units.js';
 

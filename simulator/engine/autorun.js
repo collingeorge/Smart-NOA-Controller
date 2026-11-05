@@ -26,6 +26,8 @@ export const BANNERS = Object.freeze({
   guided: 'Guided mode: each phase runs from your approved plan; you confirm every transition. Educational simulation — not a closed-loop controller or a clinical recommendation.',
 });
 const ACTIVE = new Set(['running', 'paused']);
+// Steps preceded by the antibiotic-prophylaxis checklist item (2026-11 additions; engine/prophylaxis.js).
+const SURGERY_START_STEPS = new Set(['start_surgery', 'start_procedure']);
 
 /** The step sequence for a plan mode. Exported for documentation and tests. */
 export function buildSequence(planMode, config = AUTORUN_CONFIG) {
@@ -50,7 +52,7 @@ export function buildSequence(planMode, config = AUTORUN_CONFIG) {
     { id: 'start_maintenance', label: 'Start maintenance', gate: true, gateLabel: 'Enter maintenance mode', fullWaitSec: v('MAINTENANCE_AFTER_AIRWAY_SEC'),
       actions: [['start_maintenance']], describe: 'maintenance plan steps run at their offsets' },
     { id: 'start_surgery', label: 'Start surgery', gate: false, check: 'surgeryDepth', minSec: v('SURGERY_START_MIN_SEC'), timeoutSec: v('SURGERY_START_TIMEOUT_SEC'),
-      actions: [['start_surgery']], describe: 'automatic once maintenance has run long enough and depth is adequate' },
+      actions: [['start_surgery']], describe: 'automatic once maintenance has run long enough and depth is adequate; if antibiotic prophylaxis is indicated but no dose was started within its window, the clinician must first acknowledge the checklist warning (guided: it waits; full demonstration: it pauses)' },
     { id: 'end_surgery', label: 'End surgery', gate: true, gateLabel: 'End surgery', fullWaitSec: v('SURGERY_DURATION_SEC'), actions: [['end_surgery']], describe: 'clinician-chosen end of surgery' },
     { id: 'begin_emergence', label: 'Begin emergence', gate: true, gateLabel: 'Enter emergence / extubation mode', fullWaitSec: v('CLOSING_BEFORE_EMERGENCE_SEC'),
       actions: [['begin_emergence']], describe: 'emergence plan steps run (agents off, antiemetic, reversal)' },
@@ -98,6 +100,13 @@ class AutoRunner {
     return this.sim.planStatus().filter((s) => phases.includes(s.phase)).every((s) => s.status !== 'pending');
   }
 
+  /** Antibiotic checklist before "Start surgery"/"Start procedure": null when satisfied, else the warning text. */
+  _checklist(step) {
+    if (!step || !SURGERY_START_STEPS.has(step.id) || typeof this.sim.prophylaxisChecklist !== 'function') return null;
+    const c = this.sim.prophylaxisChecklist();
+    return c.satisfied ? null : c.message;
+  }
+
   _check(step) {
     const V = this.sim.state.vitals; const unmet = [];
     switch (step.check) {
@@ -131,7 +140,10 @@ class AutoRunner {
       }
       default: break;
     }
-    return { met: unmet.length === 0, unmet };
+    const otherMet = unmet.length === 0;
+    const checklist = this._checklist(step);
+    if (checklist) unmet.push(`Antibiotic checklist: ${checklist}`);
+    return { met: unmet.length === 0, unmet, checklist, otherMet };
   }
 
   /** Reasons to pause: latched interlock hold; unacknowledged HIGH alarm active or raised since the last check. */
@@ -176,6 +188,8 @@ class AutoRunner {
     const holdSec = step.holdSec || 0;
     const metHeld = c.met && t - this.metSince >= holdSec - 1e-9;
     const waitSec = Math.max(step.minSec || 0, step.gate ? step.fullWaitSec || 0 : 0);
+    // Full demonstration: an unsatisfied antibiotic checklist pauses the sequence (never acknowledged automatically).
+    if (this.mode === 'full' && c.checklist && c.otherMet && el >= waitSec - 1e-9) { this._pause([{ kind: 'checklist', message: `Antibiotic checklist needs the clinician: ${c.checklist} Automatic mode does not acknowledge it — give prophylaxis or acknowledge the warning, then Resume.` }], 'auto'); return this.status(); }
     if (metHeld && el >= waitSec - 1e-9) this._execute(step, 'auto', c);
     else if (step.timeoutSec && el >= step.timeoutSec && !metHeld) this._stop(`${step.label}: conditions not met within ${Math.round(step.timeoutSec / 60)} min`, c.unmet.length ? c.unmet : ['condition did not hold long enough']);
     return this.status();
@@ -235,6 +249,8 @@ class AutoRunner {
   resume() {
     if (this.state !== 'paused') return { ok: false, message: `Not paused (${this.state})` };
     const blk = this.blockers(false);
+    const ck = this.current && this.mode === 'full' ? this._check(this.current) : null;
+    if (ck && ck.checklist && ck.otherMet) blk.push({ kind: 'checklist', message: `Antibiotic checklist still needs the clinician: ${ck.checklist}` });
     if (blk.length) { this.pauseReasons = blk; this.message = `Still paused — ${blk.map((r) => r.message).join(' ')}`; this._emit('still_paused', { reasons: blk }); return { ok: false, message: this.message }; }
     this.state = 'running'; this.pauseReasons = [];
     const p = this.pauses[this.pauses.length - 1]; if (p) p.resumedAtSec = this._t();
@@ -273,7 +289,7 @@ class AutoRunner {
       const c = this._check(step);
       const el = this.enteredAt === null ? 0 : t - this.enteredAt;
       cur = { id: step.id, label: step.label, gate: !!step.gate, gateLabel: step.gateLabel || null, index: this.idx, total: this.seq.length, describe: step.describe,
-        conditionsMet: c.met, unmet: c.unmet, elapsedSec: el, timedOut: !!(step.timeoutSec && el >= step.timeoutSec && !c.met),
+        conditionsMet: c.met, unmet: c.unmet, checklist: c.checklist, elapsedSec: el, timedOut: !!(step.timeoutSec && el >= step.timeoutSec && !c.met),
         enabled: this.mode === 'guided' && this.state === 'running' && !!step.gate && c.met };
     }
     return { mode: this.mode, modeLabel: MODE_LABELS[this.mode], banner: BANNERS[this.mode], planMode: this.planMode, state: this.state, active: this.active, message: this.message,
