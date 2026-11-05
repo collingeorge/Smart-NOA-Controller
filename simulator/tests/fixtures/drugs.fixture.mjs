@@ -129,11 +129,25 @@ export const DRUGS = [
     timing: t(0.75, 1, 8), pkModel: 'calibrated',
   },
   {
-    id: 'sevoflurane', name: 'Sevoflurane', cls: 'volatile', concentration: null, amountUnit: '%', mac40: 2.0,
-    regimens: { maintenance: { kind: 'inhaled', rate: { default: 2, min: 1, max: 3, unit: '%' }, sources: SRC, note: FX } },
+    id: 'sevoflurane', name: 'Sevoflurane', cls: 'volatile', concentration: null, amountUnit: '%', mac: { mac40Pct: 2.0 },
+    regimens: { maintenance: { kind: 'inhaled', rate: { default: 2, min: 1, max: 3, unit: '%' }, defaultRule: 'ageAdjustedMac', sources: SRC, note: FX } },
     ceiling: { value: 8, unit: '%', basis: 'label maximum', sources: SRC },
     contraindications: [{ when: 'condition:mh_susceptible', severity: 'lock', message: FX, sources: SRC }],
     timing: null, pkModel: 'calibrated',
+  },
+  {
+    id: 'desflurane', name: 'Desflurane', cls: 'volatile', concentration: null, amountUnit: '%', mac: { mac40Pct: 6.6 },
+    regimens: { maintenance: { kind: 'inhaled', rate: { default: 6, min: 3, max: 9, unit: '%' }, defaultRule: 'ageAdjustedMac', sources: SRC, note: FX } },
+    runtimeRules: [{ id: 'rapid_concentration_increase', severity: 'warn', message: FX, sources: SRC }],
+    ceiling: { value: 9, unit: '%', basis: 'label maximum', sources: SRC },
+    contraindications: [{ when: 'condition:mh_susceptible', severity: 'lock', message: FX, sources: SRC }],
+    timing: null, pkModel: 'calibrated',
+  },
+  {
+    id: 'nitrous_oxide', name: 'Nitrous oxide', cls: 'gas', concentration: null, amountUnit: '%', mac: { mac40Pct: 104 },
+    regimens: { maintenance: { kind: 'inhaled', rate: { default: 70, min: 50, max: 70, unit: '%' }, sources: SRC, note: FX } },
+    ceiling: { value: 70, unit: '%', basis: 'study protocol value', sources: SRC },
+    contraindications: [], timing: null, pkModel: 'calibrated',
   },
   {
     id: 'sugammadex', name: 'Sugammadex', cls: 'reversal', concentration: { value: 100, unit: 'mg/mL' }, amountUnit: 'mg',

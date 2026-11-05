@@ -75,7 +75,12 @@ export class Physiology {
 
     // ---- oxygen (alveolar store; FRC factor speeds desaturation in obesity)
     const pio2 = airway.fio2 * 713;
-    const dP = (veff * PHYS.VENT_EQUIL_PER_MIN * (pio2 - this.pao2) - PHYS.O2_CONSUMPTION_MMHG_PER_MIN) / m.frcFactor;
+    // Blood O2 store buffers the alveolar fall on the steep part of the dissociation curve
+    // (capacitance ∝ FRC + blood O2 content slope; ~850 mL blood O2 vs ~3.5 mL/mmHg alveolar; illustrative).
+    const pa = Math.max(15, this.pao2 - this.aa0);
+    const dSdP = (severinghaus(pa + 0.5) - severinghaus(pa - 0.5)) / 100;
+    const cap = m.frcFactor + 243 * dSdP * Math.min(1, m.frcFactor + 0.3);
+    const dP = (veff * PHYS.VENT_EQUIL_PER_MIN * (pio2 - this.pao2) * m.frcFactor - PHYS.O2_CONSUMPTION_MMHG_PER_MIN) / cap;
     this.pao2 = clamp(this.pao2 + dP * dtMin, 15, pio2);
     const aa = (this.aa0 + ev.aaAdd + (airway.secured ? 5 : 0)) * (1 + 1.5 * (airway.fio2 - 0.21));
     const pao2art = Math.max(15, this.pao2 - aa);
@@ -92,10 +97,10 @@ export class Physiology {
     this.paco2 = clamp(this.paco2, 15, 130);
 
     // ---- stimulus response (blunted by analgesia and hypnosis)
-    const R = stimulus * (1 - effects.A) * (1 - 0.5 * effects.H);
+    const R = stimulus * (1 - 0.8 * effects.A) * (1 - 0.4 * effects.H);
     // ---- haemodynamics (fractional changes, first-order lags)
-    let mapF = effects.mapFrac + 0.3 * R + ev.mapFrac;
-    let hrRise = effects.hrFrac + 0.3 * R + ev.hrFrac;
+    let mapF = effects.mapFrac + 0.4 * R + ev.mapFrac;
+    let hrRise = effects.hrFrac + 0.35 * R + ev.hrFrac;
     if (this.paco2 > 60) { mapF += 0.1; hrRise += 0.1; }
     if (this.sao2 < 85 && this.sao2 >= 70) hrRise += 0.15; else if (this.sao2 < 70) hrRise -= 0.3;
     if (hrRise > 0) hrRise *= m.hrRiseBlunt;

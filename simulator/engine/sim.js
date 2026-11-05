@@ -5,13 +5,14 @@
 import { resolveLibrary, getDrug, listDrugs, findSourceId } from './library.js';
 import { derivePatient, scalarWeight } from './patient.js';
 import { evaluateContraindications, interpretCeilings, recommend, convertRateSafe } from './dosing.js';
-import { createPkModel, isInhaled, isNitrous } from './pk.js';
-import { combineEffects, patientModifiers, profileFor, tofFromTwitches, SEDATION_RANK, PROFILES } from './pd.js';
+import { createPkModel, isInhaled, isNitrous, referenceRegimen } from './pk.js';
+import { combineEffects, patientModifiers, tofFromTwitches, SEDATION_RANK, PROFILES } from './pd.js';
 import { Physiology } from './physiology.js';
 import { InterlockCore, pythonLockouts, CONTROLLED, PY_TO_SIM_ID, SIM_TO_PY_ID, PY_RATE_UNITS, NOA_CONFIG } from './interlocks.js';
 import { AlarmManager } from './alarms.js';
-import { convertAmount, rateToAmountPerMin, isFiniteNumber, round3, parseRateUnit } from './units.js';
+import { convertAmount, rateToAmountPerMin, isFiniteNumber, roundSig, parseRateUnit } from './units.js';
 import { getScenario } from '../data/scenarios.js';
+import { createRng as createRngLocal } from './rng.js';
 
 export const PHASES = ['premed', 'sedation', 'induction', 'maintenance', 'emergence'];
 export const MIN_FIO2_WITH_N2O = 0.30;
@@ -47,6 +48,8 @@ class Simulation {
     const p = this.patient;
     this.phys = new Physiology(p, this.mods, (this.rng = makeRng(seed)));
     this.alarmMgr = new AlarmManager((t, kind, msg) => this._log(kind, msg));
+    const pulse = this.alarmMgr.pulse.bind(this.alarmMgr);
+    this.alarmMgr.pulse = (...args) => { pulse(...args); if (this.state) this.state.alarms = this.alarmMgr.list(); };
     this.models = {};
     this.timed = [];
     this.events = [];
@@ -61,6 +64,7 @@ class Simulation {
     this.recCache = new Map();
     this.ceilings = {};
     this.rateWeight = {};
+    this._ilLast = {}; this._ilLoggedStatus = null; this._ilStatusT = -Infinity; this._alarmOn = new Set();
 
     // Lockouts: library lock rules + Python free-text lockouts (config.yaml) on condition/allergy ids and labels.
     const lockouts = {};
@@ -111,7 +115,9 @@ class Simulation {
     if (!this.models[drugId]) {
       const drug = getDrug(this.lib, drugId);
       const k10Mult = this.mods.k10Mult[drugId] || 1;
-      this.models[drugId] = createPkModel(drug, this.patient, { k10Mult });
+      const rr = referenceRegimen(drug);
+      const volumeWeightKg = rr && rr.reg.scalar ? scalarWeight(this.patient, rr.reg.scalar).weightKg : this.patient.weightKg;
+      this.models[drugId] = createPkModel(drug, this.patient, { k10Mult, volumeWeightKg });
     }
     return this.models[drugId];
   }
@@ -139,18 +145,24 @@ class Simulation {
     if (ranges.some((r) => r.v >= r.min - 1e-9 && r.v <= r.max + 1e-9)) return null;
     const r = ranges[0];
     const far = r.v > r.max * 1.5 || r.v < r.min * 0.5;
-    return { priority: far ? 'medium' : 'low', message: `${drug.name} ${round3(r.v)} ${r.unit} is outside the sourced ${r.key} range ${r.min}–${r.max} ${r.unit}` };
+    return { priority: far ? 'medium' : 'low', message: `${drug.name} ${roundSig(r.v)} ${r.unit} is outside the sourced ${r.key} range ${r.min}–${r.max} ${r.unit}` };
   }
 
   _tof() { return { count: this.state.vitals.tofCount, ratio: this.state.vitals.tofRatio }; }
 
-  _runtimeWarnings(drug) {
+  _runtimeWarnings(drug, cmd = null) {
     const out = [];
     const rules = Array.isArray(drug.runtimeRules) ? drug.runtimeRules : [];
     const tof = this._tof();
     const notMinimal = tof.count < 4 || tof.ratio < 0.4;
     for (const r of rules) {
       if (/tof/i.test(r.id || r.when || '') && notMinimal) out.push(`${r.message}${r.sources && r.sources.length ? ` [${r.sources.join(', ')}]` : ''} (current TOF count ${tof.count}, TOFR ${tof.ratio.toFixed(2)})`);
+    }
+    for (const r of rules) {
+      if (/rapid/i.test(r.id || '') && cmd && isFiniteNumber(cmd.rate)) {
+        const m = this._model(drug.id); const cur = this.state.drugs[drug.id].infusionRate || 0;
+        if (m.type === 'volatile' && cmd.rate - cur > 0.5 * m.macAgeAdjusted) out.push(`${r.message}${r.sources && r.sources.length ? ` [${r.sources.join(', ')}]` : ''}`);
+      }
     }
     if (!rules.length && drug.id === 'neostigmine' && notMinimal) out.push(`Neostigmine is effective only at minimal depth of block (TOFR ≥ 0.4); current TOF count ${tof.count}, TOFR ${tof.ratio.toFixed(2)}.`);
     return out;
@@ -200,7 +212,7 @@ class Simulation {
       if (overSec) this.timed.push({ drugId: drug.id, perMin: amt / (overSec / 60), remaining: amt });
       else { model.model.bolus(amt); ds.cumulative += amt; }
       this._onDrugGiven(drug);
-      this._log('dose', `${drug.name} ${round3(amt)} ${drug.amountUnit} bolus${overSec ? ` over ${Math.round(overSec / 60)} min` : ''}${meta.source === 'plan' ? ' (plan)' : ''}${warnings.length ? ` — warnings: ${warnings.join('; ')}` : ''}`);
+      this._log('dose', `${drug.name} ${roundSig(amt)} ${drug.amountUnit} bolus${overSec ? ` over ${Math.round(overSec / 60)} min` : ''}${meta.source === 'plan' ? ' (plan)' : ''}${warnings.length ? ` — warnings: ${warnings.join('; ')}` : ''}`);
       return res(true, false, [], warnings);
     }
 
@@ -210,6 +222,7 @@ class Simulation {
       const inh = isInhaled(drug);
       if (inh !== (kind === 'inhaled')) return res(false, true, [`${drug.name} is ${inh ? 'an inhaled agent (use kind "inhaled", %)' : 'not an inhaled agent'}`], []);
       if (inh) {
+        warnings.push(...this._runtimeWarnings(drug, cmd));
         if (unit !== '%') return res(false, true, ['Inhaled agents are set in % (dial)'], []);
         for (const L of limits) if (L.type === 'dial' && rate > L.value + 1e-9) return res(false, true, [`Dial above ${L.label}`], warnings);
         if (isNitrous(drug)) {
@@ -221,8 +234,7 @@ class Simulation {
           if (this.state.airway.fio2 > maxO2 + 1e-9) { this.state.airway.fio2 = Math.round(maxO2 * 100) / 100; warnings.push(`FiO2 reduced to ${this.state.airway.fio2} to make room for N2O ${rate}%`); }
         }
       } else {
-        let perMin;
-        try { perMin = rateToAmountPerMin(rate, unit, drug.amountUnit, this.rateWeight[drug.id]); } catch (e) { return res(false, true, [e.message], []); }
+        try { rateToAmountPerMin(rate, unit, drug.amountUnit, this.rateWeight[drug.id]); } catch (e) { return res(false, true, [e.message], []); }
         for (const L of limits) {
           if (L.type !== 'rate') continue;
           const cap = convertRateSafe(L.value, L.rateUnit, unit, L.weightKg ?? this.rateWeight[drug.id]);
@@ -236,7 +248,6 @@ class Simulation {
           const ceil = NOA_CONFIG.simulation_rate_ceilings[py];
           if (pyRate === null || pyRate > ceil + 1e-12) return res(false, true, [`Rate above the Python simulation ceiling ${ceil} ${PY_RATE_UNITS[py]} (config.yaml simulation_rate_ceilings; applies while interlocks are on)`], warnings);
         }
-        void perMin;
       }
       const rc = this._rangeCheck(drug, kind, rate, unit);
       if (rc) { warnings.push(rc.message); this.alarmMgr.pulse(this.state.tSec, 'dose_range', rc.priority, rc.message); }
@@ -291,12 +302,13 @@ class Simulation {
     }
     if (id.startsWith('acknowledge:')) {
       const aid = id.slice(12);
-      return this.alarmMgr.acknowledge(aid) ? ok(`Alarm acknowledged: ${aid}`) : no(`No alarm '${aid}'`);
+      const r = this.alarmMgr.acknowledge(aid); this.state.alarms = this.alarmMgr.list();
+      return r ? ok(`Alarm acknowledged: ${aid}`) : no(`No alarm '${aid}'`);
     }
     switch (id) {
       case 'secure_airway': {
         if (a.secured) return no('Airway already secured');
-        a.secured = true; a.maskVentilation = false; a.jawThrust = false; this.stim.laryngoscopyAt = t;
+        a.secured = true; a.maskVentilation = false; a.jawThrust = false; this.stim.laryngoscopyAt = t; this.state.surgery.stimulus = 'laryngoscopy';
         const v = this.state.vitals; const notes = [];
         if (v.depthIndex > 70) notes.push('depth index > 70: light for laryngoscopy (illustrative)');
         if (v.tofCount > 0 && this.lastEffects && this.lastEffects.block < 0.9) notes.push('neuromuscular block incomplete');
@@ -308,8 +320,8 @@ class Simulation {
       case 'release_jaw_thrust': a.jawThrust = false; return ok('Jaw thrust released');
       case 'start_ventilation': if (!a.secured) return no('Secure the airway before mechanical ventilation (or mask ventilate)'); a.ventilated = true; return ok('Mechanical ventilation started');
       case 'stop_ventilation': a.ventilated = false; return ok('Mechanical ventilation stopped');
-      case 'start_surgery': this.stim.surgeryStartAt = t; this.stim.surgeryEndAt = null; return ok('Surgery started (incision)');
-      case 'end_surgery': this.stim.surgeryEndAt = t; return ok('Surgery ended (closing)');
+      case 'start_surgery': this.stim.surgeryStartAt = t; this.stim.surgeryEndAt = null; this.state.surgery.stimulus = 'incision'; return ok('Surgery started (incision)');
+      case 'end_surgery': this.stim.surgeryEndAt = t; this.state.surgery.stimulus = 'closing'; return ok('Surgery ended (closing)');
       case 'extubate': {
         if (!a.secured) return no('No tracheal tube to remove');
         const r = this.extubationReadiness();
@@ -411,7 +423,8 @@ class Simulation {
         if (!(isFiniteNumber(v) && v >= 0)) { if (!isPy) this._setRate(d, 0, ds.rateUnit); else this._lastRate[d.id] = v; }
         else {
           try { this._setRate(d, v, ds.rateUnit); } catch { this._setRate(d, 0, ds.rateUnit); }
-          if (!this._withinLabelRate(d, v, ds.rateUnit)) { this._setRate(d, 0, ds.rateUnit); this._log('interlock', `${d.name}: rate above label ceiling — set to zero`); this.alarmMgr.pulse(t, 'dose_blocked', 'medium', `${d.name} rate above label ceiling`); }
+          if (!isPy) this._enforceLabelRate(d, t);
+          else this._labelCheckAfterInterlock = [...(this._labelCheckAfterInterlock || []), d];
         }
       }
     }
@@ -433,9 +446,17 @@ class Simulation {
         if (ds && this.core.infusions[py] === 0 && ds.infusionRate !== 0) { this._setRate(getDrug(lib, id), 0, ds.rateUnit); this._log('interlock', `${getDrug(lib, id).name} set to zero by interlock`); }
       }
       const newHeld = [...this.core.heldDrugs].filter((d) => !prevHeld.has(d));
-      if (r.status !== prevStatus || newHeld.length) {
-        for (const e of r.events) { this._log('interlock', e.message); this.stats.interlockEvents.push({ tSec: t, code: e.code, message: e.message }); }
+      // Log/record decisions without flooding: an event code is recorded once per 60 s.
+      for (const e of r.events) {
+        const last = this._ilLast[e.code];
+        if (last === undefined || t - last >= 60 || newHeld.length) {
+          this._log('interlock', e.message); this.stats.interlockEvents.push({ tSec: t, code: e.code, message: e.message });
+        }
+        this._ilLast[e.code] = t;
+      }
+      if (r.status !== prevStatus && (r.status !== this._ilLoggedStatus) && (t - this._ilStatusT >= 30 || newHeld.length || r.status === 'GREEN')) {
         this._log('interlock', `Interlock status ${r.status}${this.core.holdLatched ? ` (hold latched: ${[...this.core.heldDrugs].map((x) => PY_TO_SIM_ID[x]).join(', ')})` : ''}`);
+        this._ilLoggedStatus = r.status; this._ilStatusT = t;
       }
       S.interlocks.status = this.core.status;
       S.interlocks.holdLatched = this.core.holdLatched;
@@ -443,6 +464,9 @@ class Simulation {
     } else {
       for (const d of listDrugs(lib)) { const ds = S.drugs[d.id]; if (!(isFiniteNumber(ds.infusionRate) && ds.infusionRate >= 0)) this._setRate(d, 0, ds.rateUnit); }
     }
+
+    for (const d of this._labelCheckAfterInterlock || []) this._enforceLabelRate(d, t);
+    this._labelCheckAfterInterlock = null;
 
     // 5. lockouts (all drugs) re-enforced every step
     for (const id of Object.keys(S.interlocks.lockouts)) if (S.drugs[id] && S.drugs[id].infusionRate !== 0) { this._setRate(getDrug(lib, id), 0, S.drugs[id].rateUnit); this._log('interlock', `${getDrug(lib, id).name} is locked out — set to zero`); }
@@ -538,15 +562,17 @@ class Simulation {
 
     // 11. alarms
     const ok = (x) => isFiniteNumber(x);
+    // Level alarms with hysteresis: once on, they stay on until the value is 2 units past the threshold.
+    const hy = (id, on, stayOn) => { const a = on || (this._alarmOn.has(id) && stayOn); if (a) this._alarmOn.add(id); else this._alarmOn.delete(id); return a; };
     const target = this.plan.mode === 'MAC' ? this.plan.sedationTarget : null;
     const conds = [
-      { id: 'spo2_low', priority: 'high', message: `SpO2 ${V.spo2}% < 90%`, active: ok(V.spo2) && V.spo2 < 90 },
+      { id: 'spo2_low', priority: 'high', message: `SpO2 ${V.spo2}% < 90%`, active: hy('spo2_low', ok(V.spo2) && V.spo2 < 90, ok(V.spo2) && V.spo2 < 92) },
       { id: 'apnea', priority: 'high', message: `Apnoea > 30 s without ventilation (${Math.round(out._true.apnoeaSec)} s)`, active: out._true.apnoeaSec > 30 },
-      { id: 'map_critical', priority: 'high', message: `MAP ${V.map} < 60 mmHg (interlock threshold)`, active: ok(V.map) && V.map < 60 },
-      { id: 'hr_critical', priority: 'high', message: `HR ${V.hr} < 48 /min (interlock threshold)`, active: ok(V.hr) && V.hr < 48 },
-      { id: 'map_low', priority: 'medium', message: `MAP ${V.map} < 65 mmHg`, active: ok(V.map) && V.map < 65 },
-      { id: 'map_high', priority: 'medium', message: `MAP ${V.map} > 120 mmHg`, active: ok(V.map) && V.map > 120 },
-      { id: 'hr_high', priority: 'medium', message: `HR ${V.hr} > 120 /min`, active: ok(V.hr) && V.hr > 120 },
+      { id: 'map_critical', priority: 'high', message: `MAP ${V.map} < 60 mmHg (interlock threshold)`, active: hy('map_critical', ok(V.map) && V.map < 60, ok(V.map) && V.map < 62) },
+      { id: 'hr_critical', priority: 'high', message: `HR ${V.hr} < 48 /min (interlock threshold)`, active: hy('hr_critical', ok(V.hr) && V.hr < 48, ok(V.hr) && V.hr < 50) },
+      { id: 'map_low', priority: 'medium', message: `MAP ${V.map} < 65 mmHg`, active: hy('map_low', ok(V.map) && V.map < 65, ok(V.map) && V.map < 67) },
+      { id: 'map_high', priority: 'medium', message: `MAP ${V.map} > 120 mmHg`, active: hy('map_high', ok(V.map) && V.map > 120, ok(V.map) && V.map > 118) },
+      { id: 'hr_high', priority: 'medium', message: `HR ${V.hr} > 120 /min`, active: hy('hr_high', ok(V.hr) && V.hr > 120, ok(V.hr) && V.hr > 118) },
       { id: 'sensor_fault_hr', priority: 'high', message: 'HR sensor fault (unusable reading)', active: S.sensors.hr === 'fault' },
       { id: 'sensor_fault_map', priority: 'high', message: 'MAP sensor fault (unusable reading)', active: S.sensors.map === 'fault' },
       { id: 'sensor_fault_spo2', priority: 'high', message: 'SpO2 probe off / sensor fault', active: S.sensors.spo2 === 'fault' },
@@ -555,6 +581,15 @@ class Simulation {
     ];
     this.alarmMgr.update(t, conds);
     S.alarms = this.alarmMgr.list();
+  }
+
+  _enforceLabelRate(d, t) {
+    const ds = this.state.drugs[d.id];
+    if (ds.infusionRate > 0 && !this._withinLabelRate(d, ds.infusionRate, ds.rateUnit)) {
+      this._setRate(d, 0, ds.rateUnit);
+      this._log('interlock', `${d.name}: rate above label ceiling — set to zero`);
+      this.alarmMgr.pulse(t, 'dose_blocked', 'medium', `${d.name} rate above label ceiling`);
+    }
   }
 
   _withinLabelRate(drug, rate, unit) {
@@ -588,7 +623,7 @@ class Simulation {
   summary() {
     const totals = {};
     for (const [id, ds] of Object.entries(this.state.drugs)) {
-      if (ds.cumulative > 0) totals[id] = { amount: round3(ds.cumulative), unit: ds.amountUnit, perKg: ds.amountUnit === '%·h' ? null : round3(ds.cumulative / this.patient.weightKg), perKgBasis: 'TBW' };
+      if (ds.cumulative > 0) totals[id] = { amount: roundSig(ds.cumulative), unit: ds.amountUnit, perKg: ds.amountUnit === '%·h' ? null : roundSig(ds.cumulative / this.patient.weightKg), perKgBasis: 'TBW' };
     }
     return {
       durationSec: this.state.tSec, totals,
@@ -614,7 +649,6 @@ function makeRng(seed) {
   // local import-free wrapper (rng.js) — kept separate for clarity
   return createRngLocal(seed);
 }
-import { createRng as createRngLocal } from './rng.js';
 
 function defaultRateUnit(drug) {
   const regs = drug.regimens || {};
@@ -629,7 +663,8 @@ function rateWeightFor(drug, p) {
 }
 
 function libraryMentionsSympathetic(drug) {
-  try { return /tachycardi|sympathetic|heart rate|hypertension/i.test(JSON.stringify([drug.contraindications, drug.regimens, drug.warnings, drug.notes, drug.note])); } catch { return false; }
+  if (Array.isArray(drug.runtimeRules) && drug.runtimeRules.some((r) => /rapid_concentration_increase/.test(r.id || ''))) return true;
+  return false;
 }
 
 function describe(cmd) {

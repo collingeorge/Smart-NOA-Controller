@@ -4,7 +4,7 @@
 
 import { resolveLibrary, getDrug } from './library.js';
 import { scalarWeight } from './patient.js';
-import { convertAmount, parseDoseUnit, parseRateUnit, rateToAmountPerMin, round3, isFiniteNumber } from './units.js';
+import { convertAmount, parseDoseUnit, parseRateUnit, rateToAmountPerMin, roundSig, isFiniteNumber } from './units.js';
 
 // ---------------------------------------------------------------------------
 // `when` expressions
@@ -147,18 +147,18 @@ export function recommend(patient, regimenKey, drugId, library = null) {
   if (chosen && chosen.fixed && !chosen.perKg) delete eff.perKg;
 
   const sw = scalarWeight(patient, eff.scalar || 'TBW');
-  result.scalar = sw.scalar; result.weightUsedKg = round3(sw.weightKg);
+  result.scalar = sw.scalar; result.weightUsedKg = roundSig(sw.weightKg);
   if (sw.capped) result.notes.push(`${sw.scalar} exceeds total body weight; total body weight used.`);
 
   if (!result.locked) {
     if (eff.fixed) {
       const u = eff.fixed.unit || drug.amountUnit;
-      const cv = (x) => (isFiniteNumber(x) ? round3(convertAmount(x, u, drug.amountUnit)) : null);
+      const cv = (x) => (isFiniteNumber(x) ? roundSig(convertAmount(x, u, drug.amountUnit)) : null);
       result.dose = { value: cv(eff.fixed.default), unit: drug.amountUnit, perKg: null, range: { min: cv(eff.fixed.min), max: cv(eff.fixed.max) } };
     } else if (eff.perKg) {
       const du = parseDoseUnit(eff.unit || `${drug.amountUnit}/kg`);
       const per = du ? du.amount : drug.amountUnit;
-      const cv = (x) => (isFiniteNumber(x) ? round3(convertAmount(x * sw.weightKg, per, drug.amountUnit)) : null);
+      const cv = (x) => (isFiniteNumber(x) ? roundSig(convertAmount(x * sw.weightKg, per, drug.amountUnit)) : null);
       result.dose = { value: cv(eff.perKg.default), unit: drug.amountUnit, perKg: { value: eff.perKg.default, unit: eff.unit || `${drug.amountUnit}/kg`, min: eff.perKg.min ?? null, max: eff.perKg.max ?? null }, range: { min: cv(eff.perKg.min), max: cv(eff.perKg.max) } };
     }
     if (eff.loading) {
@@ -169,7 +169,7 @@ export function recommend(patient, regimenKey, drugId, library = null) {
       else if (L.perKg) { src = L.perKg; const du = parseDoseUnit(L.unit || `${drug.amountUnit}/kg`); unit = du ? du.amount : drug.amountUnit; }
       if (src) {
         const w = L.fixed ? 1 : sw.weightKg;
-        const cv = (x) => (isFiniteNumber(x) ? round3(convertAmount(x * w, unit, drug.amountUnit)) : null);
+        const cv = (x) => (isFiniteNumber(x) ? roundSig(convertAmount(x * w, unit, drug.amountUnit)) : null);
         const overMin = L.overMin && typeof L.overMin === 'object' ? (L.overMin.max ?? L.overMin.min ?? null) : (isFiniteNumber(L.overMin) ? L.overMin : null);
         result.loading = { value: cv(src.default), unit: drug.amountUnit, perKg: L.perKg ? { value: src.default, unit: L.unit || `${drug.amountUnit}/kg`, min: src.min ?? null, max: src.max ?? null } : null, range: { min: cv(src.min), max: cv(src.max) }, overSec: overMin ? overMin * 60 : null };
       }
@@ -180,8 +180,19 @@ export function recommend(patient, regimenKey, drugId, library = null) {
       if (pr && !pr.dial && drug.amountUnit !== '%') {
         try {
           const perH = rateToAmountPerMin(eff.rate.default, eff.rate.unit, drug.amountUnit, sw.weightKg) * 60;
-          r.absolute = { value: round3(perH), unit: `${drug.amountUnit}/h` };
+          r.absolute = { value: roundSig(perH), unit: `${drug.amountUnit}/h` };
         } catch { /* incompatible units: leave absolute null */ }
+      }
+      if (reg.defaultRule === 'ageAdjustedMac') {
+        // 1.0 × age-adjusted MAC (Mapleson 1996) offered alongside the label default; MAC40 from the library.
+        const mac = drug.mac || {};
+        const mac40 = isFiniteNumber(mac.mac40Pct) ? mac.mac40Pct : isFiniteNumber(drug.mac40) ? drug.mac40 : null;
+        if (mac40 !== null) {
+          const slope = isFiniteNumber(mac.slopePerYear) ? mac.slopePerYear : -0.00269;
+          const v = mac40 * Math.pow(10, slope * (patient.ageYears - 40));
+          r.ageAdjustedMac = { value: Math.round(v * 10) / 10, exact: v, mac40, sources: mac.sources || [], withinRange: (r.range.min === null || v >= r.range.min) && (r.range.max === null || v <= r.range.max), note: '1.0 × age-adjusted MAC (Mapleson 1996); a definitional reference point, not a recommendation.' };
+          addSources(mac.sources);
+        }
       }
       result.rate = r;
     }
@@ -190,7 +201,7 @@ export function recommend(patient, regimenKey, drugId, library = null) {
   return result;
 }
 
-const KNOWN_REGIMEN_KEYS = new Set(['kind', 'perKg', 'fixed', 'rate', 'unit', 'scalar', 'scalarBasis', 'adjust', 'timing', 'sources', 'note', 'loading', 'notes']);
+const KNOWN_REGIMEN_KEYS = new Set(['defaultRule', 'kind', 'perKg', 'fixed', 'rate', 'unit', 'scalar', 'scalarBasis', 'adjust', 'timing', 'sources', 'note', 'loading', 'notes']);
 const KNOWN_CEILING_KEYS = new Set(['value', 'unit', 'basis', 'sources', 'note', 'scope', 'infusion', 'adjusted', 'perKg', 'rule', 'appliesTo', 'scalar']);
 const DEV_WARNED = new Set();
 function devWarn(msg) { if (!DEV_WARNED.has(msg)) DEV_WARNED.add(msg); }
@@ -280,9 +291,9 @@ function applyCeilingToRecommendation(drug, patient, result, weightKg) {
         const d = result[k];
         if (d && isFiniteNumber(d.value) && d.value > c.absolute + 1e-9) {
           result.warnings.push(`Computed ${k === 'loading' ? 'loading dose' : 'dose'} exceeds ${c.label}; capped.`);
-          d.value = round3(c.absolute);
+          d.value = roundSig(c.absolute);
         }
-        if (d && d.range && isFiniteNumber(d.range.max) && d.range.max > c.absolute) d.range.max = round3(c.absolute);
+        if (d && d.range && isFiniteNumber(d.range.max) && d.range.max > c.absolute) d.range.max = roundSig(c.absolute);
       }
     }
     if (c.type === 'rate' && result.rate) {
@@ -290,10 +301,10 @@ function applyCeilingToRecommendation(drug, patient, result, weightKg) {
       if (cap !== null) {
         if (result.rate.value > cap + 1e-9) {
           result.warnings.push(`Computed rate exceeds ${c.label}; capped.`);
-          result.rate.value = round3(cap);
-          if (result.rate.absolute) result.rate.absolute.value = round3(rateToAmountPerMin(result.rate.value, result.rate.unit, drug.amountUnit, weightKg) * 60);
+          result.rate.value = roundSig(cap);
+          if (result.rate.absolute) result.rate.absolute.value = roundSig(rateToAmountPerMin(result.rate.value, result.rate.unit, drug.amountUnit, weightKg) * 60);
         }
-        if (!result.rate.ceiling || cap < result.rate.ceiling.inRegimenUnit) result.rate.ceiling = { value: c.value, unit: c.unit, inRegimenUnit: round3(cap), label: c.label };
+        if (!result.rate.ceiling || cap < result.rate.ceiling.inRegimenUnit) result.rate.ceiling = { value: c.value, unit: c.unit, inRegimenUnit: roundSig(cap), label: c.label };
       }
     }
     if (c.type === 'dial' && result.rate && result.rate.unit === '%' && result.rate.value > c.value) {

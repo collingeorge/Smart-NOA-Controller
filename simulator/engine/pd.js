@@ -10,16 +10,16 @@ export const sigmoid = (u, ec50 = 0.5, gamma = 2) => (u <= 0 ? 0 : Math.pow(u, g
 
 // Each effect: [weight, EC50, gamma]. map/hr are fractional changes from baseline at full effect.
 export const PROFILES = {
-  propofol: { hyp: [1.0, 0.75, 2.5], resp: [1.0, 0.55, 2], map: [-0.32, 0.6, 1.5], hr: [-0.06, 0.6, 1.5], ana: [0.1, 0.8, 2] },
+  propofol: { hyp: [1.0, 0.6, 2.5], resp: [1.0, 0.55, 2], map: [-0.32, 0.6, 1.5], hr: [-0.06, 0.6, 1.5], ana: [0.1, 0.8, 2] },
   etomidate: { hyp: [1.0, 0.6, 2.5], resp: [0.7, 0.6, 2], map: [-0.05, 0.6, 1.5] },
   ketamine: { hyp: [0.9, 0.6, 2.5], ana: [0.85, 0.12, 1.5], resp: [0.15, 0.8, 2], map: [0.15, 0.3, 1.5], hr: [0.15, 0.3, 1.5] },
-  midazolam: { hyp: [0.5, 0.5, 2], resp: [0.45, 0.6, 2], map: [-0.06, 0.6, 1.5] },
+  midazolam: { hyp: [0.3, 0.6, 2], resp: [0.35, 0.7, 2], map: [-0.05, 0.6, 1.5] },
   dexmedetomidine: { hyp: [0.55, 0.6, 2], ana: [0.3, 0.6, 2], resp: [0.05, 0.8, 2], map: [-0.18, 0.6, 1.5], hr: [-0.22, 0.6, 1.5], mapCpHigh: [0.25, 2.5, 3] },
-  fentanyl: { hyp: [0.2, 0.6, 2], ana: [0.95, 0.35, 2], resp: [0.9, 0.5, 2], hr: [-0.12, 0.6, 1.5], map: [-0.06, 0.6, 1.5], opioid: true },
+  fentanyl: { hyp: [0.2, 0.8, 2], ana: [0.95, 0.5, 2], resp: [0.9, 0.9, 2.5], hr: [-0.12, 0.6, 1.5], map: [-0.06, 0.6, 1.5], opioid: true },
   lidocaine: { hyp: [0.1, 0.8, 2], ana: [0.35, 0.4, 2], map: [-0.03, 0.6, 1.5] },
-  sevoflurane: { hyp: [0.88, 0.35, 2.5], ana: [0.6, 0.9, 2], resp: [0.8, 0.7, 2], map: [-0.28, 1.0, 1.5] },
-  rocuronium: { nmb: { kind: 'nondepolarizing', ec50: 0.39, gamma: 4.5 } },
-  succinylcholine: { nmb: { kind: 'depolarizing', ec50: 0.39, gamma: 4.5 } },
+  sevoflurane: { hyp: [0.8, 0.45, 2.5], ana: [0.6, 0.9, 2], resp: [0.8, 0.7, 2], map: [-0.22, 0.8, 1.5] },
+  rocuronium: { nmb: { kind: 'nondepolarizing', ec50: 0.416, gamma: 6 } },
+  succinylcholine: { nmb: { kind: 'depolarizing', ec50: 0.416, gamma: 6 } },
   glycopyrrolate: { hr: [0.22, 0.5, 2], antimuscarinic: [1, 0.5, 2] },
   phenylephrine: { map: [0.3, 0.5, 1.5], hr: [-0.1, 0.5, 1.5] },
   ephedrine: { map: [0.18, 0.5, 1.5], hr: [0.15, 0.5, 1.5] },
@@ -107,7 +107,7 @@ export function combineEffects(entries, mods) {
   // Neostigmine (anticholinesterase) shifts EC50 up by ≤ 60 % — a ceiling effect, so it cannot reverse deep block.
   const ndProf = PROFILES.rocuronium.nmb, dpProf = PROFILES.succinylcholine.nmb;
   const shift = 1 + 0.6 * achE;
-  const twitch = (k) => 1 - sigmoid(nd, ndProf.ec50 * shift * [1, 0.85, 0.7, 0.55][k], ndProf.gamma);
+  const twitch = (k) => 1 - sigmoid(nd, ndProf.ec50 * shift * [1, 0.92, 0.84, 0.76][k], ndProf.gamma);
   const depT = 1 - sigmoid(dep, dpProf.ec50, dpProf.gamma);
   const T = [0, 1, 2, 3].map((k) => twitch(k) * depT);
   return {

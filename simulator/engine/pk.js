@@ -192,6 +192,10 @@ function paramsFrom(ke0, kfast, frac) {
   return { k10, k12, k21: k12 / PERIPHERAL_RATIO, ke0 };
 }
 
+// Regularisation: elimination must be ≥ 25 % of the initial central rate constant
+// (k10 ≥ 0.25·(k10+k12)), which prevents fits in which redistribution alone explains the
+// label duration and the drug then lingers for hours (illustrative choice).
+export const MIN_ELIM_FRACTION = 0.25;
 const FIT_CACHE = new Map();
 
 /** Fit (k10, k12, k21, ke0) to drug.timing. Returns params + achieved metrics + provenance. */
@@ -213,7 +217,7 @@ export function fitCalibrated(timing, drugId = null) {
   };
   const logspace = (a, b, n) => Array.from({ length: n }, (_, i) => a * Math.pow(b / a, i / (n - 1)));
   let best = null;
-  for (const ke0 of logspace(0.02, 12, 16)) for (const kf of logspace(0.002, 6, 16)) for (const fr of [1, 0.6, 0.35, 0.2, 0.1, 0.05]) {
+  for (const ke0 of logspace(0.02, 12, 16)) for (const kf of logspace(0.002, 6, 16)) for (const fr of [1, 0.75, 0.55, 0.4, 0.3, 0.25]) {
     const p = paramsFrom(ke0, kf, fr); const c = cost(p);
     if (!best || c < best.c) best = { c, x: [ke0, kf, fr] };
   }
@@ -222,7 +226,7 @@ export function fitCalibrated(timing, drugId = null) {
   for (let it = 0; it < 60 && step > 1.005; it++) {
     let improved = false;
     for (let d = 0; d < 3; d++) for (const dir of [step, 1 / step]) {
-      const x = best.x.slice(); x[d] *= dir; if (d === 2) x[2] = Math.min(1, Math.max(0.01, x[2]));
+      const x = best.x.slice(); x[d] *= dir; if (d === 2) x[2] = Math.min(1, Math.max(MIN_ELIM_FRACTION, x[2]));
       const c = cost(paramsFrom(...x));
       if (c < best.c - 1e-12) { best = { c, x }; improved = true; }
     }
@@ -311,7 +315,9 @@ export function createPkModel(drug, patient, opts = {}) {
       ref: { value: null, basis: 'fraction of age-adjusted MAC' },
     };
   }
-  const b = buildCompartment(drug, patient.weightKg);
+  // Calibrated models scale V1 on the weight scalar the drug is dosed on (opts.volumeWeightKg),
+  // so a sourced per-kg dose gives comparable normalised exposure; Marsh uses TBW as published.
+  const b = buildCompartment(drug, drug.pkModel === 'marsh' ? patient.weightKg : (opts.volumeWeightKg || patient.weightKg));
   if (opts.k10Mult && opts.k10Mult !== 1) b.model.k10 *= opts.k10Mult;
   return { ...b, ref: referenceConcentration(drug, opts.refPrefs || []) };
 }

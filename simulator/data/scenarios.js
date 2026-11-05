@@ -180,6 +180,7 @@ export function buildPlan(template, patient, library = null) {
   let order = 0;
   for (const s of template.steps) {
     const base = { phase: s.phase, atSec: s.atSec, drugId: s.drugId };
+    if (!getDrug(library, s.drugId)) { skipped.push({ drugId: s.drugId, reason: 'Drug not in library' }); continue; }
     if (s.kind === 'stop') { steps.push({ ...base, id: `s${++order}`, order, kind: 'stop' }); continue; }
     const rec = recommend(patient, s.regimenKey, s.drugId, library);
     if (rec.locked) { skipped.push({ drugId: s.drugId, reason: rec.lockReasons.join('; ') }); continue; }
@@ -193,9 +194,8 @@ export function buildPlan(template, patient, library = null) {
     } else if (s.kind === 'inhaled' && rec.rate) {
       let dial = rec.rate.value;
       if (s.dial === 'mac1') {
-        const drug = getDrug(library, s.drugId);
-        const pk = createPkModel(drug, patient);
-        dial = Math.round(macForAge(pk.mac40, patient.ageYears) * 10) / 10;
+        if (rec.rate.ageAdjustedMac) dial = rec.rate.ageAdjustedMac.value;
+        else { const pk = createPkModel(getDrug(library, s.drugId), patient); dial = Math.round(macForAge(pk.mac40, patient.ageYears) * 10) / 10; }
         if (rec.rate.range.min !== null) dial = Math.max(rec.rate.range.min, dial);
         if (rec.rate.range.max !== null) dial = Math.min(rec.rate.range.max, dial);
       }

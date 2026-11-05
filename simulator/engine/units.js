@@ -77,10 +77,10 @@ export function convertRate(value, from, to, weightKg) {
 
 export function isFiniteNumber(v) { return typeof v === 'number' && Number.isFinite(v); }
 
-/** Round to 3 significant figures (display-friendly, avoids float noise). */
-export function round3(v) {
+/** Round to 4 significant figures (display-friendly, avoids float noise). */
+export function roundSig(v, sig = 4) {
   if (!isFiniteNumber(v) || v === 0) return v;
   const d = Math.ceil(Math.log10(Math.abs(v)));
-  const p = Math.pow(10, 3 - d);
+  const p = Math.pow(10, sig - d);
   return Math.round(v * p) / p;
 }
