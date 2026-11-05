@@ -25,14 +25,14 @@ Entries S1–S22 reuse citations and verification text from `breast-reconstructi
 | S10 | S15 (Schwenk 2018) | S21 | S33 (STOP-Bang 2016) |
 | S11 | S16 (propofol) | S22 | S35 (ASA monitoring) |
 
-S23–S35 are new. S35 is the repository's own `config.yaml`. It is cited only so the simulator matches the Python controller's software ceilings and lockouts. It is **not clinical evidence**.
+S23–S37 are new. S35 is the repository's own `config.yaml`. It is cited only so the simulator matches the Python controller's software ceilings and lockouts. It is **not clinical evidence**.
 
 ## Data conventions
 
 - **Defaults:** where the label names a usual, average or initial dose, that is the default. Otherwise the default is the lower bound of the stated range. Where a source gives only an upper limit (Foo 2021 lidocaine, Schwenk 2018 ketamine), `min` is 0 and the default is the limit. The ketamine maintenance default (0.2 mg/kg/h) is the Python simulation ceiling from S35, not a guideline value.
 - **Weight scalars:** `scalarBasis: 'guideline'` for lidocaine (IBW, Foo 2021). `'label'` for sugammadex (actual body weight, Bridion label). `'convention'` (TBW) for propofol, etomidate, ketamine, fentanyl, rocuronium, succinylcholine, neostigmine and dexmedetomidine: their labels give mg/kg (or mcg/kg) doses, but this session found no label statement saying which weight to use.
-- **Ceilings:** `basis: 'label maximum'` / `'guideline maximum'` only where the source states a maximum: neostigmine, phenylephrine, ephedrine, ketorolac, acetaminophen, lidocaine and ketamine. `'label range upper bound'` (propofol 200 mcg/kg/min, dexmedetomidine 1 mcg/kg/h, sevoflurane 3%, sugammadex 16 mg/kg) is a simulator hard stop at the top of a labelled range that the label does not call a maximum.
-- **Timing:** numbers come only from label statements. Where the label gives a range, the midpoint is used and the range is kept in `timing.ranges`. Where no statement was verified, the numbers are `null` and `basis` is `'not stated in label'`. The engine then falls back to its own illustrative constants. This applies to dexmedetomidine, sevoflurane, lidocaine, sugammadex, glycopyrrolate, dexamethasone, ondansetron, phenylephrine, ephedrine, ketorolac and acetaminophen.
+- **Ceilings:** `basis: 'label maximum'` / `'guideline maximum'` only where the source states a maximum: neostigmine, phenylephrine, ephedrine, ketorolac, acetaminophen, lidocaine and ketamine. `'label range upper bound'` (propofol 200 mcg/kg/min, dexmedetomidine 1 mcg/kg/h, sevoflurane 3%, desflurane 8.5%, isoflurane 3.5% (2.5% maintenance bound plus the label's extra 1.0% with oxygen alone), sugammadex 16 mg/kg) is a simulator hard stop at the top of a labelled range that the label does not call a maximum.
+- **Timing:** numbers come only from label statements. Where the label gives a range, the midpoint is used and the range is kept in `timing.ranges`. Where no statement was verified, the numbers are `null` and `basis` is `'not stated in label'`. The engine then falls back to its own illustrative constants. This applies to dexmedetomidine, sevoflurane, desflurane, isoflurane, lidocaine, sugammadex, glycopyrrolate, dexamethasone, ondansetron, phenylephrine, ephedrine, ketorolac and acetaminophen.
 - **Severity versus label wording:** contraindication messages quote or closely paraphrase the label/guideline text. Where the simulator's severity differs from the label, the message says so:
   - Dexmedetomidine with heart block is a LOCK, mirroring the controller. The label only says "use with caution".
   - Ketamine with uncontrolled hypertension is a WARN, as the SPEC requires. The label lists it as a contraindication.
@@ -248,9 +248,9 @@ Identifiers: none confirmed
 **Mapleson WW. Effect of age on MAC in humans: a meta-analysis. Br J Anaesth. 1996;76(2):179-185.** https://academic.oup.com/bja/issue/76/2  
 Identifiers: doi:10.1093/bja/76.2.179; PMID unverified
 
-- **Supports:** MAC(age) = MAC40 × 10^(−0.00269 × (age − 40)); sevoflurane MAC40 1.80% (about 6% decline per decade).
-- **Used by:** sevoflurane
-- **Verified via:** WebSearch records of the BJA 76(2) issue listing (citation, DOI), a Mapleson-authored abstract on scite.ai (MAC40 1.80% sevoflurane; b = −0.00269), and a StatPearls review quoting the equation, 2026-11-05. Full text not opened. (date 2026-11-05)
+- **Supports:** MAC(age) = MAC40 × 10^(−0.00269 × (age − 40)), same slope for all inhaled agents above age 1 y (about 6% decline per decade). MAC40: sevoflurane 1.80%, isoflurane 1.17%, desflurane 6.6%, nitrous oxide 104% (halothane 0.75%, enflurane 1.63%); 95% limits about ±7% (desflurane ±10%).
+- **Used by:** sevoflurane, desflurane, isoflurane
+- **Verified via:** WebSearch records of the BJA 76(2) issue listing (citation, DOI), a Mapleson-authored abstract on scite.ai (MAC40 1.80% sevoflurane; b = −0.00269), and a StatPearls review quoting the equation, 2026-11-05. Isoflurane 1.17%, desflurane 6.6% and nitrous oxide 104% MAC40 values confirmed in the same scite.ai abstract record and repeated in secondary pages (meddic.jp; medicalalgorithms.com), 2026-11-05. Full text not opened. (date 2026-11-05)
 
 ### S27
 **Ketamine hydrochloride injection (KETALAR). Par Pharmaceutical / Endo. FDA-approved prescribing information, 2022 revision (also 2026 revision 016812s057); and Fresenius Kabi generic ketamine label.** https://www.accessdata.fda.gov/drugsatfda_docs/label/2022/016812s051lbl.pdf  
@@ -325,6 +325,22 @@ Identifiers: none
 - **Verified via:** Read directly from /home/user/smart-noa-controller/config.yaml, 2026-11-05. This is not clinical evidence; it is cited so the simulator mirrors the Python controller. (date 2026-11-05)
 
 
+### S36
+**Desflurane, USP, volatile liquid for inhalation (SUPRANE). Baxter Healthcare. FDA-approved prescribing information (drugs.com copy revised July 2026; medlibrary.org and ndclist.com copies; DailyMed desflurane setid 21ba0e18-3dbc-4feb-a3a4-f6470c00910a).** https://medlibrary.org/lib/rx/meds/suprane/page/2/  
+Identifiers: none confirmed
+
+- **Supports:** Surgical levels of anesthesia in adults may be maintained with 2.5–8.5% with or without nitrous oxide; required concentration is age dependent. Can induce malignant hyperthermia in patients with known or suspected susceptibility based on genetic factors or family history (MH susceptibility listed as a contraindication). Concentrations exceeding 1 MAC may increase heart rate; a rapid increase in concentration is associated with marked increase in pulse rate, mean arterial pressure and catecholamines. Not recommended for induction in paediatric patients because of moderate to severe upper airway adverse events (laryngospasm, coughing, breath holding, apnea, increased secretions, desaturation).
+- **Used by:** desflurane
+- **Verified via:** WebSearch records of drugs.com/pro/suprane (current label, MH and heart-rate wording), medlibrary.org Suprane copies (2.5–8.5% maintenance sentence, older-format version; rapid-increase wording) and the DailyMed desflurane listing, 2026-11-05. The adult mask-induction statement ("not recommended for mask induction of anesthesia in adults") was seen only in the Canadian monograph and is not used as US wording. No US MAC-by-age table was retrieved. (date 2026-11-05)
+
+### S37
+**Isoflurane, USP (FORANE). Baxter Healthcare. FDA-approved prescribing information (FDA-hosted August 2006 PI, archived: webarchive.library.unt.edu ... fda.gov/MEDWATCH/safety/2006/Aug_PIs/Forane_PI.pdf).** https://webarchive.library.unt.edu/eot2008/20081028114252/http:/www.fda.gov/MEDWATCH/safety/2006/Aug_PIs/Forane_PI.pdf  
+Identifiers: none confirmed
+
+- **Supports:** Induction: start at 0.5%; 1.5–3.0% usually produces surgical anesthesia in 7–10 min. Maintenance: 1.0–2.5% in oxygen/nitrous oxide; an additional 0.5–1.0% may be required with oxygen alone. Average MAC in 100% O2: 1.28% (age 26 ± 4), 1.15% (44 ± 7), 1.05% (64 ± 5); in 70% N2O: 0.56%, 0.50%, 0.37%. Contraindications: known sensitivity to isoflurane or other halogenated agents; known or suspected genetic susceptibility to malignant hyperthermia.
+- **Used by:** isoflurane
+- **Verified via:** WebSearch records of the archived FDA-hosted 2006 Forane PI, the Baxter Canada Forane monograph and an Irish SmPC (consistent figures), 2026-11-05. US-format contraindication wording from the search record; drugs.com isoflurane page text was garbled and not relied on. (date 2026-11-05)
+
 ## Not included, and why
 
 | Item | Reason |
@@ -345,9 +361,14 @@ Identifiers: none
 | Janmahasatian numerator (9270) | The citation, DOI and denominators were confirmed, but the numerator was not displayed in a search record. The engine worker should treat it as unverified (S34). |
 | Mapleson 1996 PMID; PONV 5th consensus PMID; sevoflurane NDA | Identifiers unverified. Omitted. |
 | Bratzler 2013 antibiotic prophylaxis | Not part of the SPEC §4 drug set, so it is not registered here. |
+| Nitrous oxide (entire drug) | No US prescribing information with a dosage, maintenance concentration or contraindication section was found. US cylinder labels (drugcentral.org, ndclist.com) carry only handling, fire and asphyxia warnings. The closed-gas-space, vitamin B12/folate and middle-ear wording was seen only in New Zealand and Swedish product information. The PONV-risk statement was not verified in the PONV consensus records. Its Mapleson MAC40 (104%) is recorded in S26 for reference only. No N2O conditions were added. |
+| Desflurane induction regimen and airway-irritability warning | The US adult mask-induction wording was not retrieved. "Not recommended for mask induction in adults" was seen only in the Canadian monograph. The US label's airway-event statement found concerns paediatric induction, which is outside scope. Desflurane therefore has a maintenance regimen only. The verified heart-rate/rapid-increase wording is a runtime warning. |
+| Desflurane US MAC-by-age table | Not retrieved. Only the Mapleson MAC40 (6.6%) is used. |
 | Dexamethasone under `emergence` | S2 and S3 say to give it at induction. The regimen is stored under `induction`, with a note. |
 
 ## Model assumptions (illustrative)
 
 - All drugs use `pkModel: 'calibrated'`. The engine fits illustrative constants to the `timing` values above, or to its own fallbacks when those are null. No PK/PD parameter is a published model except the Mapleson age-adjusted MAC equation (S26).
+- **Additive MAC of co-administered inhaled agents** (`LIBRARY_NOTES.inhaledMacAdditivity`). The engine treats MAC fractions as additive. This is standard teaching. **No acceptable source was verified for it in this session**, so it is uncited.
+- Isoflurane and desflurane also use the Mapleson equation (MAC40 1.17% and 6.6%, the same slope). The isoflurane label table (1.28/1.15/1.05% at mean ages 26/44/64 y) is stored for display.
 - Sevoflurane carries two MAC references: Mapleson MAC40 = 1.80% and the US label table (2.1% at 40 y in O2). They differ. The engine's effect model uses Mapleson, and the UI may show both.

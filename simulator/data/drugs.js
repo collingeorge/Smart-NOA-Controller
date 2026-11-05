@@ -286,8 +286,8 @@ export const SOURCES = {
     url: 'https://academic.oup.com/bja/issue/76/2',
     identifiers: 'doi:10.1093/bja/76.2.179; PMID unverified',
     type: 'meta-analysis (age-adjusted MAC model)',
-    supports: 'MAC(age) = MAC40 × 10^(−0.00269 × (age − 40)); sevoflurane MAC40 1.80% (about 6% decline per decade).',
-    verifiedVia: 'WebSearch records of the BJA 76(2) issue listing (citation, DOI), a Mapleson-authored abstract on scite.ai (MAC40 1.80% sevoflurane; b = −0.00269), and a StatPearls review quoting the equation, 2026-11-05. Full text not opened.',
+    supports: 'MAC(age) = MAC40 × 10^(−0.00269 × (age − 40)), same slope for all inhaled agents above age 1 y (about 6% decline per decade). MAC40: sevoflurane 1.80%, isoflurane 1.17%, desflurane 6.6%, nitrous oxide 104% (halothane 0.75%, enflurane 1.63%); 95% limits about ±7% (desflurane ±10%).',
+    verifiedVia: 'WebSearch records of the BJA 76(2) issue listing (citation, DOI), a Mapleson-authored abstract on scite.ai (MAC40 1.80% sevoflurane; b = −0.00269), and a StatPearls review quoting the equation, 2026-11-05. Isoflurane 1.17%, desflurane 6.6% and nitrous oxide 104% MAC40 values confirmed in the same scite.ai abstract record and repeated in secondary pages (meddic.jp; medicalalgorithms.com), 2026-11-05. Full text not opened.',
   },
   S27: {
     id: 'S27',
@@ -370,6 +370,24 @@ export const SOURCES = {
     supports: 'Python simulation rate ceilings: dexmedetomidine 0.5 mcg/kg/h, ketamine 0.2 mg/kg/h, lidocaine 1.5 mg/kg/h; ketorolac lockout below eGFR 30; dexmedetomidine lockout for heart block conditions.',
     verifiedVia: 'Read directly from /home/user/smart-noa-controller/config.yaml, 2026-11-05. This is not clinical evidence; it is cited so the simulator mirrors the Python controller.',
   },
+  S36: {
+    id: 'S36',
+    citation: 'Desflurane, USP, volatile liquid for inhalation (SUPRANE). Baxter Healthcare. FDA-approved prescribing information (drugs.com copy revised July 2026; medlibrary.org and ndclist.com copies; DailyMed desflurane setid 21ba0e18-3dbc-4feb-a3a4-f6470c00910a).',
+    url: 'https://medlibrary.org/lib/rx/meds/suprane/page/2/',
+    identifiers: 'none confirmed',
+    type: 'FDA label',
+    supports: 'Surgical levels of anesthesia in adults may be maintained with 2.5–8.5% with or without nitrous oxide; required concentration is age dependent. Can induce malignant hyperthermia in patients with known or suspected susceptibility based on genetic factors or family history (MH susceptibility listed as a contraindication). Concentrations exceeding 1 MAC may increase heart rate; a rapid increase in concentration is associated with marked increase in pulse rate, mean arterial pressure and catecholamines. Not recommended for induction in paediatric patients because of moderate to severe upper airway adverse events (laryngospasm, coughing, breath holding, apnea, increased secretions, desaturation).',
+    verifiedVia: 'WebSearch records of drugs.com/pro/suprane (current label, MH and heart-rate wording), medlibrary.org Suprane copies (2.5–8.5% maintenance sentence, older-format version; rapid-increase wording) and the DailyMed desflurane listing, 2026-11-05. The adult mask-induction statement ("not recommended for mask induction of anesthesia in adults") was seen only in the Canadian monograph and is not used as US wording. No US MAC-by-age table was retrieved.',
+  },
+  S37: {
+    id: 'S37',
+    citation: 'Isoflurane, USP (FORANE). Baxter Healthcare. FDA-approved prescribing information (FDA-hosted August 2006 PI, archived: webarchive.library.unt.edu ... fda.gov/MEDWATCH/safety/2006/Aug_PIs/Forane_PI.pdf).',
+    url: 'https://webarchive.library.unt.edu/eot2008/20081028114252/http:/www.fda.gov/MEDWATCH/safety/2006/Aug_PIs/Forane_PI.pdf',
+    identifiers: 'none confirmed',
+    type: 'FDA label',
+    supports: 'Induction: start at 0.5%; 1.5–3.0% usually produces surgical anesthesia in 7–10 min. Maintenance: 1.0–2.5% in oxygen/nitrous oxide; an additional 0.5–1.0% may be required with oxygen alone. Average MAC in 100% O2: 1.28% (age 26 ± 4), 1.15% (44 ± 7), 1.05% (64 ± 5); in 70% N2O: 0.56%, 0.50%, 0.37%. Contraindications: known sensitivity to isoflurane or other halogenated agents; known or suspected genetic susceptibility to malignant hyperthermia.',
+    verifiedVia: 'WebSearch records of the archived FDA-hosted 2006 Forane PI, the Baxter Canada Forane monograph and an Irish SmPC (consistent figures), 2026-11-05. US-format contraindication wording from the search record; drugs.com isoflurane page text was garbled and not relied on.',
+  },
 };
 
 // ---------------------------------------------------------------------------------------------
@@ -418,7 +436,7 @@ export const ALLERGIES = [
   { id: 'neostigmine', label: 'Neostigmine' },
   { id: 'etomidate', label: 'Etomidate' },
   { id: 'ketamine', label: 'Ketamine' },
-  { id: 'halogenated_volatile', label: 'Sevoflurane / halogenated volatile agents' },
+  { id: 'halogenated_volatile', label: 'Sevoflurane / isoflurane / other halogenated volatile agents' },
   { id: 'ondansetron', label: 'Ondansetron' },
   { id: 'dexamethasone', label: 'Dexamethasone (product component)' },
 ];
@@ -440,6 +458,11 @@ export const KNOWN_FLAGS = Object.freeze([
 export const WHEN_FORMS = Object.freeze({
   contraindication: ['condition:<id>', 'allergy:<id>', 'medication:<id>', 'egfr<N', 'age>=N', 'flag:<id>'],
   adjust: ['any contraindication form', 'asa>=N', 'weight<N', "tokens joined by '|' (OR)"],
+});
+
+export const LIBRARY_NOTES = Object.freeze({
+  inhaledMacAdditivity: 'Illustrative model assumption: MAC fractions of co-administered inhaled agents are treated as additive. This is standard teaching; no acceptable source was verified in this session (see SOURCES.md, Model assumptions).',
+  nitrousOxide: 'Nitrous oxide is not included: no US prescribing information with dosage or contraindications was found (US cylinder labels carry only handling/asphyxia warnings). Its Mapleson MAC40 (104%) is recorded in S26 for reference only.',
 });
 
 const NOT_STATED = (note) => ({
@@ -587,6 +610,79 @@ export const DRUGS = [
       { when: 'allergy:halogenated_volatile', severity: 'lock', message: 'Contraindicated in patients with known sensitivity to sevoflurane or to other halogenated agents (label CONTRAINDICATIONS).', sources: ['S25'] },
     ],
     timing: NOT_STATED('Volatile agent: engine uses first-order wash-in/out of end-tidal fraction (illustrative).'),
+    pkModel: 'calibrated',
+  },
+
+  {
+    id: 'desflurane', name: 'Desflurane', cls: 'volatile',
+    concentration: null,
+    amountUnit: '%',
+    regimens: {
+      maintenance: {
+        kind: 'inhaled',
+        rate: { default: 2.5, min: 2.5, max: 8.5, unit: '%' },
+        defaultRule: 'ageAdjustedMac',
+        scalar: null, scalarBasis: null,
+        timing: 'Surgical levels of anesthesia in adults may be maintained with 2.5–8.5% with or without nitrous oxide; concentration required is age dependent. Avoid rapid increases in concentration.',
+        sources: ['S36', 'S26'],
+        note: 'No induction regimen: the US label wording on adult mask induction was not retrieved (the Canadian monograph says it is not recommended for mask induction in adults because of a high incidence of moderate to severe upper airway adverse events; the US label says the same for paediatric induction). Default = label lower bound.',
+      },
+    },
+    mac: {
+      model: 'mapleson1996', mac40Pct: 6.6, slopePerYear: -0.00269,
+      formula: 'MAC(age) = MAC40 × 10^(slopePerYear × (age − 40))',
+      sources: ['S26'],
+      labelTableO2: null, labelTableSources: [],
+      note: 'US label MAC-by-age table not retrieved in this session.',
+    },
+    runtimeRules: [
+      { id: 'rapid_concentration_increase', severity: 'warn', message: 'Label: a rapid increase in desflurane concentration is associated with marked increase in pulse rate, mean arterial pressure and levels of epinephrine and norepinephrine; concentrations exceeding 1 MAC may increase heart rate, so an increased heart rate may not serve reliably as a sign of inadequate anesthesia.', sources: ['S36'] },
+    ],
+    ceiling: { value: 8.5, unit: '%', basis: 'label range upper bound', sources: ['S36'], note: 'Top of the label adult maintenance range; not called a maximum.' },
+    contraindications: [
+      { when: 'condition:mh_susceptible', severity: 'lock', message: 'Label: SUPRANE can induce malignant hyperthermia in patients with known or suspected susceptibility based on genetic factors or family history (listed among CONTRAINDICATIONS).', sources: ['S36'] },
+    ],
+    timing: NOT_STATED('Volatile agent: engine uses first-order wash-in/out of end-tidal fraction (illustrative).'),
+    pkModel: 'calibrated',
+  },
+  {
+    id: 'isoflurane', name: 'Isoflurane', cls: 'volatile',
+    concentration: null,
+    amountUnit: '%',
+    regimens: {
+      induction: {
+        kind: 'inhaled',
+        rate: { default: 1.5, min: 1.5, max: 3, unit: '%' },
+        scalar: null, scalarBasis: null,
+        timing: 'Begin at 0.5%; 1.5–3.0% usually produces surgical anesthesia in 7–10 minutes.',
+        sources: ['S37'],
+        note: 'Default = lower bound of the label surgical-anaesthesia range (label starting concentration is 0.5%).',
+      },
+      maintenance: {
+        kind: 'inhaled',
+        rate: { default: 1, min: 1, max: 2.5, unit: '%' },
+        defaultRule: 'ageAdjustedMac',
+        scalar: null, scalarBasis: null,
+        timing: 'Surgical anesthesia sustained with 1.0–2.5% in oxygen/nitrous oxide; an additional 0.5–1.0% may be required with oxygen alone.',
+        sources: ['S37', 'S26'],
+        note: 'Range is for O2/N2O mixtures; with oxygen alone the label allows up to 1.0% more (ceiling 3.5%).',
+      },
+    },
+    mac: {
+      model: 'mapleson1996', mac40Pct: 1.17, slopePerYear: -0.00269,
+      formula: 'MAC(age) = MAC40 × 10^(slopePerYear × (age − 40))',
+      sources: ['S26'],
+      labelTableO2: [{ ageYears: 26, macPct: 1.28 }, { ageYears: 44, macPct: 1.15 }, { ageYears: 64, macPct: 1.05 }],
+      labelTableN2O70: [{ ageYears: 26, macPct: 0.56 }, { ageYears: 44, macPct: 0.50 }, { ageYears: 64, macPct: 0.37 }],
+      labelTableSources: ['S37'],
+      note: 'Label ages are group means (26 ± 4, 44 ± 7, 64 ± 5 y).',
+    },
+    ceiling: { value: 3.5, unit: '%', basis: 'label range upper bound', sources: ['S37'], note: 'Label maintenance upper bound 2.5% plus up to 1.0% with oxygen alone (arithmetic of label figures); not called a maximum.' },
+    contraindications: [
+      { when: 'condition:mh_susceptible', severity: 'lock', message: 'Contraindicated in patients with known or suspected genetic susceptibility to malignant hyperthermia (label CONTRAINDICATIONS).', sources: ['S37'] },
+      { when: 'allergy:halogenated_volatile', severity: 'lock', message: 'Contraindicated in patients with known sensitivity to isoflurane or to other halogenated agents (label CONTRAINDICATIONS).', sources: ['S37'] },
+    ],
+    timing: NOT_STATED('Volatile agent: engine uses first-order wash-in/out (illustrative). Label: 1.5–3.0% usually produces surgical anesthesia in 7–10 minutes (induction context).'),
     pkModel: 'calibrated',
   },
 
@@ -1026,7 +1122,7 @@ export const DRUGS = [
 // runtime rules, MAC model). Kept frozen; tests check it matches the actual references.
 export const SOURCE_IDS_USED = Object.freeze([
   'S1', 'S2', 'S3', 'S5', 'S6', 'S7', 'S8', 'S9', 'S10', 'S11', 'S12', 'S13', 'S14', 'S15', 'S16',
-  'S17', 'S18', 'S19', 'S23', 'S24', 'S25', 'S26', 'S27', 'S28', 'S29', 'S30', 'S35',
+  'S17', 'S18', 'S19', 'S23', 'S24', 'S25', 'S26', 'S27', 'S28', 'S29', 'S30', 'S35', 'S36', 'S37',
 ]);
 
 // S-ids present for the engine/UI (scores, weight scalars, monitoring, sedation definitions) but

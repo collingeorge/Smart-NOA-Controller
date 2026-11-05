@@ -39,6 +39,12 @@ export const GENERIC_ILLUSTRATIVE = Object.freeze({ k10: 0.1, k12: 0.1, k21: 0.0
 export const CALIBRATED_V1_PER_KG = 0.25;
 export const PERIPHERAL_RATIO = 5;
 export const VOLATILE_DEFAULTS = Object.freeze({ tauMin: 2.5, ke0: 0.3 });
+// ILLUSTRATIVE wash-in/out time constants (min) of end-tidal toward the dial, ordered by
+// blood/gas solubility (desflurane fastest; sevoflurane and N2O intermediate; isoflurane
+// slowest). Engine assumptions, not fitted to data.
+export const VOLATILE_TAU_MIN = Object.freeze({ desflurane: 1.5, nitrous_oxide: 2.0, n2o: 2.0, sevoflurane: 2.5, isoflurane: 4.0 });
+export const isNitrous = (drug) => /nitrous|n2o/i.test(drug.id);
+export const isInhaled = (drug) => drug.cls === 'volatile' || drug.amountUnit === '%' || Object.values(drug.regimens || {}).some((r) => r && r.kind === 'inhaled');
 export const REFERENCE_WEIGHT_KG = 70;
 
 export function macForAge(mac40, ageYears) {
@@ -294,11 +300,12 @@ export function referenceConcentration(drug, prefs = []) {
  * opts: { k10Mult } (patient modifiers), { mac40 } for volatiles, { refPrefs }.
  */
 export function createPkModel(drug, patient, opts = {}) {
-  if (drug.cls === 'volatile') {
+  if (isInhaled(drug)) {
     const mac40 = isFiniteNumber(drug.mac40) ? drug.mac40 : (drug.mac && isFiniteNumber(drug.mac.mac40Pct) ? drug.mac.mac40Pct : drug.mac && isFiniteNumber(drug.mac.mac40) ? drug.mac.mac40 : (drug.mac && isFiniteNumber(drug.mac.age40) ? drug.mac.age40 : (isFiniteNumber(opts.mac40) ? opts.mac40 : null)));
+    if (mac40 === null && drug.id !== 'sevoflurane') throw new Error(`Inhaled agent '${drug.id}' has no MAC40 in the drug library`);
     const used = mac40 ?? FALLBACK_SEVO_MAC40;
     return {
-      type: 'volatile', model: new VolatileModel({ macAge: macForAge(used, patient.ageYears) }),
+      type: 'volatile', model: new VolatileModel({ macAge: macForAge(used, patient.ageYears), tauMin: VOLATILE_TAU_MIN[drug.id] ?? VOLATILE_DEFAULTS.tauMin, ke0: (VOLATILE_DEFAULTS.tauMin / (VOLATILE_TAU_MIN[drug.id] ?? VOLATILE_DEFAULTS.tauMin)) * VOLATILE_DEFAULTS.ke0 }),
       mac40: used, macAgeAdjusted: macForAge(used, patient.ageYears),
       provenance: mac40 !== null ? 'MAC40 from drug library; Mapleson 1996 age adjustment; wash-in/out illustrative' : 'MAC40 FALLBACK (see FALLBACK_SEVO_MAC40; unverified); Mapleson 1996 age adjustment; wash-in/out illustrative',
       ref: { value: null, basis: 'fraction of age-adjusted MAC' },

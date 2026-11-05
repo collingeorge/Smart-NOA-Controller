@@ -3,7 +3,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  SOURCES, CONDITIONS, ALLERGIES, MEDICATIONS, DRUGS, KNOWN_FLAGS, SOURCE_IDS_USED, SOURCE_IDS_ENGINE,
+  SOURCES, CONDITIONS, ALLERGIES, MEDICATIONS, DRUGS, KNOWN_FLAGS, SOURCE_IDS_USED, SOURCE_IDS_ENGINE, LIBRARY_NOTES,
 } from '../data/drugs.js';
 
 const CLASSES = new Set(['hypnotic', 'opioid', 'nmb', 'reversal', 'alpha2', 'nmda', 'local', 'antiemetic',
@@ -225,4 +225,32 @@ test('special regimen semantics', () => {
   assert.ok(byId[glyco.ratioTo.drugId]);
   const mac = byId.sevoflurane.mac;
   assert.ok(mac.mac40Pct > 0 && mac.slopePerYear < 0);
+});
+
+test('inhaled agents: MAC model, inhaled regimens, MH lock', () => {
+  const byId = Object.fromEntries(DRUGS.map((d) => [d.id, d]));
+  const expectMac40 = { sevoflurane: 1.80, isoflurane: 1.17, desflurane: 6.6 };
+  for (const [id, mac40] of Object.entries(expectMac40)) {
+    const d = byId[id];
+    assert.ok(d, `${id} present`);
+    assert.equal(d.cls, 'volatile');
+    assert.equal(d.amountUnit, '%');
+    assert.equal(d.mac.mac40Pct, mac40, `${id} Mapleson MAC40`);
+    assert.equal(d.mac.slopePerYear, -0.00269);
+    checkSources(d.mac.sources, `${id}.mac`);
+    const m = d.regimens.maintenance;
+    assert.equal(m.kind, 'inhaled');
+    assert.equal(m.rate.unit, '%');
+    assert.ok(m.rate.max <= d.ceiling.value, `${id}: maintenance max within ceiling`);
+    const mh = d.contraindications.find((c) => c.when === 'condition:mh_susceptible');
+    assert.ok(mh && mh.severity === 'lock', `${id}: MH lock`);
+    for (const row of d.mac.labelTableO2 || []) assert.ok(row.ageYears >= 18 && row.macPct > 0);
+  }
+  assert.deepEqual(byId.isoflurane.regimens.induction.rate, { default: 1.5, min: 1.5, max: 3, unit: '%' });
+  assert.deepEqual([byId.desflurane.regimens.maintenance.rate.min, byId.desflurane.regimens.maintenance.rate.max], [2.5, 8.5]);
+  assert.equal(byId.desflurane.regimens.induction, undefined, 'no desflurane induction regimen');
+  assert.ok(byId.desflurane.runtimeRules.some((r) => r.id === 'rapid_concentration_increase'));
+  // Nitrous oxide deliberately omitted (no verifiable US label dosing); documented in LIBRARY_NOTES.
+  assert.equal(byId.nitrous_oxide, undefined);
+  assert.ok(LIBRARY_NOTES.nitrousOxide && LIBRARY_NOTES.inhaledMacAdditivity);
 });
