@@ -267,7 +267,8 @@ export function interpretCeilings(drug, patient) {
       if (P) out.push(P);
     }
     if (c.infusion && typeof c.infusion === 'object') {
-      const I = limitFrom(drug, patient, c.infusion.value, c.infusion.unit, { ...meta, scalar: c.infusion.scalar || null, label: `infusion ${c.infusion.value} ${c.infusion.unit}${c.infusion.scalar ? ` ${c.infusion.scalar}` : ''} (${meta.basis})` });
+      const ib = c.infusion.basis || meta.basis;
+      const I = limitFrom(drug, patient, c.infusion.value, c.infusion.unit, { ...meta, basis: ib, scalar: c.infusion.scalar || null, label: `infusion ${c.infusion.value} ${c.infusion.unit}${c.infusion.scalar ? ` ${c.infusion.scalar}` : ''} (${ib})` });
       if (I) out.push(I);
     }
   }

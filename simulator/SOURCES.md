@@ -3,7 +3,7 @@
 > **SIMULATION — fictional patients — educational use only. Not a medical device. Not medical advice.**
 > Every dose, range, ceiling and timing in `data/drugs.js` is an **illustrative educational value transcribed from the cited source**. None is an order or a recommendation for any real patient. Labels differ by manufacturer and are revised often; real doses are individualized by the treating clinician.
 
-Compiled 2026-11-05 by the drug-library worker. Machine-readable copy: `data/drugs.js` (`SOURCES`).
+Compiled 2026-11-05. Machine-readable copy: `data/drugs.js` (`SOURCES`).
 
 ## How entries were checked
 
@@ -35,10 +35,10 @@ S23–S39 are new. S38 and S39 are non-label sources used only for nitrous oxide
 - **Timing:** numbers come only from label statements. Where the label gives a range, the midpoint is used and the range is kept in `timing.ranges`. Where no statement was verified, the numbers are `null` and `basis` is `'not stated in label'`. The engine then falls back to its own illustrative constants. This applies to dexmedetomidine, sevoflurane, desflurane, isoflurane, lidocaine, sugammadex, glycopyrrolate, dexamethasone, ondansetron, phenylephrine, ephedrine, ketorolac and acetaminophen.
 - **Severity versus label wording:** contraindication messages quote or closely paraphrase the label/guideline text. Where the simulator's severity differs from the label, the message says so:
   - Dexmedetomidine with heart block is a LOCK, mirroring the controller. The label only says "use with caution".
-  - Ketamine with uncontrolled hypertension is a WARN, as the SPEC requires. The label lists it as a contraindication.
-  - Lidocaine with heart block is a WARN, as the SPEC requires. The label lists severe block as a contraindication.
+  - Ketamine with uncontrolled hypertension is a WARN in the simulator. The label lists it as a contraindication.
+  - Lidocaine with heart block is a WARN in the simulator. The label lists severe block as a contraindication.
   - Ketorolac below eGFR 30: the label says "advanced renal impairment", and the numeric cut-off comes from S35.
-  - Succinylcholine with pre-existing hyperkalaemia is a LOCK by SPEC policy. The label's exact wording on this point was not retrieved.
+  - Succinylcholine with pre-existing hyperkalaemia is a LOCK by simulator policy. The label's exact wording on this point was not retrieved.
   - Etomidate with sepsis and ketamine with psychosis history are policy warnings. The quoted label text does not name these conditions.
 - **`when` grammar:** contraindications take a single token: `condition:<id>`, `allergy:<id>`, `medication:<id>`, `egfr<N`, `age>=N` or `flag:<id>`. `adjust[].when` may join several tokens with `|` (OR) and may also use `asa>=N` and `weight<N`. `tests/drugs.test.mjs` enforces this.
 
@@ -382,9 +382,9 @@ Type: physiology study
 | Lidocaine bolus for airway/pressor attenuation | No acceptable source supports a dose for this indication. The induction regimen is the Foo 2021 loading dose, and its note says so. |
 | Schwenk 2018 contraindication list | Not retrieved this session. Ketamine warnings use label wording instead. |
 | Ondansetron, ephedrine, naloxone, glycopyrrolate, rocuronium, midazolam, acetaminophen, sugammadex, lidocaine and dexmedetomidine concentrations | The supplied concentration was not seen in a label record (`concentration: null`). |
-| Janmahasatian numerator (9270) | The citation, DOI and denominators were confirmed, but the numerator was not displayed in a search record. The engine worker should treat it as unverified (S34). |
+| Janmahasatian numerator (9270) | The citation, DOI and denominators were confirmed, but the numerator was not displayed in a search record. Treat it as unverified from this source (S34). The same 9270 numerator appears in the Al-Sallami fat-free-mass equation as implemented in four independent Eleveld propofol implementations (see S42), which is consistent but is not a check of the Janmahasatian paper. |
 | Mapleson 1996 PMID; PONV 5th consensus PMID; sevoflurane NDA | Identifiers unverified. Omitted. |
-| Bratzler 2013 antibiotic prophylaxis | Not part of the SPEC §4 drug set, so it is not registered here. |
+| Bratzler 2013 antibiotic prophylaxis | Not part of the simulator's drug set, so it is not registered here. |
 | Nitrous oxide: 50% lower bound, vitamin B12/folate and middle-ear/eye-gas rules, intracranial air | No confirmable primary or guideline source was found. B12 and middle-ear wording was seen only in non-US product information. The maintenance range is therefore the single ENIGMA-II value of 70%, and the only N2O rules are pneumothorax (LOCK, as simulator policy) and bowel obstruction (WARN), both from S39. N2O is not an MH trigger, so it has no MH lock. |
 | Desflurane induction regimen and airway-irritability warning | The US adult mask-induction wording was not retrieved. "Not recommended for mask induction in adults" was seen only in the Canadian monograph. The US label's airway-event statement found concerns paediatric induction, which is outside scope. Desflurane therefore has a maintenance regimen only. The verified heart-rate/rapid-increase wording is a runtime warning. |
 | Desflurane US MAC-by-age table | Not retrieved. Only the Mapleson MAC40 (6.6%) is used. |

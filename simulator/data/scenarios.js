@@ -18,14 +18,18 @@ import { macForAge, createPkModel } from '../engine/pk.js';
 //   sensor             'hr' | 'map' | 'spo2' sensor reads as unusable while active
 //   laryngospasm       true → no spontaneous ventilation; mask ventilation only partially effective
 //   counteredBy        { drugId | '_hypnosis' : fraction } intensity × (1 − fraction × effect)
+//                      special keys: '_hypnosis' (hypnotic effect H), '_bronchodilation'
+//                      (epinephrine bronchodilation effect, pd.js 'broncho')
+//   volumeLoss         true → intravenous crystalloid (sim.action('fluid_bolus')) offsets the
+//                      event intensity (illustrative; at most 80 %, engine/sim.js FLUID_MODEL)
 //   resolvedBy         { drugs:[ids], maskVentilationSec } ends the event
 //   armOnExtubation    event starts at the next extubation (immediately if already extubated)
 export const SCENARIOS = [
   {
     id: 'hemorrhage', label: 'Surgical hemorrhage',
     description: 'Progressive blood loss over about 10 minutes.',
-    perturbation: { rampSec: 600, holdSec: null, resolveSec: 0, mapFrac: -0.35, hrFrac: 0.35 },
-    teachingPoint: 'Falling MAP with rising HR (blunted by beta-blockade) suggests hypovolaemia; vasopressors only temporise — volume replacement and surgical control are not modelled here.',
+    perturbation: { rampSec: 600, holdSec: null, resolveSec: 0, mapFrac: -0.35, hrFrac: 0.35, volumeLoss: true },
+    teachingPoint: 'Falling MAP with rising HR (blunted by beta-blockade) suggests hypovolaemia. Restore volume (crystalloid boluses here; blood products are not modelled) and support pressure with a vasopressor while the bleeding is controlled surgically — fluids and vasopressors only temporise. In this illustrative model fluid helps most when the patient is volume-depleted, with diminishing returns, and the effect fades as crystalloid redistributes.',
   },
   {
     id: 'vagal_bradycardia', label: 'Vagal bradycardia',
@@ -36,8 +40,8 @@ export const SCENARIOS = [
   {
     id: 'bronchospasm', label: 'Bronchospasm',
     description: 'Increased airway resistance reducing effective ventilation for about 5 minutes.',
-    perturbation: { rampSec: 30, holdSec: 300, resolveSec: 120, ventFactor: 0.35, aaAdd: 60, etco2GapAdd: 10, counteredBy: { _hypnosis: 0.4 } },
-    teachingPoint: 'Rising CO2, a widened PaCO2–EtCO2 gap and falling SpO2; deepening anaesthesia and 100 % oxygen help (bronchodilators are not modelled).',
+    perturbation: { rampSec: 30, holdSec: 300, resolveSec: 120, ventFactor: 0.35, aaAdd: 60, etco2GapAdd: 10, counteredBy: { _hypnosis: 0.4, _bronchodilation: 0.8 } },
+    teachingPoint: 'Rising CO2, a widened PaCO2–EtCO2 gap and falling SpO2. Give 100 % oxygen, deepen anaesthesia, and consider epinephrine as a bronchodilator (inhaled bronchodilators are not modelled). Check the dose and route against the Sources panel.',
   },
   {
     id: 'laryngospasm_on_extubation', label: 'Laryngospasm on extubation',
@@ -72,8 +76,8 @@ export const SCENARIOS = [
   {
     id: 'anaphylaxis_hypotension', label: 'Anaphylaxis with hypotension',
     description: 'Severe vasodilatory hypotension, tachycardia and bronchospasm developing over 2 minutes.',
-    perturbation: { rampSec: 120, holdSec: 900, resolveSec: 300, mapFrac: -0.5, hrFrac: 0.4, ventFactor: 0.6, aaAdd: 40, etco2GapAdd: 6 },
-    teachingPoint: 'Stop the suspected trigger and call for help; epinephrine is first-line and is not in this simulator — phenylephrine/ephedrine only partially temporise.',
+    perturbation: { rampSec: 120, holdSec: 900, resolveSec: 300, mapFrac: -0.5, hrFrac: 0.4, ventFactor: 0.6, aaAdd: 40, etco2GapAdd: 6, counteredBy: { _bronchodilation: 0.7 } },
+    teachingPoint: 'Stop the suspected trigger and call for help. Epinephrine is the expected response (labelled for anaphylaxis by intramuscular injection; see the Sources panel for the dose); in this model it raises MAP and HR and reverses the bronchospasm. Phenylephrine or ephedrine only partially temporise.',
   },
 ];
 
@@ -187,7 +191,7 @@ export function buildPlan(template, patient, library = null) {
     if (!rec.available) { skipped.push({ drugId: s.drugId, reason: rec.warnings.join('; ') }); continue; }
     const src = { regimenKey: s.regimenKey, sources: rec.sources };
     if (s.kind === 'bolus' && rec.dose) {
-      steps.push({ ...base, ...src, id: `s${++order}`, order, kind: 'bolus', amount: rec.dose.value, amountUnit: rec.dose.unit, overSec: overSecFromTiming(rec.timing) });
+      steps.push({ ...base, ...src, id: `s${++order}`, order, kind: 'bolus', amount: rec.dose.value, amountUnit: rec.dose.unit, overSec: rec.route && rec.route !== 'IV' ? null : overSecFromTiming(rec.timing), ...(rec.route && rec.route !== 'IV' ? { route: rec.route } : {}) });
     } else if (s.kind === 'infusion' && rec.rate) {
       if (rec.loading && rec.loading.value) steps.push({ ...base, ...src, id: `s${++order}`, order, kind: 'bolus', amount: rec.loading.value, amountUnit: rec.loading.unit, overSec: rec.loading.overSec || null, loading: true });
       steps.push({ ...base, ...src, id: `s${++order}`, order, kind: 'infusion', rate: rec.rate.value, rateUnit: rec.rate.unit });

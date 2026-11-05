@@ -106,7 +106,7 @@ export function buildParameterInventory({ lib, patient, models = {}, fluidModel,
 
   // ---------------------------------------------------------------- physiology
   const sev = findSourceId(lib, 'Severinghaus');
-  add('physiology', 'oxyhaemoglobin dissociation (Severinghaus 1979 approximation)', 'SO2 = 100/(23400/(PO2³+150·PO2)+1)', '', 'trial_or_physiology_study', sev ? [sev] : [], 'Severinghaus JW. Simple, accurate equations for human blood O2 dissociation computations. J Appl Physiol 1979 (citation not registered in SOURCES; not re-verified).', { citationRegistered: !!sev });
+  add('physiology', 'oxyhaemoglobin dissociation (Severinghaus 1979 approximation)', 'SO2 = 100/(23400/(PO2³+150·PO2)+1)', '', 'trial_or_physiology_study', sev ? [sev] : [], 'Severinghaus JW, J Appl Physiol 1979, blood O2 dissociation equations (citation not registered in SOURCES; not re-verified).', { citationRegistered: !!sev });
   add('physiology', 'alveolar gas equation constants', 'PAO2 = FiO2·713 − PaCO2/0.8', 'mmHg', 'trial_or_physiology_study', [], 'Standard sea-level alveolar gas equation (textbook relation; no citation registered).', { citationRegistered: false });
   for (const [k, v] of Object.entries(PHYS)) add('physiology', k, v, '', AUTHOR, [], 'Illustrative ventilation/oxygenation constant.');
   for (const [k, v] of Object.entries(GAINS)) add('physiology', k, v, '', AUTHOR, [], 'Illustrative gain / time constant.');

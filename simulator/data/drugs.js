@@ -407,7 +407,7 @@ export const SOURCES = {
     supports: 'Nitrous oxide diffuses into closed gas spaces faster than nitrogen leaves, expanding them: in dogs breathing 75% N2O, pneumothorax volume roughly doubled by 10 min and roughly tripled-to-quadrupled (about +300%) by 60 min, whereas oxygen did not change it; bowel gas also expanded. Authors concluded nitrous oxide is relatively contraindicated in intestinal obstruction or pneumothorax.',
     verifiedVia: 'WebSearch records of PubMed 14257336 (citation; no abstract listed), the Scilit record (conclusion "relatively contraindicated in intestinal obstruction or pneumothorax"), BestBets review table (dog data, +100% at 10 min, ~+300% at 60 min) and a textbook figure reproduction (75% N2O), 2026-11-05. Full text not opened; volume figures are from secondary reproductions. Animal study (pneumothorax created by air injection). Non-label source: used because no US nitrous oxide label states contraindications.',
   },
-  // S40–S43 added 2026-11-05 by the model-extension worker (epinephrine, Eleveld propofol PK, fluids).
+  // S40–S43 added 2026-11-05 (epinephrine, Eleveld propofol PK, sepsis fluid context).
   S40: {
     id: 'S40',
     citation: 'Epinephrine injection, USP 1 mg/mL (ADRENALIN). Par Pharmaceutical / Par Health USA. FDA-approved prescribing information (DailyMed setid 3b7a4364-668d-4eb2-a20c-04adc35aabe4; FDA-hosted label files 204200s004 (2016), 204200s009/204640s009 (2019), 204640Orig1s018 (2023)).',
@@ -639,7 +639,7 @@ export const DRUGS = [
     ceiling: { value: 1, unit: 'mg/kg/h', basis: 'guideline maximum', appliesTo: 'maintenance', sources: ['S10'], note: 'Schwenk 2018: infusions up to about 1 mg/kg/h; bolus ≤0.35 mg/kg for analgesia.' },
     contraindications: [
       { when: 'allergy:ketamine', severity: 'lock', message: 'Contraindicated: known hypersensitivity to ketamine or to any excipient (label CONTRAINDICATIONS).', sources: ['S27'] },
-      { when: 'condition:uncontrolled_htn', severity: 'warn', message: 'Label CONTRAINDICATIONS: patients for whom a significant elevation of blood pressure would constitute a serious hazard. (Simulator shows this as a warning per SPEC; the label lists it as a contraindication.)', sources: ['S27'] },
+      { when: 'condition:uncontrolled_htn', severity: 'warn', message: 'Label CONTRAINDICATIONS: patients for whom a significant elevation of blood pressure would constitute a serious hazard. (The simulator shows this as a warning; the label lists it as a contraindication.)', sources: ['S27'] },
       { when: 'condition:psychosis_history', severity: 'warn', message: 'Label: postoperative confusional states may occur during the recovery period. (The label does not name psychosis history; the simulator applies this warning as policy. Schwenk 2018 contraindication list not retrieved.)', sources: ['S27'] },
     ],
     timing: { onsetMin: 0.5, peakMin: null, durationMin: 7.5, ranges: { durationMin: [5, 10] }, basis: 'label statement: 2 mg/kg produces 5 to 10 minutes of surgical anesthesia within 30 seconds (midpoint used)', defaultBolus: '2 mg/kg', sources: ['S27'] },
@@ -911,7 +911,7 @@ export const DRUGS = [
     contraindications: [
       { when: 'condition:regional_block_planned', severity: 'warn', message: 'Foo 2021: IV lidocaine should not be given concurrently with other local anaesthetic interventions (nerve blocks, wound infiltration) or while their effect is still active; separate by about 4 h.', sources: ['S1'] },
       { when: 'condition:liver_disease', severity: 'warn', message: 'Label: patients with severe hepatic disease, because of their inability to metabolize local anesthetics normally, are at greater risk of developing toxic plasma concentrations.', sources: ['S28'] },
-      { when: 'condition:heart_block', severity: 'warn', message: 'Label CONTRAINDICATIONS (IV lidocaine): should not be used in patients with Stokes-Adams syndrome, Wolff-Parkinson-White syndrome, or with severe degrees of sinoatrial, atrioventricular or intraventricular block. (Shown as a warning per SPEC.)', sources: ['S28'] },
+      { when: 'condition:heart_block', severity: 'warn', message: 'Label CONTRAINDICATIONS (IV lidocaine): should not be used in patients with Stokes-Adams syndrome, Wolff-Parkinson-White syndrome, or with severe degrees of sinoatrial, atrioventricular or intraventricular block. (The simulator shows this as a warning; the label lists it as a contraindication.)', sources: ['S28'] },
       { when: 'condition:wpw', severity: 'warn', message: 'Label CONTRAINDICATIONS (IV lidocaine, some manufacturers): should not be used in patients with Wolff-Parkinson-White syndrome.', sources: ['S28'] },
     ],
     timing: NOT_STATED(),
@@ -965,7 +965,7 @@ export const DRUGS = [
       { when: 'condition:mh_susceptible', severity: 'lock', message: 'Contraindicated in patients with personal or familial history of malignant hyperthermia (label CONTRAINDICATIONS).', sources: ['S24'] },
       { when: 'condition:neuromuscular_disease', severity: 'lock', message: 'Contraindicated in patients with skeletal muscle myopathies (label CONTRAINDICATIONS).', sources: ['S24'] },
       { when: 'condition:recent_burn_or_denervation', severity: 'lock', message: 'Label: should not be used after the acute phase of injury following major burns, multiple trauma, extensive denervation of skeletal muscle, or upper motor neuron injury (risk of severe hyperkalemia; peaks 7–10 days after injury).', sources: ['S24'] },
-      { when: 'condition:hyperkalemia', severity: 'lock', message: 'Label WARNINGS: succinylcholine can cause hyperkalemia leading to cardiac arrhythmias and arrest (boxed warning: hyperkalemic rhabdomyolysis). The label wording on pre-existing hyperkalemia was not retrieved; the simulator LOCK is policy per SPEC.', sources: ['S24'] },
+      { when: 'condition:hyperkalemia', severity: 'lock', message: 'Label WARNINGS: succinylcholine can cause hyperkalemia leading to cardiac arrhythmias and arrest (boxed warning: hyperkalemic rhabdomyolysis). The label wording on pre-existing hyperkalemia was not retrieved; the simulator lock is a teaching-simulator policy.', sources: ['S24'] },
       { when: 'allergy:succinylcholine', severity: 'lock', message: 'Contraindicated in patients with known hypersensitivity to succinylcholine (label CONTRAINDICATIONS).', sources: ['S24'] },
     ],
     timing: { onsetMin: 1, peakMin: 2, durationMin: 5, ranges: { durationMin: [4, 6] }, basis: 'label statement: after 0.3–1.1 mg/kg IV, blockade develops in about 1 minute, maximum in about 2 minutes, recovery within 4 to 6 minutes (midpoint used)', defaultBolus: '0.6 mg/kg', sources: ['S24'] },
@@ -1066,7 +1066,7 @@ export const DRUGS = [
         scalar: null, scalarBasis: null,
         timing: 'PONV prophylaxis given at induction (early), per consensus.',
         sources: ['S3', 'S2'],
-        note: 'SPEC groups dexamethasone with emergence drugs, but S2/S3 state it is given at induction; regimen key is therefore induction. 8 mg may be optimal (S3).',
+        note: 'Given at induction for PONV prophylaxis per consensus guidance [S2][S3]; 8 mg may be optimal (S3).',
       },
     },
     ceiling: null,
@@ -1144,7 +1144,7 @@ export const DRUGS = [
     pkModel: 'calibrated',
   },
   {
-    // Added 2026-11-05 (model-extension worker). No IV push-dose ("bolus") regimen: no label or
+    // Added 2026-11-05. No IV push-dose ("bolus") regimen: no label or
     // guideline dose was verified, so a bolus of epinephrine in the simulator is intramuscular.
     id: 'epinephrine', name: 'Epinephrine', cls: 'vasopressor',
     concentration: { value: 1, unit: 'mg/mL' },
@@ -1169,7 +1169,7 @@ export const DRUGS = [
         note: 'Labelled indication: hypotension associated with septic shock (the simulator lets it be used for any hypotension for teaching; outside septic shock that is not the labelled indication). Weight = ideal body weight per the 215425 label (S41). Default = label lower bound.',
       },
     },
-    ceiling: { value: 0.5, unit: 'mg', scope: 'per bolus', basis: 'label maximum', infusion: { value: 2, unit: 'mcg/kg/min', scalar: 'IBW' }, sources: ['S40', 'S41'],
+    ceiling: { value: 0.5, unit: 'mg', scope: 'per bolus', basis: 'label maximum', infusion: { value: 2, unit: 'mcg/kg/min', scalar: 'IBW', basis: 'label range upper bound' }, sources: ['S40', 'S41'],
       note: '0.5 mg per injection is a stated label maximum (anaphylaxis). The 2 mcg/kg/min infusion stop is the top of the labelled septic-shock range, which the label does not call a maximum.' },
     contraindications: [
       { when: 'condition:cad', severity: 'warn', message: 'Label WARNINGS: epinephrine may induce cardiac arrhythmias and myocardial ischemia in patients, especially patients suffering from coronary artery disease, or cardiomyopathy. (Label contraindications: none.)', sources: ['S40'] },
