@@ -284,6 +284,10 @@ try {
       advance: (sec) => (store.run && typeof store.run.testAdvance === 'function' && store.run.testAdvance(sec) ? testLite() : null),
       /** Small status object (cheap to poll): time, phase, vitals, airway, readiness, runner state. */
       lite: () => testLite(),
+      /** Injects a scenario event directly into the engine (no UI control is clicked) — used to reproduce self-pauses. */
+      inject: (id) => (store.sim ? JSON.parse(JSON.stringify(store.sim.inject(id))) : null),
+      /** Advisory record (engine/rescue.js), plain data. */
+      advisories: () => (store.sim ? JSON.parse(JSON.stringify(store.sim.summary().advisories)) : null),
       /** Palliative modules: plain-data snapshot, step-driven clock, synchronous advance by `min` simulated minutes. */
       pal: () => palSnapshot(),
       palTestClock: (on) => { pal.testClock = !!on; return pal.testClock; },

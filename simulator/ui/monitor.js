@@ -488,7 +488,7 @@ export function renderMonitor(ctx, main) {
       const psig = det.map((d) => d.headline + d.action).join('|');
       if (autoPausedList.dataset.sig !== psig) { autoPausedList.dataset.sig = psig; clear(autoPausedList).append(...(det.length > 1 ? det.map((d) => h('li', {}, h('strong', {}, d.headline), ` — ${d.action}`)) : [])); }
     }
-    if (focusResume && paused) { focusResume = false; if (!autoResume.disabled) autoResume.focus({ preventScroll: true }); }
+    if (focusResume && paused) { focusResume = false; announce(autoPausedHead.textContent, true); if (!autoResume.disabled) autoResume.focus({ preventScroll: true }); }
     const c = st.current;
     const showGate = active && st.mode === 'guided' && c && c.gate;
     autoGate.hidden = !showGate;

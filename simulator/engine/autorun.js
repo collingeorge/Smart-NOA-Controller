@@ -3,8 +3,11 @@
 //
 // A scripted sequence of the SAME case actions the manual Run-screen buttons call
 // (engine/case-actions.js). It is not a controller and not a clinical recommendation:
-//  * it never gives, changes or stops a drug — only the user's plan steps do that, through the
-//    engine's plan scheduler, at the offsets the user set;
+//  * it never gives, changes or stops a drug on its own — only the user's plan steps do that, through the
+//    engine's plan scheduler, at the offsets the user set, plus clinician actions pressed in the panel
+//    (clinicianAction: guideline prophylaxis, one sedation titration step within the label range);
+//  * MAC sedation below the plan target: guided mode offers titration or "acknowledge and start at the
+//    current level"; the full demonstration pauses there and never chooses for the clinician;
 //  * it never extubates unless sim.extubationReadiness() is met, and never uses the override;
 //  * it pauses on a latched interlock hold or an unacknowledged HIGH-priority alarm and never
 //    releases holds or acknowledges alarms itself;

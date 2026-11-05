@@ -25,6 +25,8 @@ Compiled 2026-11-05 (branch `autorun-2026-11`), after the November 2026 timing p
 | no published timing | 25 |
 | **total** | **55** |
 
+**Added after this check (November 2026, section G, rows 56–63):** advisory rescue and MAC sedation-titration timings — agrees 3, no published timing 5 (all simulator conventions). The counts above cover rows 1–55 only; no row 1–55 was changed. Sources for rows 56–60 are the existing registry records (S18, S19); no new search was made for them.
+
 **The one conflict:** `mac_propofol` template and the MAC example plan (`mac_obese_osa`) started the propofol MAC-sedation initiation at sedation +2:00 — the moment the midazolam injection (given over ≥ 2 min) ends, before its effect could be evaluated. Midazolam label: give over at least 2 minutes and wait an additional 2 or more minutes to fully evaluate the sedative effect [S17]; ASA 2018 moderate-sedation guideline: allow sufficient time between doses to assess the effect of each [S32]. **Fix:** propofol initiation now starts at +4:00 (maintenance at +9:00), recorded as `TIMING_CONFIG.MAC_SEDATIVE_AFTER_MIDAZOLAM_SEC` = 240 s (provenance label, S17/S32); test T2 checks the template, the example plan and the config value agree. No dose changed.
 
 **Other changes (documentation only, no timing changed):** `TIMING_CONFIG.PREOXYGENATION_END_POINT` records the DAS 2015 end point (end-tidal O2 fraction 0.87–0.9, S55) and the ASA 2022 oxygen statement (S56); end-tidal O2 is not modelled, so the 3-min preoxygenation gate stays a simulator convention.
@@ -118,6 +120,19 @@ Compiled 2026-11-05 (branch `autorun-2026-11`), after the November 2026 timing p
 
 Plan/live checks that re-use rows above (PONV, antibiotic window/redose, reversal, repeat boluses, opioid → hypnotic, pretreatment, hypnotic → NMB, loading → maintenance) carry the same agreement as those rows.
 
+### G. Advisory haemodynamic rescue and MAC sedation titration (added November 2026)
+
+| # | Element | Simulator value | Published statement(s) — source, what it says (how seen) | Agreement | Classification | Action |
+|---|---|---|---|---|---|---|
+| 56 | Advisory: phenylephrine repeat interval | next suggestion ≥ 60 s after a phenylephrine bolus (`RESCUE_CONFIG.PHENYLEPHRINE_REPEAT_MIN_SEC`) | Biorphen label [S18]: "Additional boluses may be administered every 1-2 minutes as needed" (registry record: WebSearch of the FDA-hosted 2019 label and ndclist.com copies). Lower bound used. | agrees | label-stated | none |
+| 57 | Advisory: ephedrine reassessment pause | 120 s after an ephedrine bolus (`EPHEDRINE_REPEAT_MIN_SEC`) | Akovaz label [S19]: IV bolus 5–10 mg "as needed" — no interval (registry record). | no published timing | simulator convention | none |
+| 58 | Advisory: pause after any other vasopressor bolus | 120 s (`OTHER_VASOPRESSOR_REASSESS_SEC`) | None for this use. | no published timing | simulator convention | none |
+| 59 | Advisory: phenylephrine cumulative maximum | all boluses in the session ≤ 200 mcg (drug-library ceiling) | Biorphen 2019 label [S18]: "not to exceed a total dosage of 200 mcg"; some later copies read "additional boluses up to 200 mcg" (registry record). The simulator applies the conservative 2019 reading. | agrees | label-stated | none (wording difference already recorded in SOURCES.md) |
+| 60 | Advisory: ephedrine cumulative maximum | ≤ 50 mg in all (drug-library ceiling) | Akovaz label [S19]: "not to exceed 50 mg" (registry record: drugs.com / medlibrary.org label copies). | agrees | label-stated | none |
+| 61 | Guided titration: midazolam repeat step | ≥ 4 min after the previous midazolam bolus (reuses `MIDAZOLAM_REPEAT_MIN_SEC`, row 27) | Midazolam label [S17] as row 27. | agrees | label-stated | none |
+| 62 | Guided titration: reassessment after an infusion-rate step | 180 s (`AUTORUN_CONFIG.SEDATION_TITRATION_REASSESS_SEC`) | ASA 2018 moderate sedation [S32]: allow sufficient time between doses to assess the effect of each *(summary; no number)*; propofol label [S11] gives no titration interval. | no published timing | simulator convention | none |
+| 63 | Full demonstration: pause when sedation stays below the target | 300 s after the last sedation plan step (`SEDATION_BELOW_TARGET_PAUSE_SEC`) | None. | no published timing | simulator convention | none |
+
 ## Sources verified in this check, and what could not be accessed
 
 Verified through WebSearch records (2026-11-05): FDA-label statements for propofol [S11], midazolam [S17], fentanyl [S13], rocuronium [S12], dexmedetomidine [S9], sugammadex [S6] (4 and 16 mg/kg tiers); Thilen 2023 [S5]; Gan 2020 [S2] (via the APSF Table 4 summary); Bratzler 2013 [S46] (secondary reproductions only); WHO checklist [S54]; Foo 2021 [S1]; B-Unaware [S52]; DAS 2015 [S55]; ASA 2022 difficult airway [S56] (secondary reproductions); ASA 2018 moderate sedation [S32] (summary only); SCCM 2023 RSI (recommendations, no timing); DAS 2025, ERAS colorectal 2018, PROSPECT (citations/fragments only).
@@ -187,3 +202,11 @@ Reviewer: ______________________  Credential: ________  Date: __________
 | 53 | Sedatives stop at end of procedure | [ ] | [ ] | |
 | 54 | Recovery end point (minimal/awake 10 s) | [ ] | [ ] | |
 | 55 | 1-s live-check tolerance | [ ] | [ ] | |
+| 56 | Advisory: phenylephrine next suggestion ≥ 60 s | [ ] | [ ] | |
+| 57 | Advisory: ephedrine pause 120 s (convention) | [ ] | [ ] | |
+| 58 | Advisory: other vasopressor pause 120 s (convention) | [ ] | [ ] | |
+| 59 | Advisory: phenylephrine ≤ 200 mcg cumulative | [ ] | [ ] | |
+| 60 | Advisory: ephedrine ≤ 50 mg cumulative | [ ] | [ ] | |
+| 61 | Guided titration: midazolam ≥ 4 min | [ ] | [ ] | |
+| 62 | Guided titration: 180-s reassessment after a rate step | [ ] | [ ] | |
+| 63 | Full demonstration pauses 300 s after the last sedation step if below target | [ ] | [ ] | |

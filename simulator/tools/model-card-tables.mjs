@@ -3,6 +3,7 @@
 //   "## Automatic demonstration and guided mode" — engine/autorun-config.js + engine/autorun.js
 //   "## Timing rules and template timing" — engine/timing.js TIMING_CONFIG + data/templates.js timingRationale
 //   "## Palliative and end-of-life modules" — engine/palliative.js palliativeParameterInventory()
+//   "## Advisory haemodynamic rescue" — engine/rescue-config.js RESCUE_CONFIG (+ drug-library rescue regimens)
 // Usage (from the repository root):  node simulator/tools/model-card-tables.mjs [--check]
 // --check exits 1 if MODEL_CARD.md is out of date. Pure Node; no network.
 import { readFileSync, writeFileSync } from 'node:fs';
@@ -10,7 +11,8 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import * as LIB from '../data/drugs.js';
 import { derivePatient } from '../engine/patient.js';
-import { createSimulation } from '../engine/sim.js';
+import { createSimulation, ALARM_THRESHOLDS } from '../engine/sim.js';
+import { RESCUE_CONFIG, ADVISORY_DISCLAIMER, HYPOTENSION_CHECKLIST } from '../engine/rescue-config.js';
 import { EXAMPLE_PATIENTS } from '../data/scenarios.js';
 import { AUTORUN_CONFIG, CONVENTION } from '../engine/autorun-config.js';
 import { buildSequence } from '../engine/autorun.js';
@@ -38,7 +40,7 @@ const invSection = [
 const seqRows = (mode) => buildSequence(mode).map((s, i) => `${i + 1}. **${s.label}** — ${s.gate ? `gate “${s.gateLabel}” (guided: you press it; full demonstration: passes automatically)` : 'automatic in both modes'}; ${s.describe}.`);
 const autoSection = [
   '## Automatic demonstration and guided mode',
-  'Generated from `engine/autorun-config.js` and `engine/autorun.js`. Both modes are a **scripted sequence** of the same phase and airway actions as the manual Run-screen buttons (`engine/case-actions.js`); they are not a controller and not a clinical recommendation, and they have not been evaluated against clinical practice. They never give, change or stop a drug (only the user\'s plan steps do), never extubate unless `sim.extubationReadiness()` is met (the "Extubate anyway" override is never used), pause on a latched interlock hold or an unacknowledged HIGH-priority alarm without releasing or acknowledging it, and end as soon as any manual control is used.',
+  'Generated from `engine/autorun-config.js` and `engine/autorun.js`. Both modes are a **scripted sequence** of the same phase and airway actions as the manual Run-screen buttons (`engine/case-actions.js`); they are not a controller and not a clinical recommendation, and they have not been evaluated against clinical practice. They never give, change or stop a drug on their own (only the user\'s plan steps and the clinician\'s own clicks do — e.g. guideline prophylaxis, a sedation titration step, an advisory rescue bolus), never extubate unless `sim.extubationReadiness()` is met (the "Extubate anyway" override is never used), pause on a latched interlock hold or an unacknowledged HIGH-priority alarm without releasing or acknowledging it (the panel then shows a paused banner with the reason and the action needed, and Resume), offer the clinician two choices when MAC sedation stays below the plan target (titrate within the label range, or acknowledge and start the procedure at the current level; the full demonstration pauses there and never chooses), and end as soon as any manual control is used.',
   '',
   'While either mode runs, an on-screen banner (exact text: `BANNERS` in `engine/autorun.js`) states that it is a scripted educational sequence, not a controller or a clinical recommendation. Steps taken are logged with the prefix `AUTO:` (log kind `auto`), and the debrief and the downloaded session JSON (`automaticMode`, `summary.automatic`) record the mode, outcome, pauses and where/why it stopped.',
   '',
@@ -91,6 +93,19 @@ const palSection = [
   '',
 ].join('\n');
 
+const rv = (x) => (x.ref ? ALARM_THRESHOLDS[x.ref] : x.value);
+const rescueSection = [
+  '## Advisory haemodynamic rescue',
+  `Generated from \`engine/rescue-config.js\` (\`RESCUE_CONFIG\`; logic in \`engine/rescue.js\`; card \`ui/advisory.js\`). Owner-approved feature (November 2026). On MAP below the trigger the Run screen (and the guided/automatic panel) shows an **advisory** that suggests one label-sourced rescue bolus; the clinician gives it with one click ("Give suggested bolus", logged \`ADVISORY accepted\`) or dismisses it (logged). Card text: "${ADVISORY_DISCLAIMER}" The simulator never gives the suggested drug by itself — not in manual, guided or automatic-demonstration mode — and the advisory never acknowledges alarms or releases interlock holds. Doses are not written in the advisory module: they are read from the drug library rescue regimens (phenylephrine [S18], ephedrine [S19]) through \`recommend()\` and the label ceilings. MAP above the high threshold gives teaching text only (no drug, no dose). Epinephrine is never suggested for routine hypotension. Every non-drug checklist line is teaching text without doses: ${HYPOTENSION_CHECKLIST.map((x) => `“${x}”`).join(' ')} The debrief and the session JSON (\`summary.advisories\`) list every advisory shown, accepted and dismissed, with times. Not validated; not clinical decision support.`,
+  '',
+  `${Object.keys(RESCUE_CONFIG).length} entries (also in the parameter inventory as component \`rescue\`):`,
+  '',
+  '| Entry | Value | Unit | Provenance | Sources | Rationale |',
+  '|---|---|---|---|---|---|',
+  ...Object.entries(RESCUE_CONFIG).map(([k, x]) => `| ${k} | ${cell(fmt(rv(x)))}${x.ref ? ` (= ALARM_THRESHOLDS.${x.ref})` : ''} | ${x.unit} | ${x.provenance} | ${x.sourceIds.join(', ')} | ${cell(x.rationale)} |`),
+  '',
+].join('\n');
+
 const md = readFileSync(file, 'utf8');
 const replaceSection = (text, startRe, body) => {
   const parts = text.split(/\n(?=## )/);
@@ -106,5 +121,7 @@ const withTiming = replaceSection(out, /^## Timing rules and template timing/, t
 out = withTiming !== null ? withTiming : out.replace(/\n## Sources\n/, `\n${timingSection}\n## Sources\n`);
 const withPal = replaceSection(out, /^## Palliative and end-of-life modules/, palSection);
 out = withPal !== null ? withPal : out.replace(/\n## Sources\n/, `\n${palSection}\n## Sources\n`);
+const withRescue = replaceSection(out, /^## Advisory haemodynamic rescue/, rescueSection);
+out = withRescue !== null ? withRescue : out.replace(/\n## Sources\n/, `\n${rescueSection}\n## Sources\n`);
 if (process.argv.includes('--check')) { if (out !== md) { console.error('MODEL_CARD.md is out of date: run node simulator/tools/model-card-tables.mjs'); process.exit(1); } console.log('MODEL_CARD.md up to date'); }
-else { writeFileSync(file, out); console.log(`MODEL_CARD.md: ${inv.length} inventory rows, ${Object.keys(AUTORUN_CONFIG).length} autorun entries, ${Object.keys(TIMING_CONFIG).length} timing rules, ${palInv.length} palliative rows`); }
+else { writeFileSync(file, out); console.log(`MODEL_CARD.md: ${inv.length} inventory rows, ${Object.keys(AUTORUN_CONFIG).length} autorun entries, ${Object.keys(TIMING_CONFIG).length} timing rules, ${palInv.length} palliative rows, ${Object.keys(RESCUE_CONFIG).length} rescue entries`); }

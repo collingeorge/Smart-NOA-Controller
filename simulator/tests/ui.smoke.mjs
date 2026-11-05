@@ -620,6 +620,78 @@ test('simulator UI smoke', { skip, timeout: 900000 }, async (t) => {
       assert.ok(!(await page.isVisible('#pal-banner'))); assert.ok(!(await page.isVisible('#open-ethics'))); assert.ok(await page.isVisible('#stepper-list'));
     });
 
+    await t.test('advisory rescue: appears on induced hypotension, accept gives the bolus, dismiss logs, phone width, debrief', async () => {
+      await loadCase(page, 'healthy_adult'); await toRun(page);
+      assert.ok(await page.locator('#adv').isHidden(), 'no advisory at normal MAP');
+      await page.selectOption('#cx-select', 'hemorrhage'); await page.click('#cx-inject');
+      let s = await lite(page);
+      for (let i = 0; i < 200 && !(await page.isVisible('#adv-accept')); i++) s = await adv(page, 5);
+      assert.ok(await page.isVisible('#adv-accept'), `advisory accept visible (MAP ${s.v.map})`);
+      assert.ok(s.v.map < 65, `MAP ${s.v.map} < 65`);
+      assert.equal(await page.getAttribute('#adv', 'role'), 'region');
+      assert.equal(await page.getAttribute('#adv-headline', 'aria-live'), 'polite');
+      assert.equal((await page.textContent('#adv-disclaimer')).trim(), 'Advisory only — the simulator never gives a vasopressor by itself.');
+      assert.match(await page.textContent('#adv-suggestion'), /Suggested: (Phenylephrine 40 mcg|Ephedrine 5 mg) IV bolus/);
+      assert.ok(await page.locator('#adv-suggestion .src-tag').count(), 'source tag on the suggestion');
+      let log = (await simLog(page)).map((e) => e.message);
+      assert.ok(log.some((m) => /^ADVISORY shown: ADV-1/.test(m)));
+      assert.ok(!log.some((m) => /^(Phenylephrine|Ephedrine) .* bolus/.test(m)), 'nothing given before accept');
+      await page.setViewportSize({ width: 390, height: 844 });
+      assert.ok(await noHScroll(page), 'advisory card at 390 px'); await shot(page, 'phone-advisory.png', false);
+      await page.setViewportSize({ width: 1280, height: 900 });
+      await page.click('#adv-accept');
+      log = (await simLog(page)).map((e) => e.message);
+      assert.ok(log.some((m) => /^ADVISORY accepted by the clinician: ADV-1 — (Phenylephrine 40 mcg|Ephedrine 5 mg) IV bolus \(clinician-approved\)/.test(m)));
+      assert.ok(log.some((m) => /^(Phenylephrine 40 mcg|Ephedrine 5 mg) bolus/.test(m)), 'bolus given through the engine');
+      assert.match(await page.textContent('#adv'), /Reassess|recovering|MAP/);
+      // wait for the next suggestion (after the repeat interval, haemorrhage continues) and dismiss it
+      for (let i = 0; i < 300 && !(await page.isVisible('#adv-dismiss')); i++) await adv(page, 5);
+      assert.ok(await page.isVisible('#adv-dismiss'), 'second advisory');
+      await page.click('#adv-dismiss');
+      log = (await simLog(page)).map((e) => e.message);
+      assert.ok(log.some((m) => /^ADVISORY dismissed by the clinician: ADV-\d+/.test(m)));
+      assert.ok(await page.isHidden('#adv-accept'));
+      const rec = await page.evaluate(() => window.__smartNoa.advisories());
+      assert.equal(rec.accepted, 1); assert.equal(rec.dismissed, 1);
+      await page.click('#mon-debrief'); await page.waitForSelector('#db-advisories');
+      assert.match(await page.textContent('#db-advisories'), /accepted 1 · dismissed 1/);
+      assert.ok(await page.locator('#db-advisory-list li[data-status="accepted"]').count() === 1);
+    });
+
+    await t.test('example plans show "Why this time" rationale', async () => {
+      await loadCase(page, 'obese_osa');
+      await page.click('#pf-continue'); await page.waitForSelector('#as-continue');
+      await page.click('#as-continue'); await page.waitForSelector('#pl-continue');
+      const main = await page.textContent('main');
+      assert.match(main, /First, given over at least 2 min/);
+      assert.match(main, /Started 4 min after the midazolam starts/);
+    });
+
+    await t.test('self-pause re-renders the guided/automatic panel at once (no other control clicked)', async () => {
+      for (const mode of ['full', 'guided']) {
+        await loadCase(page, 'healthy_adult'); await toRun(page);
+        await page.click('[data-speed="5"]');
+        await page.evaluate(() => window.__smartNoa.testClock(false));
+        await page.click(mode === 'full' ? '#auto-full' : '#auto-guided');
+        await page.waitForFunction(() => window.__smartNoa.lite().t > 3);
+        await page.evaluate(() => window.__smartNoa.inject('spo2_probe_off'));
+        await page.waitForFunction(() => { const a = window.__smartNoa.lite().auto; return a && a.state === 'paused'; }, null, { timeout: 30000 });
+        // NO click here: the panel must already show the pause, its reason and the action, with Resume enabled.
+        await page.waitForSelector('#auto-paused:not([hidden])', { timeout: 5000 });
+        const head = await page.textContent('#auto-paused-head');
+        assert.match(head, /^Paused — HIGH alarm: .*SpO2|^Paused — HIGH alarm: /, `${mode}: ${head}`);
+        assert.match(head, /then press Resume/, `${mode}: ${head}`);
+        assert.match(await page.textContent('#auto-status'), /PAUSED/, `${mode} status`);
+        assert.ok(await page.isEnabled('#auto-resume'), `${mode}: Resume enabled`);
+        assert.ok(await page.isDisabled('#auto-pause'), `${mode}: Pause disabled`);
+        assert.equal(await page.evaluate(() => document.activeElement && document.activeElement.id), 'auto-resume', `${mode}: focus moved to Resume`);
+        await page.waitForFunction(() => /Paused/.test(document.getElementById('live-assertive').textContent), null, { timeout: 5000 });
+        assert.ok((await lite(page)).playing === false, `${mode}: clock stopped`);
+        await page.evaluate(() => window.__smartNoa.testClock(true));
+        await page.click('[data-speed="20"]');
+      }
+    });
+
     await t.test('panels open', async () => {
       for (const id of ['open-sources', 'open-model', 'open-about']) {
         await page.click(`#${id}`);

@@ -788,6 +788,10 @@ Identifiers: PMID 12421743
 
 Every symptom score, RASS value and respiratory rate in these modules is illustrative output of `engine/palliative.js` (constants in `MODEL`, all `author_estimate_unvalidated`, listed in MODEL_CARD.md): one-compartment opioid kinetics in oral-morphine-equivalent units with first-order oral absorption and an effect site; potency for the **effect model only** from the sourced ratios (oral) and author estimates (IV morphine 2.5, IV hydromorphone 12.5 — not used for conversion); slower elimination with eGFR <60/<30 and hepatic impairment; sigmoid analgesia, sedation and respiratory-rate effects scaled to opioid tolerance; seeded pain episodes; illustrative midazolam, naloxone, fan/positioning/oxygen, secretions, nausea and constipation terms. No survival or mortality is modelled.
 
+## Advisory haemodynamic rescue (November 2026; no new sources)
+
+The advisory (`engine/rescue-config.js`, `engine/rescue.js`) reuses existing registry entries only: phenylephrine rescue bolus 40–100 mcg, additional boluses every 1–2 minutes, ≤ 200 mcg in all [S18]; ephedrine 5–10 mg IV bolus as needed, ≤ 50 mg [S19]; perioperative-anaphylaxis epinephrine guidance [S44, S45] (named only; epinephrine is never suggested). Simulator conventions (no source): the agent-by-HR rule and its 60 /min threshold; the ephedrine and other-vasopressor reassessment pauses (120 s; the ephedrine label states no interval); choosing the regimen lower bound; suppression during sensor faults and the anaphylaxis scenario; the MAP trigger and high-MAP thresholds are the simulator's alarm thresholds (build specification), not clinical standards. Sedation titration in guided mode reuses S11 (propofol MAC-sedation range 25–75 mcg/kg/min), S17 (midazolam repeat ≥ 4 min) and S32 (allow time between doses; no number); its step size and 180-s reassessment pause are conventions.
+
 ## Not included, and why
 
 | Item | Reason |
