@@ -24,10 +24,20 @@ drug_dosing:
 contraindications:
   # Incomplete illustrative string matching, not a clinical contraindication database.
   dexmedetomidine:
-    cardiac_conditions: ["Heart Block", "AV Block", "3rd Degree AV Block", "Sick Sinus Syndrome", "Severe Bradycardia"]
+    # Case-insensitive substring match; "Heart Block" also matches "complete heart block".
+    cardiac_conditions: ["Heart Block", "AV Block", "Mobitz", "Sick Sinus Syndrome", "Severe Bradycardia"]
   ketorolac:
     egfr_minimum: 30
     allergy_triggers: ["NSAID", "Ketorolac", "Aspirin"]
+simulation_rate_ceilings:
+  # Software ceilings, not clinical maxima: the loop zeroes and latches any agent whose
+  # in-memory rate is negative, non-finite or above these values. Units match drug_dosing
+  # (dexmedetomidine mcg/kg/h; ketamine and lidocaine mg/kg/h). The lidocaine value matches the
+  # upper infusion rate in the 2021 international consensus (Foo et al., Anaesthesia 2021;76:238-250),
+  # which also specifies ideal body weight and a 24 h limit that this simulation does not model.
+  Dexmedetomidine: 0.5
+  Ketamine: 0.2
+  Lidocaine: 1.5
 age_adjustments:
   geriatric:
     age_threshold: 65

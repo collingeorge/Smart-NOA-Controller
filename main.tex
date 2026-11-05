@@ -31,7 +31,7 @@ The model has one central compartment and an effect-site state. It lacks periphe
 \section{State transitions}
 Configured low-heart-rate or low-mean-pressure events set selected simulated values to zero and latch a hold. A subsequent acceptable reading does not automatically restart values. Low-heart-rate checking is not conditioned on a model-derived effect-site threshold. These are demonstrations of state logic, not a rescue protocol.
 \section{Verification and limitations}
-Software tests exercise sample lockouts, numerical updates, unknown-drug handling, invalid inputs, and latched holds. Passing tests is not clinical validation. No clinical event-prevention rate is reported. Random vital signs are independent of drug concentrations: the model does not simulate a physiologic feedback response.
+Software tests exercise sample lockouts, fail-safe handling of unusable vital-sign values, in-loop enforcement of lockouts and holds, simulation rate ceilings, numerical updates, unknown-drug handling, invalid inputs, and latched holds. Passing tests is not clinical validation. No clinical event-prevention rate is reported. Random vital signs are independent of drug concentrations: the model does not simulate a physiologic feedback response.
 
 The program lacks comprehensive input validation, drug interaction modeling, monitoring of actual signals, sensor-failure handling, human-factors evaluation, and a validated alarm architecture. There are no medical-device interfaces. Do not enter real patient information or connect equipment.
 \section{Evidence and regulatory boundary}

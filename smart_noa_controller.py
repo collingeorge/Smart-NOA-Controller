@@ -39,8 +39,8 @@ class Patient:
     comorbidities: List[str]
 
     def __post_init__(self):
-        if isinstance(self.age, bool) or not isinstance(self.age, int) or self.age < 0:
-            raise ValueError("Simulated age must be a nonnegative integer")
+        if isinstance(self.age, bool) or not isinstance(self.age, int) or not 0 <= self.age <= 120:
+            raise ValueError("Simulated age must be an integer from 0 to 120")
         if isinstance(self.asa_class, bool) or not isinstance(self.asa_class, int) or not 1 <= self.asa_class <= 6:
             raise ValueError("Simulated ASA class must be an integer from 1 to 6")
         for name, value, positive in (("weight_kg", self.weight_kg, True), ("egfr", self.egfr, False)):
@@ -99,7 +99,8 @@ class ConfigLoader:
             'hemodynamic_thresholds',
             'pharmacokinetics',
             'drug_dosing',
-            'contraindications'
+            'contraindications',
+            'simulation_rate_ceilings'
         ]
         
         missing_sections = []
@@ -125,6 +126,9 @@ class ConfigLoader:
             ('drug_dosing', 'lidocaine', 'standard_dose'): False,
             ('contraindications', 'ketorolac', 'egfr_minimum'): False,
             ('age_adjustments', 'geriatric', 'age_threshold'): False,
+            ('simulation_rate_ceilings', 'Dexmedetomidine'): False,
+            ('simulation_rate_ceilings', 'Ketamine'): False,
+            ('simulation_rate_ceilings', 'Lidocaine'): False,
         }
         for keys, positive in numeric_paths.items():
             value = self.get(*keys)
@@ -136,6 +140,13 @@ class ConfigLoader:
                 raise ValueError("Expected a list of strings: " + '.'.join(keys))
         if self.get('age_adjustments', 'geriatric', 'age_threshold') != self.get('drug_dosing', 'dexmedetomidine', 'geriatric_age_threshold'):
             raise ValueError("Simulation age thresholds must agree")
+        # A configured starting value may never exceed the simulation ceiling for that agent.
+        for drug, key in (('Dexmedetomidine', 'dexmedetomidine'), ('Ketamine', 'ketamine'), ('Lidocaine', 'lidocaine')):
+            ceiling = self.get('simulation_rate_ceilings', drug)
+            for field in ('standard_dose', 'geriatric_dose'):
+                value = self.get('drug_dosing', key, field)
+                if value is not None and value > ceiling:
+                    raise ValueError(f"drug_dosing.{key}.{field} ({value}) exceeds simulation_rate_ceilings.{drug} ({ceiling})")
 
     def get(self, *keys: str, default=None):
         """
@@ -273,6 +284,8 @@ class SmartNOAController:
         self.hard_lockouts: List[str] = self._calculate_initial_lockouts()
         self.status: str = "INITIALIZING"
         self.hold_latched = False
+        # Agents zeroed by a hold stay at zero for as long as the hold is latched.
+        self.held_drugs: set = set()
 
         # Initialize PK model for Dexmedetomidine
         self.dex_pk: Pharmacokinetics = self._initialize_pk_model()
@@ -316,15 +329,25 @@ class SmartNOAController:
         
         # Cardiac Risk: Contraindicates alpha-2 agonists (Dexmedetomidine)
         cardiac_conditions = ci_dex['cardiac_conditions']
-        if any(x in self.patient.comorbidities for x in cardiac_conditions):
+        if self._matches(self.patient.comorbidities, cardiac_conditions):
             locks.append("Dexmedetomidine")
         
         # Allergy Check
         allergy_triggers = ci_keto['allergy_triggers']
-        if any(allergen in self.patient.allergies for allergen in allergy_triggers):
+        if self._matches(self.patient.allergies, allergy_triggers) and "Ketorolac" not in locks:
             locks.append("Ketorolac")
         
         return locks
+
+    @staticmethod
+    def _matches(entries: List[str], triggers: List[str]) -> bool:
+        """Case-insensitive substring match ("complete heart block" matches "Heart Block").
+
+        Still an incomplete illustrative matcher: free text that names a condition
+        differently (e.g., an abbreviation not in the trigger list) is not recognized.
+        """
+        normalized = [entry.casefold().strip() for entry in entries]
+        return any(trigger.casefold() in entry for trigger in triggers for entry in normalized)
 
     def check_contraindication(self, drug: str) -> Tuple[bool, str]:
         """
@@ -409,6 +432,32 @@ class SmartNOAController:
         rate_mcg_per_min = (rate_mcg_per_hour * self.patient.weight_kg) / 60.0
         return rate_mcg_per_min
 
+    @staticmethod
+    def _is_valid_reading(value) -> bool:
+        """A usable reading is a finite, non-boolean number. Physiologic plausibility is not assessed."""
+        return not isinstance(value, bool) and isinstance(value, (int, float)) and math.isfinite(value)
+
+    def _latch_hold(self, drugs) -> None:
+        drugs = list(drugs)
+        self.hold_latched = True
+        self.held_drugs.update(drugs)
+        for drug in drugs:
+            self.infusions[drug] = 0.0
+
+    def _enforce_constraints(self) -> None:
+        for drug in list(self.infusions):
+            if drug in self.hard_lockouts or (self.hold_latched and drug in self.held_drugs):
+                self.infusions[drug] = 0.0
+
+    def _rate_faults(self) -> List[str]:
+        faults = []
+        for drug, rate in self.infusions.items():
+            ceiling = self.config.get('simulation_rate_ceilings', drug)
+            valid = not isinstance(rate, bool) and isinstance(rate, (int, float)) and math.isfinite(rate) and rate >= 0
+            if not valid or ceiling is None or rate > ceiling:
+                faults.append(drug)
+        return faults
+
     def monitor_and_control(self, duration_sec: int = 30) -> None:
         """
         Phase 3: Simulates the closed-loop feedback system.
@@ -433,7 +482,27 @@ class SmartNOAController:
             # 1. Simulate data feed from vital signs monitor (educational simulation)
             hr = random.randint(40, 95)
             map_val = random.randint(50, 105)
-            
+
+            # 1a. Enforce configured lockouts and any latched hold before every model update,
+            #     so a rate written directly into self.infusions cannot bypass them.
+            self._enforce_constraints()
+
+            # 1b. Fail safe on an unusable reading (missing, non-numeric, NaN/inf).
+            #     NaN fails every '<' comparison and would otherwise read as normal.
+            if not (self._is_valid_reading(hr) and self._is_valid_reading(map_val)):
+                self._latch_hold(self.infusions.keys())
+                self.status = "RED"
+                print(f"T+{t:2d}s | INVALID SENSOR READING (HR={hr!r}, MAP={map_val!r}) → ALL SIMULATED VALUES SET TO ZERO")
+                time.sleep(1)
+                continue
+
+            # 1c. Reject out-of-range rates (negative, non-finite, or above the configured ceiling).
+            rate_fault = self._rate_faults()
+            if rate_fault:
+                self._latch_hold(rate_fault)
+                self.status = "RED"
+                print(f"T+{t:2d}s | RATE OUTSIDE SIMULATION CEILING {rate_fault} → SET TO ZERO")
+
             # 2. Update PK Model (How much drug is hitting the effect site?)
             dex_rate_mcg_min = self._rate_to_mcg_per_min("Dexmedetomidine")
             self.dex_pk.update_concentration(dex_rate_mcg_min, time_delta_min=time_step_min)
@@ -444,24 +513,21 @@ class SmartNOAController:
             
             # Example rule A: low simulated heart rate, independent of model concentration
             if hr < hr_threshold:
-                self.hold_latched = True
-                self.infusions["Dexmedetomidine"] = 0.0
+                self._latch_hold(["Dexmedetomidine"])
                 self.status = "RED"
                 print(f"T+{t:2d}s | HR {hr} | Ce: {dex_ce:.2f} → SIMULATED LOW HR → DEX VALUE SET TO ZERO")
             
             # Interlock B: Critical Hypotension
             if map_val < map_threshold:
-                self.hold_latched = True
-                for drug in ["Dexmedetomidine", "Lidocaine"]:
-                    self.infusions[drug] = 0.0
+                self._latch_hold(["Dexmedetomidine", "Lidocaine"])
                 self.status = "RED"
                 print(f"T+{t:2d}s | MAP {map_val} | Ce: {dex_ce:.2f} → HYPOTENSION → PAUSING KEY INFUSIONS")
             
             # A latched hold persists; there is no automatic restart policy.
-            elif self.hold_latched and hr >= hr_threshold:
+            elif self.hold_latched and hr >= hr_threshold and not rate_fault:
                 self.status = "HOLD"
                 print(f"T+{t:2d}s | SIMULATION HOLD remains latched; no automatic restart.")
-            elif not self.hold_latched:
+            elif not self.hold_latched and not rate_fault:
                 self.status = "GREEN"
                 print(f"T+{t:2d}s | HR {hr} | MAP {map_val} | Model Ce: {dex_ce:.2f} | No configured alert.")
 

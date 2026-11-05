@@ -31,9 +31,12 @@ Read [the synthetic male and female walkthroughs](GUIDELINE_INFORMED_EXAMPLES.md
 - Reads illustrative values from config.yaml using PyYAML.
 - Applies an incomplete set of example lockouts. No lockout does **not** mean a drug is safe. Unrecognized drugs return “unassessed.”
 - Uses one central compartment and an effect-site state with an explicit Euler update. This is not a three-compartment model or target-controlled infusion implementation. Concentration units are numerically equivalent mcg/L and ng/mL. Parameters are unvalidated.
-- Sets simulated values to zero at configured low-HR or low-MAP events. A hold remains latched; a subsequent normal reading does not restart values. No automated recovery policy is implemented.
+- Sets simulated values to zero at configured low-HR or low-MAP events. A hold remains latched; a subsequent normal reading does not restart values, and an agent zeroed by a hold (or hard-locked for the profile) is re-zeroed every iteration even if its in-memory rate is overwritten. No automated recovery policy is implemented.
+- Fails safe on an unusable vital-sign value (missing, non-numeric, NaN or infinite): all simulated values are zeroed and the hold latches. Physiologic plausibility, stale data and signal quality are **not** assessed.
+- Rejects configured starting values above `simulation_rate_ceilings`, and zeroes and latches any in-memory rate that is negative, non-finite or above its ceiling. These are software ceilings, not clinical maximum doses.
+- Contraindication matching is case-insensitive substring matching against short illustrative lists; it is not a terminology service (e.g., an "Ibuprofen" allergy entry is not recognized as NSAID cross-reactivity).
 
-Passing tests does not establish clinical efficacy or patient safety. The program does not model drug interactions, sensor failures, clinical workflows, all contraindications, or physiologic responses to the simulated values. Random vital signs do not depend on drug concentrations. Validation covers the fields used by this simulation; it does not establish clinical plausibility or suitability for safety-critical use.
+Passing tests does not establish clinical efficacy or patient safety. The program does not model drug interactions, sensor failure modes beyond unusable values, clinical workflows, all contraindications, or physiologic responses to the simulated values. High heart rate or blood pressure is not monitored. Doses use total body weight with no dosing-weight scalar. Random vital signs do not depend on drug concentrations. Validation covers the fields used by this simulation; it does not establish clinical plausibility or suitability for safety-critical use.
 
 No rate, threshold, or age adjustment is endorsed as a clinical recommendation. The former “100% prevention” statement is not retained. This project provides no evidence that it prevents adverse events.
 
