@@ -1,17 +1,18 @@
 {
-  "version": "2026.10-rc2",
-  "method": "Direct ReportLab export from named Markdown; TeX compilation not asserted",
+  "version": "2026.11",
+  "method": "November 2026 rebuild: pandoc (GFM -> HTML5) then Chromium print-to-PDF via Playwright, from the named Markdown source. Earlier exports used a ReportLab script not included in the repository.",
   "documents": [
     {
       "source": "Smart-NOA-Controller/MANUSCRIPT.md",
       "pdf": "Smart-NOA-Controller/Smart_NOA__A_Deterministic_Closed_Loop_Safety_Controller.pdf",
-      "source_sha256": "08a455bd4fdbc5eeabb2eba4c883afb75b1cd568f46941470355a18f39758572",
-      "pdf_sha256": "8c14a6daa44d86b75b10399b49ad0fe535a201e131219a7232278f9aa363e069"
+      "source_sha256": "de450260a77e42845345688a2c8123c0fd92240c8794183d1d1536a62911033c",
+      "pdf_sha256": "17ef3c49b22c55490d8ad04cfdc983dec81425ec44d6a6cbcb9c13886ac4e94b"
     },
     {
       "pdf": "Smart-NOA-Controller/smartnoa_architecture.pdf",
       "pdf_sha256": "c36888a320d34bcdaeb6e2aa589565dcff56b1b8b02fb60687bf80f2301851ac",
-      "source": "build_release_documents.py architecture definition"
+      "source": "build_release_documents.py architecture definition",
+      "note": "Diagram PDF not regenerated in November 2026; it contains no author credential text."
     }
   ]
 }

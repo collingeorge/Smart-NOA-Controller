@@ -1,4 +1,6 @@
 # Anesthesia options, standards and synthetic case discussions
+
+> **Educational work by a pre-medical student — not medical advice.** Not a clinical protocol, prescription, or patient handout, and not for patient care. See [DISCLAIMER](DISCLAIMER.md).
 28 October 2026 | Educational companion to [Smart NOA examples](GUIDELINE_INFORMED_EXAMPLES.md)
 
 This guide compares general, regional, procedural sedation/MAC, and local anesthesia. Twelve entirely synthetic adult cases illustrate choices rather than prescriptions. They contain no shadowing encounters or patient records. All named drugs are options within particular contexts, not ingredients to combine automatically. Anesthesia selection and administration require a qualified clinical team, informed consent, appropriate facilities and an individualized assessment.
@@ -34,7 +36,7 @@ These sources have different scopes; listing them does not establish compliance 
 | Checkpoint | What the educational plan should explain | Source / applicability |
 |---|---|---|
 | Preanesthesia discussion | Procedure, alternatives, preferences, previous anesthetic issues, medications, allergies, fasting/aspiration context, airway and relevant disease | WHO–WFSA international standards [W]; not a drug-selection formula |
-| Monitoring | Qualified presence and assessment of oxygenation, ventilation, circulation and temperature. The current ASA text calls for clinical ventilation observation during moderate/deep sedation and every effort toward continual exhaled-CO2 monitoring. | ASA official standard; WHO–WFSA [W] and UK/Ireland guidance [M] offer complementary published context |
+| Monitoring | Qualified presence and assessment of oxygenation, ventilation, circulation and temperature. Under the ASA Standards for Basic Anesthetic Monitoring, during moderate or deep sedation the adequacy of ventilation **shall** be evaluated by continual observation of qualitative clinical signs **and** monitoring for the presence of exhaled carbon dioxide, unless precluded or invalidated by the nature of the patient, procedure or equipment. | ASA official standard; WHO–WFSA [W] and UK/Ireland guidance [M] offer complementary published context |
 | IV general anesthesia | Verify infusion delivery and vascular access; discuss awareness prevention. Processed EEG is recommended by the cited TIVA guideline when neuromuscular block accompanies TIVA. | [T]; this does not validate Smart NOA or a target concentration |
 | Neuromuscular blockade | Quantitative recovery assessment and blocker-specific antagonism | [N]; paralysis is not a sedation monitor |
 | Regional technique | Procedure coverage, bleeding/antithrombotic assessment and route/formulation checks | Fifth-edition ASRA guideline [A]; timings depend on the actual drug, dose, organ function and procedure |

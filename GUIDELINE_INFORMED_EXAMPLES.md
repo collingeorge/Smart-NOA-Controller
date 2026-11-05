@@ -1,4 +1,6 @@
 # Smart NOA: paired synthetic examples and decision flow
+
+> **Educational work by a pre-medical student — not medical advice.** Not a clinical protocol, prescription, or patient handout, and not for patient care. See [DISCLAIMER](DISCLAIMER.md).
 27 October 2026 | Additive teaching supplement to [MANUSCRIPT.md](MANUSCRIPT.md)
 
 These examples explain the existing software and selected literature. They are entirely fictional, independent of clinical encounters and shadowing notes. No drugs were administered. They are not a standardized anesthetic regimen, patient-specific recommendations, proof of safety, or a replacement for clinical assessment. The male and female labels describe fictional adults; they do not create a sex-based dosing rule.

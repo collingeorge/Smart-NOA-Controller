@@ -7,33 +7,33 @@
   "files": [
     {
       "path": "README.md",
-      "bytes": 4599,
-      "sha256": "f31fe9360b360c7e1f4882fd024c40d7f21f4ea36b622ef7de8a51e2ef254228"
+      "bytes": 5711,
+      "sha256": "ca37f03340b0dbdf48eac5a6e5ed6723ad3e37dffd67cda32d1e2351bf732cf1"
     },
     {
       "path": "CASE_EXAMPLE_STANDARD.md",
-      "bytes": 2519,
-      "sha256": "82ee781bc5ed0dc9edee2fb607f2a877d3cdc151bf982d072eac9d999c6de93b"
+      "bytes": 2710,
+      "sha256": "48557d603c85bffca81f8abab2a365b92328f79676ebab16bbb1b1a7840c4226"
     },
     {
       "path": "CLINICAL_EXAMPLE_INDEX.md",
-      "bytes": 4537,
-      "sha256": "40f60e18d5ee02d18fd615d7f26edaa8dcf268f097b8f9bcd02ade5236935d04"
+      "bytes": 4728,
+      "sha256": "06c0d37b293f54e7b88dd878cf5c91a7caf995697736e401452cb389adb2b2dd"
     },
     {
       "path": "RELEASE_NOTES.md",
-      "bytes": 2173,
-      "sha256": "92852749d03dc821b0174a6e070a578f042eed7e49f0c5a59f1b8a3b78205ced"
+      "bytes": 4044,
+      "sha256": "adf64406767d9f7a9f4ed8b6b15918879a92fdeaa052a7735da56b2fd9e570c2"
     },
     {
       "path": "START_HERE.md",
-      "bytes": 1010,
-      "sha256": "e146d4046371fed9408eace7c95dbb529be14904d0d86bb00fbbe54baf57a999"
+      "bytes": 1201,
+      "sha256": "14a2757ef45bad197c2aea8d6fccb47faa877e4ec72d1558ed42ee82ce0d3045"
     },
     {
       "path": "AUTHORSHIP_AND_REVIEW.md",
-      "bytes": 2309,
-      "sha256": "e325b18d956fe702fdcbf5ecd57cc62acda548dfe3229ffebd454b5fb54e280f"
+      "bytes": 2907,
+      "sha256": "26ff1233dbca631e8d625814dac50e44edb9112e948ca3a7e3a1c240e284b2e6"
     }
   ],
   "presentation_update": "Reader navigation and authorship documentation; no new clinical validation or substantive manuscript revision"

@@ -1,6 +1,8 @@
 # Smart NOA: A Rule-Checking Simulation and Its Limitations
 
-Collin B. George, BS | Independent educational portfolio
+> **Educational work by a pre-medical student — not medical advice.** Not a clinical protocol, prescription, or patient handout, and not for patient care. See [DISCLAIMER](DISCLAIMER.md).
+
+Collin B. George, pre-medical student | Independent educational portfolio
 
 Review draft - 27 October 2026
 
@@ -45,7 +47,7 @@ Configured low-heart-rate or low-mean-pressure events set selected simulated val
 ## Verification and limitations
 
 
-31 software tests exercise sample lockouts, numerical updates, unknown-drug handling, invalid inputs, simultaneous alerts, overflow rejection without partial state mutation, unit-conversion boundaries, and latched holds. Passing tests is not clinical validation. No clinical event-prevention rate is reported. Random vital signs are independent of drug concentrations: the model does not simulate a physiologic feedback response.
+44 software tests exercise sample lockouts, fail-safe handling of unusable vital-sign values, in-loop enforcement of lockouts and latched holds, simulation rate ceilings, case-insensitive rule matching, numerical updates, unknown-drug handling, invalid inputs, simultaneous alerts, overflow rejection without partial state mutation, unit-conversion boundaries, and latched holds. Passing tests is not clinical validation. No clinical event-prevention rate is reported. Random vital signs are independent of drug concentrations: the model does not simulate a physiologic feedback response.
 
 The program lacks comprehensive input validation, drug interaction modeling, monitoring of actual signals, sensor-failure handling, human-factors evaluation, and a validated alarm architecture. There are no medical-device interfaces. Do not enter real patient information or connect equipment.
 

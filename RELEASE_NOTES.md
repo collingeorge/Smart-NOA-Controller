@@ -1,5 +1,7 @@
 # 2026.10-rc2 - educational review candidate
 
+> **Educational work by a pre-medical student — not medical advice.** Not a clinical protocol, prescription, or patient handout, and not for patient care. See [DISCLAIMER](DISCLAIMER.md).
+
 Revised 27 October 2026 after the rc1 PRs were merged.
 
 This pass corrects newly identified source and software defects and deliberately narrows unsupported clinical/methodological content. Earlier versions remain recoverable in Git history. See PUBLICATION_REVIEW.md for the precise scope and limitations, PROVENANCE.md for author statements, and RELEASE_MANIFEST.json for current-file hashes.
@@ -19,3 +21,27 @@ Added shared documentation standard and portfolio case index; existing model wal
 ## 29 October 2026 — Portfolio presentation and reading path
 
 Added a concise reader’s guide, explicit AI-assistance/authorship scope and review-status notes. Linked the portfolio home and corrected navigation wording. This presentation pass preserves substantive manuscripts, casebooks, code and existing exports. Repository visibility is unchanged.
+
+## Safety-hardening pass — November 2026 (local branch, pending owner review)
+An adversarial simulation of 34 scenarios found software defects that contradicted the documentation. They are fixed below; behavior for valid inputs is unchanged, and `EXAMPLE_RESULTS.json` reproduces exactly.
+- **Unusable sensor values now fail safe.** A NaN reading had passed every `<` comparison and displayed GREEN, and a missing value crashed the loop with infusions still set. All values are now zeroed and the hold latches.
+- **Lockouts and latched holds are enforced every iteration.** Previously they applied only when starting rates were generated, so a directly written rate bypassed them, and HOLD could display while an agent was running.
+- **Added `simulation_rate_ceilings` to the configuration.** Starting values above a ceiling are rejected at load. Negative, non-finite or over-ceiling runtime rates are zeroed and the hold latches.
+- **Contraindication matching is now case-insensitive substring matching.** Previously, "heart block", "Complete heart block" and "nsaid" were missed. "Mobitz" was added to the illustrative cardiac list.
+- **Ages above 120 are rejected.** Duplicate ketorolac lock entries were removed.
+- **Tests:** 44 tests pass (31 existing plus 13 new in `test_safety_hardening.py`).
+- **Not changed (owner decisions):**
+  - which agents each hold stops
+  - high HR/MAP monitoring
+  - the dosing-weight scalar
+  - NSAID cross-reactivity terms
+  - ketamine and lidocaine rules
+  - stale-data detection
+  - PK parameters: the implied dexmedetomidine half-life is about 17 min vs about 2 h in labeling
+- **The PDF has not been rebuilt** to reflect these changes.
+
+## November 2026 — accuracy and governance review
+- Added DISCLAIMER.md and the standard banner. The author is described as a pre-medical student, and the "unauthorized shadowing" wording is replaced. AI assistance is disclosed in AUTHORSHIP_AND_REVIEW.md.
+- Corrected the ASA capnography wording ("shall") in the shared anesthesia guide.
+- Rebuilt the manuscript PDF from MANUSCRIPT.md; DOCUMENT_BUILD.json records the method. The PDF filename is historical.
+- Regenerated the manifest hashes.
