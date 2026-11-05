@@ -119,11 +119,30 @@ function midpoint(v) {
   return null;
 }
 
-export function timingTargets(timing) {
+// ILLUSTRATIVE completions for timing metrics the label does not state (engine
+// author's assumptions, NOT sourced; used only to shape the illustrative curve).
+// Applied only when drug.timing gives at least one metric but not all three.
+export const ILLUSTRATIVE_TIMING_FILL = Object.freeze({
+  propofol: { peak: 1.5, duration: 7 },
+  etomidate: { peak: 1.5 },
+  ketamine: { peak: 1 },
+  midazolam: { peak: 8, duration: 45 },
+  fentanyl: { onset: 1.5, peak: 4 },
+  rocuronium: { onset: 1.5 },
+  succinylcholine: {},
+  neostigmine: { onset: 4, duration: 60 },
+  naloxone: { peak: 5, duration: 45 },
+});
+
+export function timingTargets(timing, drugId = null) {
   if (!timing) return null;
   const t = { onset: midpoint(timing.onsetMin), peak: midpoint(timing.peakMin), duration: midpoint(timing.durationMin) };
   for (const k of Object.keys(t)) if (!(t[k] > 0)) t[k] = null;
   if (!t.onset && !t.peak && !t.duration) return null;
+  const fill = (drugId && ILLUSTRATIVE_TIMING_FILL[drugId]) || {};
+  const filled = [];
+  for (const k of Object.keys(t)) if (!t[k] && fill[k]) { t[k] = fill[k]; filled.push(k); }
+  t.filled = filled;
   return t;
 }
 
@@ -170,13 +189,13 @@ function paramsFrom(ke0, kfast, frac) {
 const FIT_CACHE = new Map();
 
 /** Fit (k10, k12, k21, ke0) to drug.timing. Returns params + achieved metrics + provenance. */
-export function fitCalibrated(timing) {
-  const tg = timingTargets(timing);
+export function fitCalibrated(timing, drugId = null) {
+  const tg = timingTargets(timing, drugId);
   if (!tg) {
     const m = curveMetrics(GENERIC_ILLUSTRATIVE, 600);
     return { ...GENERIC_ILLUSTRATIVE, metrics: m, targets: null, provenance: 'generic illustrative constants (drug.timing missing)' };
   }
-  const key = JSON.stringify(tg);
+  const key = JSON.stringify([tg.onset, tg.peak, tg.duration]);
   if (FIT_CACHE.has(key)) return FIT_CACHE.get(key);
   const scale = Math.max(tg.duration || 0, (tg.peak || 0) * 4, (tg.onset || 0) * 8, 1);
   const horizon = scale * 6;
@@ -204,7 +223,7 @@ export function fitCalibrated(timing) {
     if (!improved) step = Math.sqrt(step);
   }
   const p = paramsFrom(...best.x);
-  const out = { ...p, metrics: curveMetrics(p, horizon), targets: tg, cost: best.c, provenance: 'illustrative 2-compartment model fitted to drug.timing' };
+  const out = { ...p, metrics: curveMetrics(p, horizon), targets: tg, cost: best.c, provenance: 'illustrative 2-compartment model fitted to drug.timing' + (tg.filled.length ? ` (missing ${tg.filled.join(', ')} filled with illustrative assumptions)` : '') };
   FIT_CACHE.set(key, out);
   return out;
 }
@@ -237,7 +256,7 @@ function buildCompartment(drug, weightKg, opts = {}) {
     const m = MARSH_1991;
     return { type: 'marsh', params: m, model: new CompartmentModel({ v1L: m.v1PerKg * weightKg, k10: m.k10, k12: m.k12, k21: m.k21, k13: m.k13, k31: m.k31, ke0: m.ke0 }), provenance: 'Marsh 1991 (as reproduced for Diprifusor; ke0 0.26 is the Diprifusor value; transcription unverified)' };
   }
-  const fit = opts.fit || fitCalibrated(drug.timing);
+  const fit = opts.fit || fitCalibrated(drug.timing, drug.id);
   return { type: 'calibrated', params: fit, model: new CompartmentModel({ v1L: CALIBRATED_V1_PER_KG * weightKg, k10: fit.k10, k12: fit.k12, k21: fit.k21, ke0: fit.ke0 }), provenance: fit.provenance };
 }
 
@@ -276,7 +295,7 @@ export function referenceConcentration(drug, prefs = []) {
  */
 export function createPkModel(drug, patient, opts = {}) {
   if (drug.cls === 'volatile') {
-    const mac40 = isFiniteNumber(drug.mac40) ? drug.mac40 : (drug.mac && isFiniteNumber(drug.mac.mac40) ? drug.mac.mac40 : (drug.mac && isFiniteNumber(drug.mac.age40) ? drug.mac.age40 : (isFiniteNumber(opts.mac40) ? opts.mac40 : null)));
+    const mac40 = isFiniteNumber(drug.mac40) ? drug.mac40 : (drug.mac && isFiniteNumber(drug.mac.mac40Pct) ? drug.mac.mac40Pct : drug.mac && isFiniteNumber(drug.mac.mac40) ? drug.mac.mac40 : (drug.mac && isFiniteNumber(drug.mac.age40) ? drug.mac.age40 : (isFiniteNumber(opts.mac40) ? opts.mac40 : null)));
     const used = mac40 ?? FALLBACK_SEVO_MAC40;
     return {
       type: 'volatile', model: new VolatileModel({ macAge: macForAge(used, patient.ageYears) }),
