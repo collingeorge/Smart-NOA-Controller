@@ -5,6 +5,10 @@
 > **Educational work by a pre-medical student — not medical advice.** Not a clinical protocol, prescription, or patient handout, and not for patient care. See [DISCLAIMER](DISCLAIMER.md).
 This Python program updates in-memory values using fictional profiles and randomly generated vital signs. It has no device interface, patient monitoring input, clinical validation, or basis for recommending doses. It is not an operational safety supervisor.
 
+## Web simulator
+
+**[Launch the educational web simulator](simulator/index.html)**: enter a fictional patient, choose general anesthesia or MAC sedation, review sourced auto-filled doses, then run and adjust the case on a live monitor. Doses and their sources are listed in [simulator/SOURCES.md](simulator/SOURCES.md), and every model parameter with its provenance is in [simulator/MODEL_CARD.md](simulator/MODEL_CARD.md). It is an educational, label-calibrated simulation with fictional patients: not a medical device, not validated, and not for clinical decisions or dosing.
+
 ## Run and inspect
 
 Use Python 3.10 or later. From this directory:
