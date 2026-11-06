@@ -16,6 +16,7 @@ import { timingCheckItem, updateTimingCheckItem } from './timing-view.js';
 import { createRescueAdvisor } from '../engine/rescue.js';
 import { advisoryCard, depthAdvisoryCard } from './advisory.js';
 import { createDepthAdvisor } from '../engine/depth-advisory.js';
+import { TEACHING_GUARDS } from '../engine/teaching-ceilings.js';
 
 const GA_BAND = TIMING_CONFIG.GA_DEPTH_BAND.value;
 const DEPTH_LABEL = 'Processed-EEG depth index (BIS-style, simulated)';
@@ -194,7 +195,16 @@ export function renderMonitor(ctx, main) {
   const FL = lib.FLUIDS || [];
   const flType = h('select', { id: 'fl-type', class: 'input input--hmi', disabled: !fluids || !FL.length }, FL.map((f) => h('option', { value: f.id, selected: f.id === FLUID_MODEL.DEFAULT_FLUID }, f.name)));
   const flName = () => (FL.find((f) => f.id === flType.value) || { name: 'Crystalloid' }).name;
-  const fluidBtns = [250, 500].map((ml) => { const b = h('button', { type: 'button', class: 'btn btn--hmi', id: `fl-${ml}`, disabled: !fluids }, `Bolus ${ml} mL`); b.addEventListener('click', () => { act(FL.length ? `fluid_bolus:${ml}:${flType.value}` : `fluid_bolus:${ml}`, `${flName()} ${ml} mL given`); render(true); }); return b; });
+  // Simulator teaching ceiling (engine/teaching-ceilings.js): a refused dose/bolus above it can be given only after the
+  // clinician presses the confirm button next to it (one dose; logged). Never pressed by guided/automatic modes.
+  const teachText = (x) => (x ? `${x.label}: ${fmtNum(x.total, 3)} of ${fmtNum(x.limit, 3)} ${x.unit} — simulator teaching ceiling${x.unit !== x.ruleUnit ? ` (${x.ruleValue} ${x.ruleUnit})` : ''}, not a clinical limit${x.above ? ' (above: each further dose needs confirmation)' : ''}${x.pendingConfirmation ? ' · confirmation pending' : ''}` : '');
+  const teachFor = (key) => (typeof sim.teachingCeilingStatus === 'function' ? sim.teachingCeilingStatus().find((x) => x.key === key) : null);
+  const flTeach = h('p', { class: 'hint hint--hmi', id: 'fl-teach' });
+  const flConfirm = h('button', { type: 'button', class: 'btn btn--hmi btn--warn', id: 'fl-confirm', hidden: true }, 'Confirm dose above the simulator teaching ceiling');
+  let flPending = null;
+  const giveFluid = (cmdId, ml) => { const r = act(cmdId, `${flName()} ${ml} mL given`); flPending = r.teachingCeiling ? { cmdId, ml, key: r.teachingCeiling } : null; flConfirm.hidden = !flPending; if (flPending) flConfirm.setAttribute('aria-label', `Confirm ${ml} mL fluid bolus above the simulator teaching ceiling`); render(true); };
+  flConfirm.addEventListener('click', () => { if (!flPending) return; const c = act(`confirm_teaching_ceiling:${flPending.key}`); const p0 = flPending; flPending = null; flConfirm.hidden = true; if (c.ok) giveFluid(p0.cmdId, p0.ml); });
+  const fluidBtns = [250, 500].map((ml) => { const b = h('button', { type: 'button', class: 'btn btn--hmi', id: `fl-${ml}`, disabled: !fluids }, `Bolus ${ml} mL`); b.addEventListener('click', () => giveFluid(FL.length ? `fluid_bolus:${ml}:${flType.value}` : `fluid_bolus:${ml}`, ml)); return b; });
   const flRate = h('input', { type: 'number', min: 0, max: FLUID_MODEL.MAINTENANCE_MAX_ML_H, step: 'any', id: 'fl-rate', class: 'input input--hmi input--num', value: FLUID_MODEL.MAINTENANCE_DEFAULT_ML_H, disabled: !fluids || !FL.length });
   const flSet = h('button', { type: 'button', class: 'btn btn--hmi', id: 'fl-maint-set', disabled: !fluids || !FL.length }, 'Set maintenance');
   flSet.addEventListener('click', () => { act(`fluid_maintenance:${flType.value}:${flRate.value === '' ? 'x' : Number(flRate.value)}`); render(true); });
@@ -207,7 +217,7 @@ export function renderMonitor(ctx, main) {
   flType.addEventListener('change', renderComp); renderComp();
   const fluidPanel = h('section', { class: 'hmi-panel', id: 'mon-fluids-panel', 'aria-labelledby': 'mon-fl-h' }, h('h3', { id: 'mon-fl-h' }, 'IV fluids'),
     h('div', { class: 'inline-form' }, h('label', { for: 'fl-type', class: 'label' }, 'Fluid'), flType),
-    h('div', { class: 'btn-row' }, fluidBtns),
+    h('div', { class: 'btn-row' }, fluidBtns, flConfirm), flTeach,
     h('div', { class: 'inline-form' }, h('label', { for: 'fl-rate', class: 'label' }, 'Maintenance (mL/h)'), flRate, flSet, flStop), flMaint,
     h('div', { class: 'table-wrap' }, h('table', { class: 'table table--hmi table--compact' }, h('caption', { class: 'sr-only' }, 'Fluid totals by type'),
       h('thead', {}, h('tr', {}, h('th', { scope: 'col' }, 'Fluid'), h('th', { scope: 'col' }, 'Boluses'), h('th', { scope: 'col' }, 'Maintenance'), h('th', { scope: 'col' }, 'Total'))), flTotals)),
@@ -265,6 +275,10 @@ export function renderMonitor(ctx, main) {
   adOver.setAttribute('aria-describedby', 'ad-over-hint');
   const adInfo = h('div', { class: 'ad-info', id: 'ad-info' });
   const adGive = h('button', { type: 'button', class: 'btn btn--hmi btn--primary', id: 'ad-give' }, 'Give');
+  const adTeach = h('p', { class: 'hint hint--hmi', id: 'ad-teach' });
+  const adConfirm = h('button', { type: 'button', class: 'btn btn--hmi btn--warn', id: 'ad-confirm', hidden: true }, 'Confirm dose above the simulator teaching ceiling');
+  let adPending = null;
+  const teachKeyFor = (drugId, route) => { const d = getDrugById(lib, drugId); const r = route || (d && Array.isArray(d.bolusRoutes) && d.bolusRoutes[0]) || 'IV'; const g = TEACHING_GUARDS.find((x) => x.drugId === drugId && x.routes.includes(r)); return g ? g.key : null; };
   let adCtx = null;
   adDrug.addEventListener('change', () => fillKinds());
   adKind.addEventListener('change', () => { syncRoutes(); prefill(); });
@@ -326,11 +340,18 @@ export function renderMonitor(ctx, main) {
       }
     }
     else { cmd.rate = v; cmd.rateUnit = adUnit.textContent || sim.state.drugs[drug.id].rateUnit; }
+    giveCmd(drug, cmd, kind, v);
+  });
+  function giveCmd(drug, cmd, kind, v) {
     const r = sim.administer(cmd);
     const what = kind === 'bolus' ? `${v} ${drug.amountUnit}${cmd.route ? ` ${cmd.route}` : ''}` : `${v} ${cmd.rateUnit}`;
     feedback(r.ok ? `${drug.name} ${what} ${kind === 'bolus' ? 'given' : 'set'}.${r.warnings.length ? ` Warnings: ${r.warnings.join('; ')}` : ''}` : `BLOCKED: ${drug.name} ${what} — ${r.reasons.join('; ')}`, !r.ok, r.warnings.length > 0);
+    adPending = r.teachingCeiling ? { drug, cmd, kind, v, key: r.teachingCeiling } : null;
+    adConfirm.hidden = !adPending;
+    if (adPending) adConfirm.setAttribute('aria-label', `Confirm ${drug.name} ${what} above the simulator teaching ceiling`);
     render(true);
-  });
+  }
+  adConfirm.addEventListener('click', () => { if (!adPending) return; const p0 = adPending; adPending = null; adConfirm.hidden = true; const c = act(`confirm_teaching_ceiling:${p0.key}`); if (c.ok) giveCmd(p0.drug, p0.cmd, p0.kind, p0.v); });
   const adminForm = h('div', { class: 'admin-form' },
     h('h4', {}, 'Give / adjust a drug'),
     h('div', { class: 'admin-form__row' },
@@ -338,7 +359,7 @@ export function renderMonitor(ctx, main) {
       h('div', { class: 'field field--sm' }, h('label', { for: 'ad-kind', class: 'label' }, 'How'), adKind),
       adRouteWrap,
       h('div', { class: 'field field--sm' }, h('label', { for: 'ad-value', class: 'label' }, 'Amount / rate'), h('span', { class: 'with-unit' }, adVal, adUnit)),
-      adOverWrap, adGive), adInfo);
+      adOverWrap, adGive, adConfirm), adInfo, adTeach);
   const fb = h('p', { class: 'feedback', id: 'mon-feedback', role: 'status' });
   function feedback(msg, bad = false, warn = false) { fb.textContent = msg; fb.className = `feedback ${bad ? 'feedback--bad' : warn ? 'feedback--warn' : 'feedback--ok'}`; }
   const drugPanel = h('section', { class: 'hmi-panel hmi-panel--wide', 'aria-labelledby': 'mon-drugs-h' }, h('h3', { id: 'mon-drugs-h' }, 'Drugs & infusions'), drugEmpty, drugTable, adminForm);
@@ -703,6 +724,8 @@ export function renderMonitor(ctx, main) {
     secBtn.disabled = A.secured; ventOn.disabled = !A.secured || A.ventilated; ventOff.disabled = !A.ventilated;
     if (document.activeElement !== fio2Sel) fio2Sel.value = String([0.21, 0.3, 0.4, 0.5, 0.6, 0.8, 1].find((v) => Math.abs(v - A.fio2) < 1e-6) ?? fio2Sel.value);
     if (fluids) setText(fluidOut, S.fluids && isNum(S.fluids.crystalloidMl) ? `${fmtNum(S.fluids.crystalloidMl, 0)} mL` : '0 mL');
+    if (fluids) setText(flTeach, teachText(teachFor('crystalloid')));
+    { const tk = adCtx && adCtx.drug && adCtx.kind === 'bolus' ? teachKeyFor(adCtx.drug.id, adRoute.hidden ? null : adRoute.value) : null; setText(adTeach, tk ? teachText(teachFor(tk)) : ''); adTeach.hidden = !tk; }
     renderFluids(); renderAbx();
     // drugs
     renderDrugs();

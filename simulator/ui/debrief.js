@@ -58,6 +58,7 @@ export function renderDebrief(ctx, main) {
       stat('Alarms raised', String(s.alarms.length)),
       fl !== null ? stat('Crystalloid given', `${fmtNum(fl, 0)} mL`) : null),
     fluidsCard(s.fluids, p),
+    teachingCeilingsCard(s.teachingCeilings),
     prophylaxisCard(s.prophylaxis, lib),
     h('section', { class: 'card', id: 'db-timing' }, h('h3', {}, 'Timing check'),
       h('p', { class: 'hint' }, 'Each check compares when things happened with the timing rule and its source or simulator convention (engine/timing.js). It only compares times; it does not judge the illustrative physiology.'),
@@ -144,6 +145,18 @@ function depthAdvisoryDebrief(D, outOfBandSec) {
       h('span', { class: 'mono' }, fmtClock(x.shownAtSec)), ` ${x.id} — index ${x.index} below the GA band (text only, no dose changed) — ${DEPTH_STATUS[x.status] || x.status}${x.resolvedAtSec !== null ? ` at ${fmtClock(x.resolvedAtSec)}` : ''}`,
       x.endedAtSec !== null ? `; episode ended at ${fmtClock(x.endedAtSec)}${x.note && x.status === 'expired' ? ` (${x.note})` : ''}` : '',
       x.episodeSec !== null ? `; below the band ${fmtClock(x.episodeSec)} in this episode` : ''))) : h('p', { class: 'hint' }, 'No depth-index advisory was shown in this case.'));
+}
+
+/** Simulator teaching ceilings (engine/teaching-ceilings.js): totals, ceiling, refusals and every clinician confirmation. */
+function teachingCeilingsCard(list) {
+  if (!Array.isArray(list) || !list.length) return null;
+  return h('section', { class: 'card', id: 'db-teaching' }, h('h3', {}, 'Simulator teaching ceilings'),
+    h('p', { class: 'hint' }, 'Teaching guards where no label or guideline states a cumulative maximum (simulator convention, not clinical limits). A dose above one is given only after the clinician presses "Confirm dose above the simulator teaching ceiling"; guided and automatic modes never confirm it.'),
+    h('div', { class: 'table-wrap' }, h('table', { class: 'table', id: 'db-teaching-table' },
+      h('thead', {}, h('tr', {}, h('th', { scope: 'col' }, 'Agent'), h('th', { scope: 'col' }, 'Total given'), h('th', { scope: 'col' }, 'Teaching ceiling'), h('th', { scope: 'col' }, 'Refused (confirmation needed)'), h('th', { scope: 'col' }, 'Clinician confirmations'))),
+      h('tbody', {}, list.map((x) => h('tr', { dataset: { teaching: x.key } }, h('th', { scope: 'row' }, x.label), h('td', { class: 'mono' }, `${fmtNum(x.total, 3)} ${x.unit}`),
+        h('td', { class: 'mono' }, `${fmtNum(x.limit, 3)} ${x.unit}${x.unit !== x.ruleUnit ? ` (${x.ruleValue} ${x.ruleUnit})` : ''}`), h('td', { class: 'mono' }, String(x.refusals)),
+        h('td', {}, x.confirmations.length ? x.confirmations.map((c) => `${fmtClock(c.tSec)}${c.used ? ` → given ${fmtNum(c.used.amount, 3)} ${x.unit} (total ${fmtNum(c.used.totalAfter, 3)})` : ' (not used)'}`).join('; ') : 'none')))))));
 }
 
 function fluidsCard(F, p) {

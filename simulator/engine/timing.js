@@ -56,8 +56,8 @@ export const TIMING_CONFIG = Object.freeze({
   MIDAZOLAM_REPEAT_MIN_SEC: e(240, 's',
     'No repeat midazolam bolus within 4 min of the previous one: label — give over at least 2 minutes, then wait an additional 2 or more minutes to evaluate the effect [S17].',
     'fda_label', ['S17']),
-  // Label repeat intervals of rescue boluses (emergency-rescue stress matrix, 2026-11). A planned repeat waits; a manual
-  // one sooner than this is given with a warning and recorded (as for midazolam). Only intervals the label states:
+  // Label repeat intervals of rescue boluses (emergency-rescue stress matrix, 2026-11). A planned repeat waits; a clinician-entered
+  // (manual or accepted advisory) repeat sooner than this is REFUSED (owner decision; midazolam stays warn-only). Only intervals the label states:
   // ephedrine (IV bolus "as needed") and IV epinephrine (guideline: "titrated to effect") have none.
   PHENYLEPHRINE_REPEAT_MIN_SEC: e(60, 's',
     'No repeat phenylephrine IV bolus within 60 s of the previous one: label — additional boluses may be administered every 1–2 minutes as needed [S18]; the lower bound is used. Same label statement and value as the advisory repeat interval (engine/rescue-config.js RESCUE_CONFIG.PHENYLEPHRINE_REPEAT_MIN_SEC; a test keeps them equal).',
@@ -275,7 +275,7 @@ export function premedStatus(sim) {
 
 /**
  * Label repeat intervals of rescue boluses (TIMING_CONFIG): [{ key, drugId, name, routes, exceptPhases?, labelText, minSec, sourceIds }].
- * Read by repeatBolusHold (a planned repeat waits; a manual one is given with a warning and recorded) and by the
+ * Read by repeatBolusHold / labelRepeatHold (a planned repeat waits; a clinician-entered repeat is refused) and by the
  * emergency-rescue stress matrix (tests/emergency-stress.mjs).
  */
 export const LABEL_REPEAT_INTERVALS = Object.freeze([
@@ -299,13 +299,22 @@ export function repeatBolusHold(sim, drugId, route0 = 'IV') {
     const last = log[log.length - 1]; const min = cfgv('MIDAZOLAM_REPEAT_MIN_SEC');
     if (t - last.tSec < min - 1e-9) return { reason: `repeat midazolam waits ${Math.ceil(min - (t - last.tSec))} s more (label: over ≥ 2 min, then ≥ 2 min to evaluate)`, sources: ['S17'] };
   }
-  const route = String(route0 || 'IV').toUpperCase();
+  return labelRepeatHold(sim, drugId, route0);
+}
+
+/**
+ * Label repeat interval of a rescue bolus (LABEL_REPEAT_INTERVALS): null, or { reason, sources, remainingSec, minSec, key }.
+ * A planned repeat waits for it (repeatBolusHold); a clinician-entered (manual or advisory) repeat is REFUSED by
+ * sim.administer (owner decision, November 2026). Midazolam and the rocuronium top-up keep their warn-only rules.
+ */
+export function labelRepeatHold(sim, drugId, route0 = 'IV') {
+  const t = sim.state.tSec; const route = String(route0 || 'IV').toUpperCase();
   for (const r of LABEL_REPEAT_INTERVALS) {
     if (r.drugId !== drugId || !r.routes.includes(route) || (r.exceptPhases && r.exceptPhases.includes(sim.state.phase))) continue;
-    const same = log.filter((d) => r.routes.includes(String(d.route || 'IV').toUpperCase()));
+    const same = (sim.doseLog || []).filter((d) => d.drugId === drugId && d.kind === 'bolus' && r.routes.includes(String(d.route || 'IV').toUpperCase()));
     if (!same.length) continue;
     const gap = t - same[same.length - 1].tSec;
-    if (gap < r.minSec - 1e-9) return { reason: `repeat ${r.name} ${route} bolus ${Math.round(gap)} s after the previous one; waits ${Math.ceil(r.minSec - gap)} s more (label: ${r.labelText})`, sources: [...r.sourceIds] };
+    if (gap < r.minSec - 1e-9) return { key: r.key, minSec: r.minSec, remainingSec: Math.ceil(r.minSec - gap), reason: `repeat ${r.name} ${route} bolus ${Math.round(gap)} s after the previous one; waits ${Math.ceil(r.minSec - gap)} s more (label: ${r.labelText}; minimum ${r.minSec} s)`, sources: [...r.sourceIds] };
   }
   return null;
 }

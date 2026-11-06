@@ -23,11 +23,13 @@ Question: do the rescue interventions the engine offers work in its scripted eme
 | no NaN / Infinity in vitals (NaN only on a faulted sensor channel; internal PaO2/PaCO2/SaO2 and drug states finite) | PASS |
 | vitals within plausible bounds (MAP 20–220, HR 20–250, SpO2 0–100, SBP 20–300, RR 0–60, EtCO2 0–150, index 0–100) | PASS |
 | every accepted dose ≤ every hard limit (per dose, per route, cumulative; label/guideline ceilings, interpretCeilings) and given exactly as ordered (no silent clamping) | PASS |
-| every refused dose logged "BLOCKED" with nothing given | PASS (162689 refusals) |
-| every accepted dose outside the sourced regimen range, or inside the label repeat interval, carries a warning | PASS (104699 flagged-and-accepted doses: 104616 in the aggressive arm, 83 in fault/hold combinations where the driver's probe dose fell next to a policy dose, 0 elsewhere) |
+| every refused dose logged "BLOCKED" with nothing given | PASS (324578 refusals) |
+| every accepted dose outside the sourced regimen range carries a warning | PASS (468 such doses, all in the aggressive arm) |
+| zero clinician-entered (manual or advisory) repeats accepted inside the label repeat interval (phenylephrine 60 s, glycopyrrolate 120 s outside emergence, IM/SC epinephrine 300 s): each is REFUSED, logged with the interval and time remaining | PASS (107097 refusals) |
+| no accepted dose takes a total above a simulator teaching ceiling without the clinician's confirmation action (one dose per confirmation) | PASS (refused until confirmed: epinephrine IV 51948, glycopyrrolate 7992, crystalloid boluses 54525; confirmations 468: 468 the aggressive arm's single deliberate probe per run, 0 by the rescue-arm clinician (the rescue strategies stay below every ceiling: ≤ 4 × 500 mL, ≤ 0.4 mg IV epinephrine); 468 drug doses and 0 fluid boluses given after a confirmation; the control arm and the automatic runner never confirm) |
 | running rates ≤ label rate/dial ceilings every second; controlled infusions ≤ Python simulation ceilings while interlocks are on; direct state write re-validated | PASS |
-| interlock hold latches one control iteration after MAP < 60 / HR < 48 / unusable reading, held infusions stay at 0, never released without resume_hold | PASS (1365 runs latched a hold; resume_hold was never pressed by the driver) |
-| no vasopressor without an explicit accept in advisory runs (advisory doses = accepted advisories = "ADVISORY accepted" log lines; control arm: zero vasopressor doses, zero accepts) | PASS (753 accepted, 10214 shown) |
+| interlock hold latches one control iteration after MAP < 60 / HR < 48 / unusable reading, held infusions stay at 0, never released without resume_hold | PASS (1369 runs latched a hold; resume_hold was never pressed by the driver) |
+| no vasopressor without an explicit accept in advisory runs (advisory doses = accepted advisories = "ADVISORY accepted" log lines; control arm: zero vasopressor doses, zero accepts) | PASS (776 accepted, 10254 shown) |
 | plan-safety check passes for every patient's plan | PASS |
 | fault / hold combinations: rescue path available (FiO2, fluids, rescue bolus accepted during the fault or hold), held infusions cannot restart | PASS (336 runs) |
 | **runs with any violation** | **0** |
@@ -37,9 +39,14 @@ Refusals by drug and reason (numbers masked as #):
 | refusal | count |
 |---|---|
 | ephedrine:bolus:IV: Cumulative dose would exceed # mg (label maximum) | 74412 |
-| phenylephrine:bolus:IV: Total bolus dose would exceed # mcg (label maximum) (already given # mcg) | 65520 |
+| phenylephrine:bolus:IV: Total bolus dose would exceed # mcg (label maximum) (already given # mcg) | 60372 |
+| epinephrine:bolus:IM: Repeat bolus refused — repeat epinephrine IM bolus # s after the previous one; waits # s more (label: IM/SC repeated every # to # min as necessary; minimum # s) [S#]; # s remaining | 55224 |
+| epinephrine:bolus:IV: Above the simulator teaching ceiling (not a clinical limit): epinephrine IV boluses # mg > # mg — confirm with "Confirm dose above the simulator teaching ceiling" (action confirm_teaching_ceiling:epinephrine_iv) to give it | 51948 |
+| glycopyrrolate:bolus:IV: Repeat bolus refused — repeat glycopyrrolate IV bolus # s after the previous one; waits # s more (label: intraoperative # mg IV repeated as needed at #–# min intervals; minimum # s) [S#]; # s remaining | 46699 |
 | epinephrine:bolus:IM: Single dose above # mg (label maximum) | 9828 |
 | epinephrine:bolus:IV: Single dose above # mg per IV bolus (guideline IV titration dose used as a per-bolus stop (simulator policy)) | 9828 |
+| glycopyrrolate:bolus:IV: Above the simulator teaching ceiling (not a clinical limit): glycopyrrolate boluses # mg > # mg — confirm with "Confirm dose above the simulator teaching ceiling" (action confirm_teaching_ceiling:glycopyrrolate) to give it | 7992 |
+| phenylephrine:bolus:IV: Repeat bolus refused — repeat phenylephrine IV bolus # s after the previous one; waits # s more (label: additional boluses every #–# min as needed; minimum # s) [S#]; # s remaining | 5174 |
 | dexmedetomidine:infusion: Rate above # mcg/kg/h (label range upper bound) | 468 |
 | epinephrine:infusion: Rate above infusion # mcg/kg/min IBW (label range upper bound) | 468 |
 | phenylephrine:infusion: Rate above infusion # mcg/min (label maximum) | 468 |
@@ -49,16 +56,14 @@ Refusals by drug and reason (numbers masked as #):
 | lidocaine:infusion: Lidocaine (IV) is held by a latched interlock; use resume_hold first | 313 |
 | ketamine:infusion: Ketamine is held by a latched interlock; use resume_hold first | 237 |
 
-Accepted with a warning (soft limits — engine policy, SPEC §5.2/§6: regimen range and label repeat interval warn; only drug.ceiling values are hard stops):
+Accepted with a warning or after a confirmation (engine policy, SPEC §5.2/§6: the regimen range is a warning; drug.ceiling values and label repeat intervals refuse; simulator teaching ceilings refuse until confirmed):
 
 | drug:route:flag | count |
 |---|---|
-| epinephrine:IM:inside_label_repeat_interval | 56160 |
-| glycopyrrolate:IV:inside_label_repeat_interval | 47577 |
-| phenylephrine:IV:inside_label_repeat_interval | 494 |
 | ephedrine:IV:outside_regimen_range | 468 |
+| epinephrine:IV:above_teaching_ceiling_confirmed | 468 |
 
-Aggressive arm extremes (432 runs): max MAP 192 mmHg, max HR 200 /min; seconds at a physiology clamp (MAP/HR 25 or 200, SpO2 40): MAP 0, HR 13110 (in 12 runs: sepsis_emergency), SpO2 0; all arms: 22998 clamp-seconds (control map anaphylaxis_hypotension: 7830; aggressive hr hemorrhage: 7251; aggressive hr anaphylaxis_hypotension: 5859; control map hemorrhage: 1578; aggressive hr light_anesthesia_stimulus: 459; rescue_im map anaphylaxis_hypotension: 21). Per run, accepted within 600 s: phenylephrine bolus ≤ 200 mcg, ephedrine ≤ 50 mg, epinephrine IV ≤ 6.05 mg, epinephrine IM ≤ 60.5 mg, glycopyrrolate ≤ 12.1 mg, crystalloid ordered up to 60.5 L.
+Aggressive arm extremes (432 runs): max MAP 192 mmHg, max HR 200 /min; seconds at a physiology clamp (MAP/HR 25 or 200, SpO2 40): MAP 0, HR 8262 (in 12 runs: sepsis_emergency), SpO2 0; all arms: 17691 clamp-seconds (control map anaphylaxis_hypotension: 7830; aggressive hr hemorrhage: 4347; aggressive hr anaphylaxis_hypotension: 3915; control map hemorrhage: 1578; rescue_im map anaphylaxis_hypotension: 21). Per run, accepted within 600 s: phenylephrine bolus ≤ 200 mcg, ephedrine ≤ 50 mg, epinephrine IV ≤ 0.55 mg, epinephrine IM ≤ 1.5 mg, glycopyrrolate ≤ 1 mg, crystalloid ordered up to 60.5 L.
 
 ## Efficacy (directional, illustrative)
 
@@ -71,7 +76,7 @@ Recovery = the emergency's **primary** vital sign(s) back inside the limits for 
 | hemorrhage | aggressive | 72 | 72/72 (100 %) | 0 s | 31 | 0 | 0 | 12 / 0 / 0 / 0 |
 | vagal_bradycardia | control | 72 | 72/72 (100 %) | 119 s | 71 | 102 | 1062 |  |
 | vagal_bradycardia | rescue | 72 | 72/72 (100 %) | 107 s | 71 | 88 | 563 | 12 / 0 / 0 / 0 |
-| vagal_bradycardia | aggressive | 72 | 72/72 (100 %) | 0 s | 21 | 0 | 0 | 12 / 0 / 0 / 0 |
+| vagal_bradycardia | aggressive | 72 | 72/72 (100 %) | 0 s | 28 | 0 | 0 | 12 / 0 / 0 / 0 |
 | bronchospasm | control | 72 | 72/72 (100 %) | 407 s | 72 | 161 | 589 |  |
 | bronchospasm | rescue | 72 | 72/72 (100 %) | 0 s | 0 | 0 | 0 | 12 / 0 / 0 / 0 |
 | bronchospasm | aggressive | 72 | 72/72 (100 %) | 0 s | 0 | 0 | 0 | 12 / 0 / 0 / 0 |
@@ -80,14 +85,14 @@ Recovery = the emergency's **primary** vital sign(s) back inside the limits for 
 | laryngospasm_on_extubation | aggressive | 72 | 72/72 (100 %) | 0 s | 12 | 0 | 0 | 2 / 0 / 0 / 10 |
 | light_anesthesia_stimulus | control | 72 | 72/72 (100 %) | 0 s | 0 | 0 | 0 |  |
 | light_anesthesia_stimulus | rescue | 72 | 72/72 (100 %) | 0 s | 0 | 0 | 0 | 0 / 0 / 0 / 12 |
-| light_anesthesia_stimulus | aggressive | 72 | 0/72 (0 %) | — | 72 | 1476 | 81610 | 0 / 0 / 12 / 0 |
+| light_anesthesia_stimulus | aggressive | 72 | 0/72 (0 %) | — | 72 | 1474 | 79822 | 0 / 0 / 12 / 0 |
 | anaphylaxis_hypotension | control | 72 | 54/72 (75 %) | 1242 s | 72 | 1233 | 31316 |  |
 | anaphylaxis_hypotension | rescue | 72 | 72/72 (100 %) | 65 s | 72 | 31 | 60 | 12 / 0 / 0 / 0 |
 | anaphylaxis_hypotension | rescue_im | 72 | 72/72 (100 %) | 214 s | 72 | 166 | 1927 | 12 / 0 / 0 / 0 |
 | anaphylaxis_hypotension | aggressive | 72 | 72/72 (100 %) | 0 s | 31 | 0 | 0 | 12 / 0 / 0 / 0 |
 | light_anesthesia_stimulus:lightened | control | 36 | 16/36 (44 %) | 0 s | 21 | 976 | 6461 |  |
 | light_anesthesia_stimulus:lightened | rescue | 36 | 36/36 (100 %) | 378 s | 21 | 3 | 3 | 7 / 0 / 0 / 5 |
-| light_anesthesia_stimulus:lightened | aggressive | 36 | 0/36 (0 %) | — | 36 | 1477 | 83868 | 0 / 0 / 12 / 0 |
+| light_anesthesia_stimulus:lightened | aggressive | 36 | 0/36 (0 %) | — | 36 | 1475 | 80429 | 0 / 0 / 12 / 0 |
 
 "better" = recovers more often, or as often and faster (median), or spends less time with the primary sign deranged, or has a smaller median deficit (shortfall beyond the primary limit summed over the window, e.g. mmHg·s below MAP 65). The aggressive arm is a cap probe, not a treatment; its "efficacy" mostly reflects overshoot.
 
@@ -182,28 +187,30 @@ Recovery = the emergency's **primary** vital sign(s) back inside the limits for 
 
 ## Emergencies combined with faults and holds (rescue arm)
 
-| combination | runs | safety violations | rescue accepted during fault/hold | held infusion restart refused | primary recovered | hold latched at end |
+| combination | runs | safety violations | rescue path available during fault/hold (of which a probe bolus was refused only by the label repeat interval since the strategy's own previous dose) | held infusion restart refused | primary recovered | hold latched at end |
 |---|---|---|---|---|---|---|
-| map_sensor_fault | 72 | 0 | 72/72 | 210/210 | 70/72 | 72/72 |
-| hr_sensor_fault | 72 | 0 | 72/72 | 210/210 | 70/72 | 72/72 |
-| spo2_probe_off | 72 | 0 | 72/72 | 101/101 | 70/72 | 52/72 |
-| hold_latched | 60 | 0 | 60/60 | 175/175 | 60/60 | 60/60 |
-| continue_with_hold | 60 | 0 | 60/60 | 170/170 | 59/60 | 60/60 |
+| map_sensor_fault | 72 | 0 | 72/72 (18) | 210/210 | 70/72 | 72/72 |
+| hr_sensor_fault | 72 | 0 | 72/72 (17) | 210/210 | 70/72 | 72/72 |
+| spo2_probe_off | 72 | 0 | 72/72 (18) | 101/101 | 70/72 | 52/72 |
+| hold_latched | 60 | 0 | 60/60 (4) | 175/175 | 60/60 | 60/60 |
+| continue_with_hold | 60 | 0 | 60/60 (3) | 170/170 | 59/60 | 60/60 |
 
 ## Findings (illustrative model behaviour; reported, not tuned)
 
-1. **Pre-emergency hypotension at the default plan.** With the ga_opioid template (label-default fentanyl, propofol induction, 1.0 × age-adjusted MAC sevoflurane, or propofol TIVA when sevoflurane is locked), MAP was already < 65 just before the onset in 7/12 patients (seed 1, early onset): age18_asa1 63, age90 61, wt40_bmi15 63, asa4_hfref_cad 38, beta_blocker_brady 63, hypovolaemia 48, sepsis_emergency 41 mmHg (processed-EEG index 31–40). Consistent with the documented deep reading of the illustrative depth model at label-default maintenance (TIMING_CONFIG DEPTH_LOW_ADVISORY note). Many hemorrhage/anaphylaxis "recoveries" therefore start from a pre-existing derangement; arms are still compared on the same pre-onset state.
+1. **Model limit — pre-emergency hypotension at the default plan (documented only; no dose or physiology change, owner decision).** With the ga_opioid template (label-default fentanyl, propofol induction, 1.0 × age-adjusted MAC sevoflurane, or propofol TIVA when sevoflurane is locked), MAP was already < 65 just before the onset in 7/12 patients (seed 1, early onset): age18_asa1 63, age90 61, wt40_bmi15 63, asa4_hfref_cad 38, beta_blocker_brady 63, hypovolaemia 48, sepsis_emergency 41 mmHg (processed-EEG index 31–40). Consistent with the documented deep reading of the illustrative depth model at label-default maintenance (TIMING_CONFIG DEPTH_LOW_ADVISORY note). Many hemorrhage/anaphylaxis "recoveries" therefore start from a pre-existing derangement; arms are still compared on the same pre-onset state.
 2. **Hemorrhage: fluids + accepted label vasopressor advisories do not restore MAP ≥ 65 in every patient class.** Not recovered within 1500 s in: asa4_hfref_cad 3/6 (worst MAP 36); sepsis_emergency 3/6 (worst MAP 39). The bleeding never stops in the scenario (holdSec null; surgical control is not modelled), crystalloid offsets at most 80 % of the loss (FLUID_MODEL), the driver gives at most 4 × 500 mL, and the advisory stops at the phenylephrine 200 mcg / ephedrine 50 mg cumulative label maxima ("label maximum reached — escalate; not simulated"). Control: 1/72 runs recovered.
 3. **Vagal bradycardia: the scenario resolves by itself; glycopyrrolate 0.1 mg (label rescue dose [S8]) helps only a little.** Control median time to HR ≥ 50: 119 s; rescue 107 s. Median seconds with HR < 50: control 102, rescue 88; worst nadir HR control 25, rescue 25 /min. Cause: the event lasts 10 s ramp + 90 s + 30 s resolve, and glycopyrrolate uses the generic illustrative PK (no label onset statement; ke0 0.3 /min, effect-site half-time ≈ 2.3 min), so its effect arrives as the event ends. The largest benefit is in the beta-blocker patient (control 239 s vs rescue 131 s). "Stop the stimulus" cannot be modelled (gap).
 4. **Bronchospasm does not desaturate a ventilated patient at FiO2 0.5.** Worst SpO2 across all arms 98 %; the scenario shows as hypercapnia (control worst internal PaCO2 67 mmHg, rescue 58 mmHg). The rescue (FiO2 1.0, deepen once, IV epinephrine 50 mcg when EtCO2 > 45 or SpO2 < 90) keeps PaCO2 below 60 mmHg; deepening alone does little because the hypnotic effect is already near maximal (bronchospasm is countered by 0.4 × hypnosis). The IV epinephrine dose is the perioperative-anaphylaxis guideline dose [S44, S45] — no bronchospasm-specific IV regimen is in the library.
 5. **Laryngospasm desaturates only the obese patients** (FiO2 left at 0.5 through extubation): control worst SpO2 wt200_bmi65_osa 43, obese_osa 47; every other patient stays ≥ 92 % during the 120-s spasm. Rescue (FiO2 1.0, jaw thrust, positive-pressure mask ventilation, which breaks the spasm after 45 s in the scenario) prevents the desaturation. With FiO2 1.0 before extubation (checked while building the matrix) no patient desaturated.
 6. **Light anaesthesia / strong stimulus is fully blunted at the default maintenance.** Control: no patient exceeded MAP 120, HR 120 or index 60 (worst MAP 103, worst HR 118, worst index 49), so efficacy cannot be tested there ("never deranged"). In the "lightened" variant (hypnotic at the bottom of its label range 300 s before the stimulus, every arm) the index exceeded 60 in 21/36 control runs (worst index 83), while MAP stayed ≤ 109 and HR ≤ 115; of those deranged runs the control recovered in 1 (the anaesthetic stays light), the rescue (fentanyl maintenance boluses [S13], deepen once within the regimen range) in 21/21 (median 485 s). The model's stimulus response (GAINS.STIM_MAP_GAIN 0.4 × stimulus blunted by analgesia and hypnosis) cannot take MAP above 120 from these baselines once label-default analgesia is present.
 7. **Anaphylaxis: IV epinephrine 50 mcg [S44, S45] + fluids recovers fastest; IM 0.3 mg [S40] is slower; the control recovers only when the scripted event ends** (control median 1242 s, rescue IV 65 s, rescue IM 214 s). Slowest rescue: sepsis_emergency 495 s, asa4_hfref_cad 468 s, hypovolaemia 236 s. The phenylephrine/ephedrine advisory is suppressed during anaphylaxis by design.
-8. **Soft limits in the aggressive arm.** Repeated maximum doses every 5 s were accepted with warnings: epinephrine IM up to 60.5 mg and IV up to 6.05 mg, glycopyrrolate up to 12.1 mg per run. Per-injection caps (epinephrine 0.5 mg IM / 0.05 mg IV), the phenylephrine 200 mcg and ephedrine 50 mg cumulative caps and all rate ceilings held. Epinephrine IV boluses and glycopyrrolate have **no cumulative maximum** in the library (none verified); the label repeat interval (epinephrine IM 5 min, glycopyrrolate 2 min, phenylephrine 1 min) is a warning, not a refusal, for clinician-entered doses — the same policy as midazolam. Whether too-close repeats should be refused is an owner decision (not changed here). Crystalloid boluses have no cumulative limit and fluid overload is not modelled.
+8. **Aggressive arm after the owner decisions (repeat refusal, teaching ceilings).** Before (commit 21637da) every too-close repeat was accepted with a warning: up to 60.5 mg IM epinephrine, 6.05 mg IV epinephrine and 12.1 mg glycopyrrolate per run (104,616 warned-and-accepted doses in 432 runs). Now, in 432 runs: repeats refused — phenylephrine 4752, epinephrine IM 50976, glycopyrrolate 41400; teaching-ceiling refusals (confirmation required) — epinephrine IV 47952, crystalloid 50334; per run at most epinephrine IM 1.5 mg (one 0.5 mg injection per 5 min), IV 0.55 mg (0.5 mg ceiling + the one deliberately confirmed dose), glycopyrrolate 1 mg. Per-injection caps, the phenylephrine 200 mcg / ephedrine 50 mg cumulative caps and all rate ceilings held as before. Ephedrine ("as needed") and IV epinephrine ("titrated") still have no label interval; ephedrine is limited by its 50 mg label total, IV epinephrine by the teaching ceiling. Midazolam's repeat rule stays warn-only (owner decision; its label wording — "wait an additional 2 or more minutes to fully evaluate the sedative effect" — is titration guidance rather than a stated dosing interval).
 
-## Bug fixed during this work
+## Fixes and owner decisions
 
-- **Label repeat intervals of rescue boluses were not checked at all (silent).** A phenylephrine, glycopyrrolate (rescue) or IM/SC epinephrine bolus repeated sooner than the label interval was accepted with no warning and no record (only the advisory knew the phenylephrine interval). Fix: `engine/timing.js` TIMING_CONFIG `PHENYLEPHRINE_REPEAT_MIN_SEC` 60 s [S18], `GLYCOPYRROLATE_RESCUE_REPEAT_MIN_SEC` 120 s [S8] (not in emergence, where glycopyrrolate goes with neostigmine), `EPINEPHRINE_IM_REPEAT_MIN_SEC` 300 s [S40] (lower bounds of the label intervals), read by `repeatBolusHold` (a planned repeat waits; a manual one is given with a warning and recorded in `timingHolds`, as midazolam already was); the bolus route is now recorded in the dose log so IM and IV epinephrine are gated separately. Ephedrine ("as needed") and IV epinephrine ("titrated to effect") have no stated interval and are not gated.
+- **Label repeat intervals of rescue boluses were not checked at all (silent).** A phenylephrine, glycopyrrolate (rescue) or IM/SC epinephrine bolus repeated sooner than the label interval was accepted with no warning and no record (only the advisory knew the phenylephrine interval). Fix: `engine/timing.js` TIMING_CONFIG `PHENYLEPHRINE_REPEAT_MIN_SEC` 60 s [S18], `GLYCOPYRROLATE_RESCUE_REPEAT_MIN_SEC` 120 s [S8] (not in emergence, where glycopyrrolate goes with neostigmine), `EPINEPHRINE_IM_REPEAT_MIN_SEC` 300 s [S40] (lower bounds of the label intervals), read by `repeatBolusHold` / `labelRepeatHold` (first a warning for manual repeats in commit 21637da, now a refusal — next item); the bolus route is now recorded in the dose log so IM and IV epinephrine are gated separately. Ephedrine ("as needed") and IV epinephrine ("titrated to effect") have no stated interval and are not gated.
+- **Owner decision: too-close clinician-entered repeats are refused.** `sim.administer` refuses (BLOCKED, logged with the label interval and the seconds remaining) a manual or accepted-advisory repeat of phenylephrine IV < 60 s, glycopyrrolate IV < 120 s outside emergence or IM/SC epinephrine < 300 s after the previous one (`engine/timing.js` `labelRepeatHold`); planned repeats keep waiting. Midazolam and the rocuronium top-up stay warn-only.
+- **Owner decision: simulator teaching ceilings** (`engine/teaching-ceilings.js`, provenance simulator convention, no sourceIds; searched 2026-11-06 — no label or guideline states a cumulative maximum for intraoperative glycopyrrolate or perioperative IV epinephrine boluses; crystalloid has no label dose): IV epinephrine boluses 0.5 mg total (10 × the 50-mcg guideline titration step; = the label IM per-injection maximum), glycopyrrolate 1 mg total (10 × the 0.1 mg rescue dose; = the top of the emergence regimen range), crystalloid 30 mL/kg TBW total (the Surviving Sepsis 2021 initial volume already shown by the fluid model). A dose that would exceed one is refused until the clinician presses "Confirm dose above the simulator teaching ceiling" (`confirm_teaching_ceiling:<key>`, logged; covers one dose within 60 s). Guided/automatic modes never confirm (a planned step above the ceiling is refused and skipped). The Run screen shows the ceiling and running total next to the dose form and the fluid buttons, with the confirm button after a refusal; the debrief has a "Simulator teaching ceilings" table.
 
 ## Gaps the engine cannot model (not invented here)
 
@@ -213,7 +220,7 @@ Recovery = the emergency's **primary** vital sign(s) back inside the limits for 
 - Inhaled bronchodilators, airway pressure / peak pressure, and a bronchospasm-specific epinephrine regimen; only the anaphylaxis guideline IV dose is available.
 - A laryngospasm-specific propofol or succinylcholine dose: the scenario resolves on any propofol/succinylcholine dose, but the library has only induction/sedation regimens, so the rescue arm uses airway manoeuvres and oxygen only.
 - A sourced antihypertensive (MAP > 120 advisory is text only) and a vasopressor infusion in the advisory (phenylephrine infusion exists in the library but is a manual choice).
-- Cumulative limits for IV epinephrine boluses, glycopyrrolate and crystalloid; fluid overload.
+- A sourced cumulative maximum for IV epinephrine boluses, glycopyrrolate and crystalloid (simulator teaching ceilings stand in for them); fluid overload.
 
 ## Patients, plans and strategies
 

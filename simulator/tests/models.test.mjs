@@ -172,7 +172,12 @@ if (REAL) {
   test('fluid bolus: sepsis context note at ≥ 30 mL/kg cites the guideline source', () => {
     const p = derivePatient(basePatient({ weightKg: 40, heightCm: 160, conditions: ['sepsis'] }), { library: REAL });
     const s = createSimulation({ patient: p, library: REAL });
-    let msg = ''; for (let i = 0; i < 3; i++) msg = s.action('fluid_bolus:500').message;
+    // 40 kg: the third 500 mL bolus (37.5 mL/kg) is above the 30 mL/kg simulator teaching ceiling and needs the clinician's confirmation
+    let msg = ''; for (let i = 0; i < 2; i++) msg = s.action('fluid_bolus:500').message;
+    const refused = s.action('fluid_bolus:500');
+    assert.equal(refused.ok, false); assert.equal(refused.teachingCeiling, 'crystalloid');
+    assert.ok(s.action('confirm_teaching_ceiling:crystalloid').ok);
+    msg = s.action('fluid_bolus:500').message;
     assert.ok(/Surviving Sepsis/.test(msg) && /\[S43\]/.test(msg));
   });
 

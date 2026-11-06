@@ -15,7 +15,8 @@ import { AlarmManager } from './alarms.js';
 import { convertAmount, rateToAmountPerMin, isFiniteNumber, roundSig } from './units.js';
 import { getScenario } from '../data/scenarios.js';
 import { createRng as createRngLocal } from './rng.js';
-import { repeatBolusHold, TIMING_CONFIG, liveTimingChecks } from './timing.js';
+import { repeatBolusHold, labelRepeatHold, TIMING_CONFIG, liveTimingChecks } from './timing.js';
+import { TEACHING_CEILINGS, TEACHING_GUARDS, teachingGuard } from './teaching-ceilings.js';
 import { computeLockouts, MAINTENANCE_HYPNOTIC_CLASSES, maintenanceHypnoticGap } from './plan-safety.js';
 
 export const PHASES = ['premed', 'sedation', 'induction', 'maintenance', 'emergence'];
@@ -141,6 +142,8 @@ class Simulation {
     this.depots = [];
     this.fluid = { retainedMl: 0, pendingMl: 0, sepsisNoteLogged: false, cautionsLogged: new Set() };
     this.lido = { pretreatAt: [], analgesicAt: [], warned: false };
+    // Simulator teaching ceilings (engine/teaching-ceilings.js): running totals, one-shot clinician confirmations, refusals.
+    this.teaching = { given: Object.fromEntries(TEACHING_GUARDS.filter((g) => g.drugId).map((g) => [g.key, 0])), confirm: {}, confirmations: [], refusals: Object.fromEntries(TEACHING_GUARDS.map((g) => [g.key, 0])) };
     this.checklist = { antibiotic: null };
     // Timing review (engine/timing.js): every administered dose (for the live timing checks), planned
     // steps held by a state condition, and time outside the GA processed-EEG band during surgery.
@@ -299,8 +302,8 @@ class Simulation {
   /** Gives/stops/sets a drug; then re-evaluates the depth-low advisor at once (no lag of one step). */
   administer(cmd, meta = {}) { const r = this._administerImpl(cmd, meta); this._refreshDepthAdvisor(); return r; }
   _administerImpl(cmd, meta = {}) {
-    const res = (ok, blocked, reasons, warnings) => {
-      const r = { ok, blocked, reasons, warnings };
+    const res = (ok, blocked, reasons, warnings, extra = null) => {
+      const r = { ok, blocked, reasons, warnings, ...(extra || {}) };
       const drug = getDrug(this.lib, cmd && cmd.drugId);
       const name = drug ? drug.name : String(cmd && cmd.drugId);
       if (blocked) {
@@ -344,6 +347,20 @@ class Simulation {
         if (L.type === 'cumulative' && L.bolusOnly && (this.bolusGiven[drug.id] || 0) + amt > L.absolute + 1e-9) return res(false, true, [`Total bolus dose would exceed ${L.label} (already given ${roundSig(this.bolusGiven[drug.id] || 0)} ${drug.amountUnit})`], warnings);
         if (L.type === 'cumulative' && !L.bolusOnly && ds.cumulative + pendingTimed + amt > L.absolute + 1e-9) return res(false, true, [`Cumulative dose would exceed ${L.label}${L.daily ? ' (daily limit applied to this session)' : ''}`], warnings);
       }
+      // Label repeat interval of a rescue bolus (phenylephrine, glycopyrrolate, IM/SC epinephrine): a clinician-entered
+      // repeat (manual or accepted advisory) sooner than the label interval is REFUSED; a planned repeat waits in the scheduler.
+      const lrh = meta.source === 'plan' ? null : labelRepeatHold(this, drug.id, route);
+      if (lrh) return res(false, true, [`Repeat bolus refused — ${lrh.reason} [${lrh.sources.join(', ')}]; ${lrh.remainingSec} s remaining`], warnings, { repeatRefused: { remainingSec: lrh.remainingSec, minSec: lrh.minSec, key: lrh.key } });
+      // Simulator teaching ceiling (cumulative guard where no source states a maximum): needs a clinician confirmation.
+      const tg = TEACHING_GUARDS.find((g) => g.drugId === drug.id && g.routes.includes(route));
+      let tgUse = null;
+      if (tg) {
+        const after = this.teaching.given[tg.key] + amt;
+        if (after > tg.value + 1e-9) {
+          tgUse = this._teachingConfirmation(tg.key);
+          if (!tgUse) { this.teaching.refusals[tg.key]++; return res(false, true, [`Above the simulator teaching ceiling (not a clinical limit): ${tg.label} ${roundSig(after)} ${tg.unit} > ${tg.value} ${tg.unit} — confirm with "Confirm dose above the simulator teaching ceiling" (action confirm_teaching_ceiling:${tg.key}) to give it`], warnings, { teachingCeiling: tg.key }); }
+        }
+      }
       const rtw = this._runtimeWarnings(drug, { amount: amt });
       warnings.push(...rtw);
       // State-gated repeat bolus (timing.js): a planned step never gets here while held; a manual dose is warned and recorded.
@@ -355,6 +372,7 @@ class Simulation {
       const model = this._model(drug.id);
       const overSec = route === 'IV' && isFiniteNumber(cmd.overSec) && cmd.overSec >= 60 ? cmd.overSec : null;
       this.bolusGiven[drug.id] = (this.bolusGiven[drug.id] || 0) + amt;
+      if (tg) { this.teaching.given[tg.key] += amt; if (tgUse) { tgUse.used = { tSec: this.state.tSec, amount: amt, totalAfter: this.teaching.given[tg.key] }; warnings.push(`Given above the simulator teaching ceiling ${tg.value} ${tg.unit} (${tg.label}; total now ${roundSig(this.teaching.given[tg.key])} ${tg.unit}) after the clinician's confirmation`); } }
       if (route !== 'IV') { this.depots.push({ drugId: drug.id, remaining: amt, ka: ROUTE_KA_ILLUSTRATIVE[route] ?? ROUTE_KA_ILLUSTRATIVE.IM, route }); ds.cumulative += amt; }
       else if (overSec) this.timed.push({ drugId: drug.id, perMin: amt / (overSec / 60), remaining: amt });
       else { model.model.bolus(amt); ds.cumulative += amt; }
@@ -539,11 +557,18 @@ class Simulation {
       const ft = this._fluidType(parts[2]);
       if (ft.error) return no(ft.error);
       const F = this.state.fluids;
+      const cg = teachingGuard('crystalloid'); const cMax = cg.value * this.patient.weightKg;
+      let cUse = null;
+      if (F.crystalloidMl + ml > cMax + 1e-9) {
+        cUse = this._teachingConfirmation('crystalloid');
+        if (!cUse) { this.teaching.refusals.crystalloid++; this._log('dose', `BLOCKED fluid bolus ${ml} mL: above the simulator teaching ceiling (not a clinical limit) ${cg.value} ${cg.unit} = ${Math.round(cMax)} mL (total would be ${Math.round(F.crystalloidMl + ml)} mL)`); return { ok: false, message: `Fluid bolus ${ml} mL refused: total crystalloid would be ${Math.round(F.crystalloidMl + ml)} mL, above the simulator teaching ceiling ${cg.value} ${cg.unit} (${Math.round(cMax)} mL; not a clinical limit) — confirm with "Confirm dose above the simulator teaching ceiling" (action confirm_teaching_ceiling:crystalloid)`, teachingCeiling: 'crystalloid' }; }
+        cUse.used = { tSec: t, amount: ml, totalAfter: F.crystalloidMl + ml };
+      }
       F.crystalloidMl += ml; this.fluid.pendingMl += ml; F.infusingMl = Math.round(this.fluid.pendingMl);
       F.boluses.push({ tSec: t, ml, kind: 'crystalloid', fluidId: ft.id });
       if (ft.id && F.byType[ft.id]) F.byType[ft.id].bolusMl += ml;
       const perKg = F.crystalloidMl / this.patient.weightKg;
-      let msg = `${ft.name} bolus ${ml} mL started (cumulative crystalloid ${roundSig(F.crystalloidMl)} mL, ${roundSig(perKg, 3)} mL/kg TBW; illustrative volume model)${ft.cautions}`;
+      let msg = `${ft.name} bolus ${ml} mL started (cumulative crystalloid ${roundSig(F.crystalloidMl)} mL, ${roundSig(perKg, 3)} mL/kg TBW; illustrative volume model)${ft.cautions}${cUse ? ` — given above the simulator teaching ceiling ${cg.value} ${cg.unit} after the clinician's confirmation` : ''}`;
       if ((this.patient.conditions || []).includes('sepsis') && perKg >= FLUID_MODEL.SEPSIS_CONTEXT_ML_PER_KG && !this.fluid.sepsisNoteLogged) {
         const src = (this.lib.SOURCE_IDS_ENGINE && this.lib.SOURCE_IDS_ENGINE.sepsisFluids) || null;
         this.fluid.sepsisNoteLogged = true;
@@ -564,6 +589,13 @@ class Simulation {
       const prev = M.rateMlH > 0 ? `${this._fluidType(M.fluidId).name} ${M.rateMlH} mL/h` : null;
       M.fluidId = ft.id; M.rateMlH = r; M.sinceSec = t;
       return ok(`Maintenance infusion ${ft.name} ${r} mL/h${prev ? ` (was ${prev})` : ''} — rate is a simulator choice, not a label dose; illustrative volume model${ft.cautions}`);
+    }
+    if (id.startsWith('confirm_teaching_ceiling:')) {
+      const g = teachingGuard(id.slice(25));
+      if (!g) return no(`Unknown teaching ceiling '${id.slice(25)}' (${TEACHING_GUARDS.map((x) => x.key).join(', ')})`);
+      const c = { key: g.key, tSec: t, used: null };
+      this.teaching.confirm[g.key] = c; this.teaching.confirmations.push(c);
+      return ok(`Clinician confirmed ONE dose above the simulator teaching ceiling for ${g.label} (${g.value} ${g.unit}; a teaching guard, not a clinical limit; valid ${TEACHING_CEILINGS.CONFIRMATION_VALID_SEC.value} s)`);
     }
     if (id === 'acknowledge_checklist:antibiotic') {
       const c = this.prophylaxisChecklist();
@@ -652,6 +684,27 @@ class Simulation {
       }
       default: return no(`Unknown action '${id}'`);
     }
+  }
+
+  /** A valid, unused clinician confirmation for a teaching ceiling (consumed by the caller), or null. */
+  _teachingConfirmation(key) {
+    const c = this.teaching.confirm[key];
+    if (!c || c.used || this.state.tSec - c.tSec > TEACHING_CEILINGS.CONFIRMATION_VALID_SEC.value + 1e-9) return null;
+    this.teaching.confirm[key] = null;
+    return c;
+  }
+
+  /** Teaching ceilings for the UI and the debrief: [{ key, label, limit, unit, total, totalUnit, above, confirmations, refusals, pendingConfirmation }]. */
+  teachingCeilingStatus() {
+    return TEACHING_GUARDS.map((g) => {
+      const fluid = g.key === 'crystalloid';
+      const limit = fluid ? Math.round(g.value * this.patient.weightKg) : g.value;
+      const total = fluid ? this.state.fluids.crystalloidMl : this.teaching.given[g.key];
+      const c = this.teaching.confirm[g.key];
+      return { key: g.key, label: g.label, limit, unit: fluid ? 'mL' : g.unit, ruleValue: g.value, ruleUnit: g.unit, total: roundSig(total), above: total > limit + 1e-9,
+        confirmations: this.teaching.confirmations.filter((x) => x.key === g.key).map((x) => ({ ...x, used: x.used ? { ...x.used } : null })), refusals: this.teaching.refusals[g.key],
+        pendingConfirmation: !!(c && !c.used && this.state.tSec - c.tSec <= TEACHING_CEILINGS.CONFIRMATION_VALID_SEC.value + 1e-9), provenance: g.provenance };
+    });
   }
 
   /** Resolve a fluid id (default FLUID_MODEL.DEFAULT_FLUID); libraries without FLUIDS use a generic crystalloid. */
@@ -1179,6 +1232,7 @@ class Simulation {
         redose: redoseStatus(this.state.prophylaxis.doses, this.state.tSec, this.lib), checklistAcknowledged: this.state.prophylaxis.checklistAcknowledged, note: 'Timing only; antibiotic pharmacology is not modelled.' },
       lidocaine: this.state.drugs.lidocaine ? { totalMg: roundSig(this.state.drugs.lidocaine.cumulative), perKgIbw: roundSig(this.state.drugs.lidocaine.cumulative / scalarWeight(this.patient, 'IBW').weightKg, 3), pretreatmentMg: roundSig(this.lido.pretreatAt.reduce((a, x) => a + (x.amount || 0), 0)), pretreatmentDoses: this.lido.pretreatAt.length, overlapWarning: this.lido.warned } : null,
       automatic: this.autoRun && typeof this.autoRun.record === 'function' ? this.autoRun.record() : { used: false },
+      teachingCeilings: this.teachingCeilingStatus(),
       advisories: this.rescueAdvisor && typeof this.rescueAdvisor.record === 'function' ? this.rescueAdvisor.record() : { used: false, shown: 0, accepted: 0, dismissed: 0, entries: [] },
       depthAdvisories: this.depthAdvisor && typeof this.depthAdvisor.record === 'function' ? this.depthAdvisor.record() : { used: false, shown: 0, dismissed: 0, entries: [] },
       modelNote: 'Illustrative model output — educational simulation, fictional patient; not a medical device.',

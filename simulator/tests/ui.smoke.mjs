@@ -721,6 +721,26 @@ test('simulator UI smoke', { skip, timeout: 900000 }, async (t) => {
       assert.ok(await page.locator('#db-advisory-list li[data-status="accepted"]').count() === 1);
     });
 
+    await t.test('simulator teaching ceiling (crystalloid): running total + ceiling shown, refusal, explicit logged confirmation gives one bolus, debrief table', async () => {
+      await loadCase(page, 'healthy_adult'); await toRun(page);
+      assert.match(await page.textContent('#fl-teach'), /^crystalloid \(boluses \+ maintenance\): [\d,.]+ of [\d,.]+ mL — simulator teaching ceiling \(30 mL\/kg TBW\), not a clinical limit/);
+      assert.ok(await page.locator('#fl-confirm').isHidden(), 'no confirm button before a refusal');
+      for (let i = 0; i < 12 && await page.locator('#fl-confirm').isHidden(); i++) await page.click('#fl-500');
+      assert.ok(await page.locator('#fl-confirm').isVisible(), 'confirm button after the refusal');
+      assert.equal(await page.getAttribute('#fl-confirm', 'aria-label'), 'Confirm 500 mL fluid bolus above the simulator teaching ceiling');
+      let log = (await simLog(page)).map((e) => e.message);
+      assert.ok(log.some((m) => /^BLOCKED fluid bolus 500 mL: above the simulator teaching ceiling \(not a clinical limit\)/.test(m)), 'refusal logged');
+      const before = (await simState(page)).fluids.crystalloidMl;
+      await page.click('#fl-confirm');
+      log = (await simLog(page)).map((e) => e.message);
+      assert.ok(log.some((m) => /Clinician confirmed ONE dose above the simulator teaching ceiling for crystalloid/.test(m)), 'confirmation logged');
+      assert.equal((await simState(page)).fluids.crystalloidMl, before + 500, 'one bolus given after the confirmation');
+      assert.ok(await page.locator('#fl-confirm').isHidden());
+      assert.match(await page.textContent('#fl-teach'), /\(above: each further dose needs confirmation\)/);
+      await page.click('#mon-debrief'); await page.waitForSelector('#db-teaching-table');
+      assert.match(await page.textContent('#db-teaching-table tr[data-teaching="crystalloid"]'), /→ given 500 mL/);
+    });
+
     await t.test('depth-low advisory (text only): sustained index < 40 in a GA run shows the card (Run + panel), Dismiss logs, no alarm/pause, debrief lists it, phone width', async () => {
       await loadCase(page, 'healthy_adult'); await toRun(page);
       assert.ok(await page.locator('#dadv').isHidden(), 'no depth advisory before the case');

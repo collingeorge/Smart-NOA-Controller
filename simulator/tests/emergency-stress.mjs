@@ -28,6 +28,7 @@ import { maintenanceHypnoticGap } from '../engine/plan-safety.js';
 import { createRescueAdvisor } from '../engine/rescue.js';
 import { RESCUE_CONFIG } from '../engine/rescue-config.js';
 import { TIMING_CONFIG, LABEL_REPEAT_INTERVALS } from '../engine/timing.js';
+import { TEACHING_GUARDS } from '../engine/teaching-ceilings.js';
 import { createAutoRunner } from '../engine/autorun.js';
 import { SIM_TO_PY_ID, CONTROLLED, PY_RATE_UNITS, NOA_CONFIG, aboveCeiling } from '../engine/interlocks.js';
 import { SCENARIOS, EXAMPLE_PATIENTS } from '../data/scenarios.js';
@@ -156,7 +157,18 @@ function makeContext(sim, adv, p, record, V_) {
   const ctx = { sim, adv, p, record, V_, doses: [], mem: {}, onset: null, faultInjected: null, resumeCalls: 0, actions: [] };
   ctx.drug = (id) => getDrug(LIB, id);
   ctx.rec = (key, id) => rec(p, key, id);
-  ctx.act = (id) => { const r = sim.action(id); ctx.actions.push({ tSec: sim.state.tSec, id, ok: r.ok }); if (id === 'resume_hold') ctx.resumeCalls++; return r; };
+  ctx.act = (id) => {
+    const isFluid = /^fluid_bolus/.test(id); const before = isFluid ? confirmationsUsed(sim, 'crystalloid') : 0;
+    const r = sim.action(id); ctx.actions.push({ tSec: sim.state.tSec, id, ok: r.ok, ...(r.teachingCeiling ? { teachingCeiling: r.teachingCeiling } : {}) });
+    if (id === 'resume_hold') ctx.resumeCalls++;
+    if (id.startsWith('confirm_teaching_ceiling:') && r.ok) ctx.record.confirmationsGiven = (ctx.record.confirmationsGiven || 0) + 1;
+    if (isFluid && r.ok) { const st = sim.teachingCeilingStatus().find((x) => x.key === 'crystalloid'); if (st.total > st.limit + 1e-9 && confirmationsUsed(sim, 'crystalloid') !== before + 1) V_(`fluid bolus took crystalloid to ${st.total} mL above the teaching ceiling ${st.limit} mL without a clinician confirmation`); }
+    if (isFluid && !r.ok && r.teachingCeiling) ctx.record.teachingRefusals = (ctx.record.teachingRefusals || 0) + 1;
+    return r;
+  };
+  /** Clinician behaviour at a teaching ceiling (rescue arms): confirm explicitly (logged), then give the same dose once. */
+  ctx.giveConfirming = (cmd) => { let r = ctx.give(cmd); if (r.teachingCeiling && ctx.act(`confirm_teaching_ceiling:${r.teachingCeiling}`).ok) r = ctx.give(cmd); return r; };
+  ctx.actConfirming = (id) => { let r = ctx.act(id); if (r.teachingCeiling && ctx.act(`confirm_teaching_ceiling:${r.teachingCeiling}`).ok) r = ctx.act(id); return r; };
   ctx.inject = (id) => { const r = sim.inject(id); if (!r.ok) V_(`inject ${id} failed: ${r.message}`); return r; };
   // Every administration through the public API (driver, advisory accept) is checked; the plan scheduler uses the
   // engine-internal path and is checked by the per-second monitor (cumulative, rates) instead.
@@ -178,8 +190,12 @@ function giveChecked(ctx, cmd, meta = undefined) {
   const { sim, p } = ctx; const t = sim.state.tSec; const drug = getDrug(LIB, cmd.drugId);
   const before = { cum: sim.state.drugs[drug.id].cumulative, bolus: (sim.bolusGiven[drug.id] || 0), pending: sim.timed.filter((x) => x.drugId === drug.id).reduce((a, x) => a + x.remaining, 0), doseLog: sim.doseLog.length, log: sim.state.log.length };
   const lastSameRoute = [...sim.doseLog].reverse().find((d) => d.drugId === drug.id && d.kind === 'bolus' && (d.route || 'IV') === (cmd.route || defaultRoute(drug)));
+  const guard = cmd.kind === 'bolus' ? TEACHING_GUARDS.find((g) => g.drugId === drug.id && g.routes.includes(cmd.route || defaultRoute(drug))) : null;
+  const usedBefore = guard ? confirmationsUsed(sim, guard.key) : 0;
   const r = meta ? ctx.administer(cmd, meta) : ctx.administer(cmd);
   const entry = { tSec: t, drugId: drug.id, kind: cmd.kind, amount: cmd.amount ?? null, rate: cmd.rate ?? null, unit: cmd.amountUnit || cmd.rateUnit || null, route: cmd.kind === 'bolus' ? (cmd.route || defaultRoute(drug)) : null, source: (meta && meta.source) || 'user', ok: r.ok, blocked: r.blocked, reason: r.blocked ? r.reasons[0] : null, warned: (r.warnings || []).length > 0, flags: [] };
+  if (r.repeatRefused) entry.flags.push('repeat_refused');
+  if (r.teachingCeiling) entry.flags.push('teaching_ceiling_refused');
   if (r.blocked) {
     if (sim.doseLog.length !== before.doseLog) ctx.V_(`${drug.id}: blocked but a dose was recorded`);
     if (Math.abs(sim.state.drugs[drug.id].cumulative - before.cum) > 1e-9 || (sim.bolusGiven[drug.id] || 0) !== before.bolus) ctx.V_(`${drug.id}: blocked but the cumulative amount changed`);
@@ -199,7 +215,11 @@ function giveChecked(ctx, cmd, meta = undefined) {
     const inRange = !ranges.length || ranges.some((x) => amt >= x.min - 1e-9 && amt <= x.max + 1e-9);
     if (!inRange) { entry.flags.push('outside_regimen_range'); if (!entry.warned) ctx.V_(`${drug.id}: ${amt} ${drug.amountUnit} ${route} outside every sourced ${route} regimen range, accepted WITHOUT a warning`); }
     const iv = labelInterval(drug.id, route, sim.state.phase);
-    if (iv && lastSameRoute && t - lastSameRoute.tSec < iv.minSec - 1e-9) { entry.flags.push('inside_label_repeat_interval'); if (!entry.warned) ctx.V_(`${drug.id}: repeat ${route} bolus ${Math.round(t - lastSameRoute.tSec)} s after the previous one (label ≥ ${iv.minSec} s [${iv.sourceIds.join(', ')}]) accepted WITHOUT a warning`); }
+    if (iv && lastSameRoute && t - lastSameRoute.tSec < iv.minSec - 1e-9) { entry.flags.push('inside_label_repeat_interval'); ctx.V_(`${drug.id}: clinician-entered repeat ${route} bolus ${Math.round(t - lastSameRoute.tSec)} s after the previous one (label ≥ ${iv.minSec} s [${iv.sourceIds.join(', ')}]) was ACCEPTED (must be refused)`); }
+    if (guard) {
+      const st = sim.teachingCeilingStatus().find((x) => x.key === guard.key);
+      if (st.total > st.limit + 1e-9) { entry.flags.push('above_teaching_ceiling_confirmed'); if (confirmationsUsed(sim, guard.key) !== usedBefore + 1) ctx.V_(`${drug.id}: total ${st.total} ${st.unit} above the teaching ceiling ${st.limit} without a clinician confirmation`); }
+    }
     entry.amount = amt; entry.unit = drug.amountUnit;
   } else if (r.ok && (cmd.kind === 'infusion' || cmd.kind === 'inhaled')) {
     if (!sim._withinLabelRate(drug, cmd.rate, cmd.rateUnit || sim.state.drugs[drug.id].rateUnit)) ctx.V_(`${drug.id}: accepted rate ${cmd.rate} ${cmd.rateUnit} above the label rate ceiling`);
@@ -208,6 +228,7 @@ function giveChecked(ctx, cmd, meta = undefined) {
   ctx.doses.push(entry);
   return r;
 }
+function confirmationsUsed(sim, key) { return sim.teaching.confirmations.filter((c) => c.key === key && c.used).length; }
 function defaultRoute(drug) { return Array.isArray(drug.bolusRoutes) && drug.bolusRoutes.length ? drug.bolusRoutes[0] : 'IV'; }
 
 function makeMonitor(ctx) {
@@ -328,8 +349,9 @@ function summarizeDoses(doses) {
   const by = {};
   for (const d of doses) {
     const k = `${d.drugId}:${d.kind}${d.route ? `:${d.route}` : ''}`;
-    const x = (by[k] = by[k] || { given: 0, blocked: 0, total: 0, unit: d.unit, flagged: 0 });
-    if (d.ok) { x.given++; if (d.kind === 'bolus') x.total += d.amount; if (d.flags.length) x.flagged++; } else x.blocked++;
+    const x = (by[k] = by[k] || { given: 0, blocked: 0, total: 0, unit: d.unit, flagged: 0, repeatRefused: 0, teachingRefused: 0, aboveTeachingConfirmed: 0 });
+    if (d.ok) { x.given++; if (d.kind === 'bolus') x.total += d.amount; if (d.flags.length) x.flagged++; if (d.flags.includes('above_teaching_ceiling_confirmed')) x.aboveTeachingConfirmed++; }
+    else { x.blocked++; if (d.flags.includes('repeat_refused')) x.repeatRefused++; if (d.flags.includes('teaching_ceiling_refused')) x.teachingRefused++; }
   }
   return by;
 }
@@ -369,10 +391,11 @@ function probeRescuePath(ctx, o, during) {
   const out = { during, tSec: ctx.sim.state.tSec, results: [] };
   const primary = PRIMARY_RESCUE[o.emergency];
   for (const cmd of primary(ctx)) {
-    if (cmd.action) { const r = ctx.act(cmd.action); out.results.push({ what: cmd.action, ok: r.ok }); if (!r.ok && !/already|not possible|No tracheal/.test(r.message)) ctx.V_(`${during}: rescue action ${cmd.action} refused: ${r.message}`); continue; }
-    const r = ctx.give(cmd);
-    out.results.push({ what: `${cmd.drugId} ${cmd.kind}`, ok: r.ok, reason: r.ok ? null : r.reasons[0] });
-    if (!r.ok && !/Cumulative|cumulative|label maximum|Total bolus/.test(r.reasons.join(' '))) ctx.V_(`${during}: rescue ${cmd.drugId} refused: ${r.reasons.join('; ')}`);
+    if (cmd.action) { const r = ctx.actConfirming(cmd.action); out.results.push({ what: cmd.action, ok: r.ok }); if (!r.ok && !/already|not possible|No tracheal/.test(r.message)) ctx.V_(`${during}: rescue action ${cmd.action} refused: ${r.message}`); continue; }
+    const r = ctx.giveConfirming(cmd);
+    out.results.push({ what: `${cmd.drugId} ${cmd.kind}`, ok: r.ok, reason: r.ok ? null : r.reasons[0], repeatRefused: !!r.repeatRefused });
+    // legitimate refusals: a cumulative label maximum, or the label repeat interval since the policy's own last dose
+    if (!r.ok && !r.repeatRefused && !/Cumulative|cumulative|label maximum|Total bolus/.test(r.reasons.join(' '))) ctx.V_(`${during}: rescue ${cmd.drugId} refused: ${r.reasons.join('; ')}`);
   }
   if (ctx.sim.state.interlocks.enabled && ctx.sim.core.holdLatched) {
     // held infusions stay held: a restart attempt is refused
@@ -423,7 +446,7 @@ const acceptAdvisory = (ctx) => { const v = ctx.adv.view(); if (v.canAccept && v
 function fluid(ctx) {
   const C = DRIVER_CONVENTIONS;
   if ((ctx.mem.fluids || 0) >= C.FLUID_MAX_BOLUSES || ctx.sim.fluid.pendingMl > 0) return;
-  const r = ctx.act(`fluid_bolus:${C.FLUID_BOLUS_ML}:lactated_ringers`);
+  const r = ctx.actConfirming(`fluid_bolus:${C.FLUID_BOLUS_ML}:lactated_ringers`);
   if (r.ok) ctx.mem.fluids = (ctx.mem.fluids || 0) + 1;
 }
 /** Maintenance hypnotic to the bottom of its label regimen range (light-anaesthesia set-up, every arm). */
@@ -457,14 +480,14 @@ const RESCUE = {
   },
   vagal_bradycardia(ctx) {
     const iv = labelInterval('glycopyrrolate', 'IV', ctx.sim.state.phase);
-    if (low(V(ctx).hr, RECOVERY.HR_MIN) && since(ctx, 'glyco') >= iv.minSec) { const c = bolusRec(ctx, 'rescue', 'glycopyrrolate'); if (ctx.give(c).ok) ctx.mem.glyco = ctx.sim.state.tSec; }
+    if (low(V(ctx).hr, RECOVERY.HR_MIN) && since(ctx, 'glyco') >= iv.minSec) { const c = bolusRec(ctx, 'rescue', 'glycopyrrolate'); if (ctx.giveConfirming(c).ok) ctx.mem.glyco = ctx.sim.state.tSec; }
     acceptAdvisory(ctx);
   },
   bronchospasm(ctx) {
     const C = DRIVER_CONVENTIONS;
     if (ctx.sim.state.tSec - ctx.onset >= C.RECOGNITION_SEC && !ctx.mem.recognised) { ctx.mem.recognised = true; ctx.act('set_fio2:1'); deepenOnce(ctx); }
     const v = V(ctx); const hypercapnic = v.etco2 !== null && fin(v.etco2) && v.etco2 > C.ETCO2_HIGH_MMHG;
-    if (ctx.mem.recognised && (low(v.spo2, ALARM_THRESHOLDS.SPO2_LOW) || hypercapnic) && since(ctx, 'epi') >= C.NO_LABEL_INTERVAL_REPEAT_SEC) { if (ctx.give(bolusRec(ctx, 'rescue_iv', 'epinephrine')).ok) ctx.mem.epi = ctx.sim.state.tSec; }
+    if (ctx.mem.recognised && (low(v.spo2, ALARM_THRESHOLDS.SPO2_LOW) || hypercapnic) && since(ctx, 'epi') >= C.NO_LABEL_INTERVAL_REPEAT_SEC) { if (ctx.giveConfirming(bolusRec(ctx, 'rescue_iv', 'epinephrine')).ok) ctx.mem.epi = ctx.sim.state.tSec; }
     acceptAdvisory(ctx);
   },
   laryngospasm_on_extubation(ctx) {
@@ -497,7 +520,7 @@ const RESCUE = {
       if (hypo && since(ctx, 'epi') >= iv.minSec) { if (ctx.give(bolusRec(ctx, 'rescue', 'epinephrine')).ok) ctx.mem.epi = S.tSec; }
       return;
     }
-    if (hypo && since(ctx, 'epi') >= C.NO_LABEL_INTERVAL_REPEAT_SEC) { if (ctx.give(bolusRec(ctx, 'rescue_iv', 'epinephrine')).ok) { ctx.mem.epi = S.tSec; ctx.mem.epiN = (ctx.mem.epiN || 0) + 1; } }
+    if (hypo && since(ctx, 'epi') >= C.NO_LABEL_INTERVAL_REPEAT_SEC) { if (ctx.giveConfirming(bolusRec(ctx, 'rescue_iv', 'epinephrine')).ok) { ctx.mem.epi = S.tSec; ctx.mem.epiN = (ctx.mem.epiN || 0) + 1; } }
     // several doses needed → epinephrine infusion (guideline text [S44, S45]); label rate range and titration step [S40, S41]
     const reg = ctx.rec('maintenance', 'epinephrine').rate;
     if ((ctx.mem.epiN || 0) >= C.EPI_INFUSION_AFTER_BOLUSES && hypo && since(ctx, 'epiInf') >= C.EPI_INFUSION_STEP_SEC) {
@@ -539,7 +562,8 @@ function aggressive(ctx) {
     const sevo = S.drugs.sevoflurane; if (sevo && sevo.infusionRate > 0) { const L = lim('sevoflurane', 'dial'); cmds.push({ drugId: 'sevoflurane', kind: 'inhaled', rate: L.value * 2, rateUnit: '%' }); }
   }
   for (const c of cmds) if (c) ctx.give(c);
-  ctx.act(`fluid_bolus:${C.FLUID_BOLUS_ML}:lactated_ringers`); // no cumulative crystalloid limit exists in the engine (finding)
+  if (Math.round(el) === 300) { ctx.act('confirm_teaching_ceiling:epinephrine_iv'); ctx.give(regMax('rescue_iv', 'epinephrine')); } // one explicit clinician confirmation (path check)
+  ctx.act(`fluid_bolus:${C.FLUID_BOLUS_ML}:lactated_ringers`); // refused above the crystalloid teaching ceiling (never confirmed here)
   ctx.act('fluid_bolus:1000'); // refused: only 250 / 500 mL boluses
   ctx.act('set_fio2:1');
   if (Math.round(el) === 60) {
@@ -642,6 +666,7 @@ export function runCase(opts) {
     record.doses = ctx.doses.filter((d) => d.tSec >= onset - 1e-9);
     record.doseSummary = summarizeDoses(record.doses);
     record.advisory = (({ shown, accepted, dismissed }) => ({ shown, accepted, dismissed }))(adv.record());
+    record.teaching = sim.teachingCeilingStatus().map((x) => ({ key: x.key, total: x.total, limit: x.limit, unit: x.unit, refusals: x.refusals, confirmations: x.confirmations.length, used: x.confirmations.filter((c) => c.used).length }));
     record.alarms = [...new Set(sim.alarmMgr.history.filter((a) => a.sinceSec >= onset - 1e-9).map((a) => a.id))].sort();
     record.interlock = { holdLatchedEver: M.holdEver, holdLatchedAtEnd: sim.core.holdLatched, events: sim.stats.interlockEvents.filter((e) => e.tSec >= onset - 1e-9).length, resumeCalls: ctx.resumeCalls };
     record.probes = { fault: ctx.faultProbe || null, hold: ctx.holdProbe || null };

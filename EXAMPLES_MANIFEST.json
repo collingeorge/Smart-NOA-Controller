@@ -7,8 +7,8 @@
   "files": [
     {
       "path": "README.md",
-      "bytes": 5711,
-      "sha256": "ca37f03340b0dbdf48eac5a6e5ed6723ad3e37dffd67cda32d1e2351bf732cf1"
+      "bytes": 6819,
+      "sha256": "3e933a9936be0ad638436b491f9d31cd975d5d2c99386434750e1ff9eced5a92"
     },
     {
       "path": "CASE_EXAMPLE_STANDARD.md",
@@ -17,8 +17,8 @@
     },
     {
       "path": "CLINICAL_EXAMPLE_INDEX.md",
-      "bytes": 4728,
-      "sha256": "06c0d37b293f54e7b88dd878cf5c91a7caf995697736e401452cb389adb2b2dd"
+      "bytes": 4687,
+      "sha256": "4726579f741281ef2e3d3b57636757d3e003937b06ff2ca78347a888eacb511f"
     },
     {
       "path": "RELEASE_NOTES.md",
