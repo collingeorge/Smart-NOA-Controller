@@ -296,7 +296,9 @@ class Simulation {
   }
 
   // ------------------------------------------------------------------ administration
-  administer(cmd, meta = {}) {
+  /** Gives/stops/sets a drug; then re-evaluates the depth-low advisor at once (no lag of one step). */
+  administer(cmd, meta = {}) { const r = this._administerImpl(cmd, meta); this._refreshDepthAdvisor(); return r; }
+  _administerImpl(cmd, meta = {}) {
     const res = (ok, blocked, reasons, warnings) => {
       const r = { ok, blocked, reasons, warnings };
       const drug = getDrug(this.lib, cmd && cmd.drugId);
@@ -499,13 +501,23 @@ class Simulation {
     this.state.phase = phase;
     if (this.phaseStart[phase] === undefined) this.phaseStart[phase] = this.state.tSec;
     this._log('phase', `Phase: ${phase}`);
+    this._refreshDepthAdvisor();
     return { ok: true, message: `Phase ${phase}` };
   }
+
+  /**
+   * Re-evaluates the text-only depth-low advisor immediately after a phase change, action or drug change,
+   * so it disarms on the same simulated second (e.g. "Begin emergence") rather than on the next step.
+   * Zero elapsed time: it cannot start or lengthen an episode; it records only and never doses.
+   */
+  _refreshDepthAdvisor() { if (this.depthAdvisor && typeof this.depthAdvisor.update === 'function') this.depthAdvisor.update(); }
 
   play() { this.state.running = true; }
   pause() { this.state.running = false; }
 
-  action(id) {
+  /** Runs a user/runner action; then re-evaluates the depth-low advisor at once (no lag of one step). */
+  action(id) { const r = this._actionImpl(id); this._refreshDepthAdvisor(); return r; }
+  _actionImpl(id) {
     const a = this.state.airway; const t = this.state.tSec;
     const ok = (message) => { this._log('action', message); return { ok: true, message }; };
     const no = (message) => ({ ok: false, message });

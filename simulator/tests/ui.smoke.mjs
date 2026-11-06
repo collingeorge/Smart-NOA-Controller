@@ -720,7 +720,7 @@ test('simulator UI smoke', { skip, timeout: 900000 }, async (t) => {
       assert.equal(await page.getAttribute('#dadv-headline', 'aria-live'), 'polite');
       assert.equal(await page.getAttribute('#auto-dadv-headline', 'aria-live'), 'off', 'only one copy announces');
       assert.ok(await page.isVisible('#auto-dadv'), 'guided/automatic panel copy');
-      assert.match(await page.textContent('#dadv-headline'), /^Depth index \d+ below the GA target band \(40–60\) for ≥ 120 s — the anaesthetic may be deeper than needed\.$/);
+      assert.match(await page.textContent('#dadv-headline'), /^Depth index \d+ below the GA target band \(40–60\) for ≥ 300 s — the anaesthetic may be deeper than needed\.$/);
       assert.match(await page.textContent('#dadv-foot'), /Advisory only — the simulator never changes a dose by itself\. Simulated index \(illustrative\); the 40–60 band is the protocol target used in B-Unaware\/BAG-RECALL/);
       for (const id of ['S52', 'S53']) assert.ok(await page.locator('#dadv-foot .src-tag', { hasText: id }).count(), id);
       const card = await page.textContent('#dadv');

@@ -133,7 +133,7 @@ Plan/live checks that re-use rows above (PONV, antibiotic window/redose, reversa
 | 62 | Guided titration: reassessment after an infusion-rate step | 180 s (`AUTORUN_CONFIG.SEDATION_TITRATION_REASSESS_SEC`) | ASA 2018 moderate sedation [S32]: allow sufficient time between doses to assess the effect of each *(summary; no number)*; propofol label [S11] gives no titration interval. | no published timing | simulator convention | none |
 | 63 | Full demonstration: pause when sedation stays below the target | 300 s after the last sedation plan step (`SEDATION_BELOW_TARGET_PAUSE_SEC`) | None. | no published timing | simulator convention | none |
 | 64 | Depth-high (awareness-risk) alarm: sustain duration | index > 60 (GA band upper bound, row 28) for ≥ 60 s during GA with the airway secured (`TIMING_CONFIG.DEPTH_HIGH_ALARM_SUSTAIN_SEC`; clears at ≤ 58, `DEPTH_HIGH_ALARM_CLEAR`) — added in the final-check fixes, November 2026 | None for this use; the band is from B-Unaware [S52] / BAG-RECALL [S53] (row 28), the duration is not. | no published timing | simulator convention | none |
-| 65 | Depth-low advisory (text only, not an alarm): sustain duration | index < 40 (GA band lower bound, row 28) for ≥ 120 s during GA maintenance after incision with the airway secured (`TIMING_CONFIG.DEPTH_LOW_ADVISORY_SUSTAIN_SEC`; ends at ≥ 42, `DEPTH_LOW_ADVISORY_CLEAR`) — added November 2026 (owner-approved, instead of recalibrating the illustrative depth model) | None for this use; the band is from B-Unaware [S52] / BAG-RECALL [S53] (row 28), the duration and hysteresis are not. No new search was made. | no published timing | simulator convention | none |
+| 65 | Depth-low advisory (text only, not an alarm): sustain duration | index < 40 (GA band lower bound, row 28) for ≥ 300 s (was 120 s in 05k; lengthened in 05l to limit alert fatigue) during GA maintenance after incision with the airway secured (`TIMING_CONFIG.DEPTH_LOW_ADVISORY_SUSTAIN_SEC`; ends at ≥ 42, `DEPTH_LOW_ADVISORY_CLEAR`) — added November 2026 (owner-approved, instead of recalibrating the illustrative depth model) | None for this use; the band is from B-Unaware [S52] / BAG-RECALL [S53] (row 28), the duration and hysteresis are not. No new search was made. | no published timing | simulator convention | none |
 
 ## Sources verified in this check, and what could not be accessed
 
@@ -213,4 +213,4 @@ Reviewer: ______________________  Credential: ________  Date: __________
 | 62 | Guided titration: 180-s reassessment after a rate step | [ ] | [ ] | |
 | 63 | Full demonstration pauses 300 s after the last sedation step if below target | [ ] | [ ] | |
 | 64 | Depth-high alarm: index > 60 for ≥ 60 s (convention) | [ ] | [ ] | |
-| 65 | Depth-low advisory: index < 40 for ≥ 120 s, ends at ≥ 42 (convention; text only) | [ ] | [ ] | |
+| 65 | Depth-low advisory: index < 40 for ≥ 300 s, ends at ≥ 42 (convention; text only) | [ ] | [ ] | |
