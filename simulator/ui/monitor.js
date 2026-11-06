@@ -1,5 +1,5 @@
 // Step 4 — Run: HMI monitor dashboard driving sim.step() from requestAnimationFrame.
-import { h, clear, setText, fmtClock, fmtNum, isNum, announce, reconcileKeyed, setChildrenIf } from './dom.js';
+import { h, clear, setText, fmtClock, fmtNum, isNum, announce, reconcileKeyed, setChildrenIf, fill, add } from './dom.js';
 import { recommend, regimenKeyForPhase } from '../engine/dosing.js';
 import { SCENARIOS } from '../data/scenarios.js';
 import { drawChart, SERIES_COLORS, WINDOW_SEC } from './charts.js';
@@ -119,7 +119,7 @@ export function renderMonitor(ctx, main) {
     const want = ilToggle.checked;
     if (sim.state.tSec <= 0) { store.interlocks = want; ctx.restartSim(); ctx.rerender(); announce(`Interlocks ${want ? 'on' : 'off'}.`); return; }
     ilToggle.checked = !want;
-    clear(ilConfirm).append(h('p', {}, `Changing interlocks restarts the case from 00:00 with interlocks ${want ? 'ON' : 'OFF'}.`),
+    fill(ilConfirm, h('p', {}, `Changing interlocks restarts the case from 00:00 with interlocks ${want ? 'ON' : 'OFF'}.`),
       h('button', { type: 'button', class: 'btn btn--hmi btn--warn', onclick: () => { store.interlocks = want; ctx.restartSim(); ctx.rerender(); announce(`Case restarted with interlocks ${want ? 'on' : 'off'}.`); } }, `Restart with interlocks ${want ? 'ON' : 'OFF'}`),
       ' ', h('button', { type: 'button', class: 'btn btn--hmi', onclick: () => { ilConfirm.hidden = true; ilToggle.focus(); } }, 'Cancel'));
     ilConfirm.hidden = false; ilConfirm.querySelector('button').focus();
@@ -203,7 +203,7 @@ export function renderMonitor(ctx, main) {
   const flMaint = h('p', { class: 'hint hint--hmi', id: 'fl-maint-state' });
   const flTotals = h('tbody', { id: 'mon-fluid-totals' });
   const flComp = h('p', { class: 'hint hint--hmi', id: 'fl-comp' });
-  const renderComp = () => { const f = FL.find((x) => x.id === flType.value); clear(flComp); if (f) flComp.append(`${f.name} (${f.type}): ${fluidCompositionText(f)} (approx., label) `, srcTags(f.sources), `. ${f.labelNotes.join(' ')}`); };
+  const renderComp = () => { const f = FL.find((x) => x.id === flType.value); clear(flComp); if (f) add(flComp, `${f.name} (${f.type}): ${fluidCompositionText(f)} (approx., label) `, srcTags(f.sources), `. ${f.labelNotes.join(' ')}`); };
   flType.addEventListener('change', renderComp); renderComp();
   const fluidPanel = h('section', { class: 'hmi-panel', id: 'mon-fluids-panel', 'aria-labelledby': 'mon-fl-h' }, h('h3', { id: 'mon-fl-h' }, 'IV fluids'),
     h('div', { class: 'inline-form' }, h('label', { for: 'fl-type', class: 'label' }, 'Fluid'), flType),
@@ -226,7 +226,7 @@ export function renderMonitor(ctx, main) {
   const abxCheckMsg = h('p', { class: 'checklist__msg', id: 'abx-checklist-msg' });
   const abxAck = h('button', { type: 'button', class: 'btn btn--hmi btn--warn', id: 'abx-ack', 'data-auto-safe': 'acknowledge' }, 'Acknowledge: proceed without prophylaxis in window');
   abxAck.addEventListener('click', () => { const r = sim.action('acknowledge_checklist:antibiotic'); feedback(r.message, !r.ok); announce(r.message); render(true); });
-  abxCheck.append(h('p', { class: 'checklist__title' }, '☐ Checklist before Start surgery: antibiotic prophylaxis'), abxCheckMsg, abxAck);
+  add(abxCheck, h('p', { class: 'checklist__title' }, '☐ Checklist before Start surgery: antibiotic prophylaxis'), abxCheckMsg, abxAck);
   const abxPanel = ABX.length ? h('section', { class: 'hmi-panel', id: 'abx-panel', 'aria-labelledby': 'abx-h' }, h('h3', { id: 'abx-h' }, 'Antibiotic prophylaxis'),
     abxCheck,
     h('div', { class: 'inline-form' }, h('label', { for: 'abx-drug', class: 'label' }, 'Agent'), abxSel, abxGive), abxState,
@@ -236,7 +236,7 @@ export function renderMonitor(ctx, main) {
   const cxSel = h('select', { id: 'cx-select', class: 'input input--hmi' }, h('option', { value: '' }, 'Choose a complication…'), nonSensor.map((s) => h('option', { value: s.id }, s.label)));
   const cxBtn = h('button', { type: 'button', class: 'btn btn--hmi btn--warn', id: 'cx-inject' }, 'Inject');
   const teach = h('div', { class: 'teach', id: 'cx-teach', 'aria-live': 'polite' });
-  const inject = (id) => { const s = SCENARIOS.find((x) => x.id === id); const r = sim.inject(id); feedback(r.ok ? `${r.message} injected.` : r.message, !r.ok); if (r.ok) clear(teach).append(h('p', {}, h('strong', {}, `${s.label}: `), s.description), h('p', { class: 'hint hint--hmi' }, h('strong', {}, 'Teaching point: '), s.teachingPoint)); render(true); };
+  const inject = (id) => { const s = SCENARIOS.find((x) => x.id === id); const r = sim.inject(id); feedback(r.ok ? `${r.message} injected.` : r.message, !r.ok); if (r.ok) fill(teach, h('p', {}, h('strong', {}, `${s.label}: `), s.description), h('p', { class: 'hint hint--hmi' }, h('strong', {}, 'Teaching point: '), s.teachingPoint)); render(true); };
   cxBtn.addEventListener('click', () => { if (!cxSel.value) { cxSel.focus(); return; } inject(cxSel.value); });
   const sensorBtns = sensor.map((s) => { const b = h('button', { type: 'button', class: 'btn btn--hmi', id: `sf-${s.id}` }, s.label); b.addEventListener('click', () => inject(s.id)); return b; });
   const intPanel = h('section', { class: 'hmi-panel', 'aria-labelledby': 'mon-int-h' }, h('h3', { id: 'mon-int-h' }, 'Interventions & complications'),
@@ -274,12 +274,12 @@ export function renderMonitor(ctx, main) {
     const routes = d && Array.isArray(d.bolusRoutes) && d.bolusRoutes.length > 1 ? d.bolusRoutes : null;
     const show = !!routes && adKind.value === 'bolus';
     adRouteWrap.hidden = !show; adRoute.hidden = !show;
-    if (show && [...adRoute.options].map((o) => o.value).join() !== routes.join()) { clear(adRoute).append(...routes.map((r) => h('option', { value: r }, r))); }
+    if (show && [...adRoute.options].map((o) => o.value).join() !== routes.join()) { fill(adRoute, ...routes.map((r) => h('option', { value: r }, r))); }
   }
   function fillKinds(kindWanted = null) {
     clear(adKind); const d = getDrugById(lib, adDrug.value); if (!d) { clear(adInfo); return; }
     const kinds = [...new Set(Object.values(d.regimens || {}).flatMap((r) => (r.kind === 'infusion' && r.loading ? ['bolus', 'infusion'] : [r.kind])))];
-    for (const k of kinds) adKind.append(h('option', { value: k, selected: k === kindWanted }, KIND_LABELS[k]));
+    for (const k of kinds) add(adKind, h('option', { value: k, selected: k === kindWanted }, KIND_LABELS[k]));
     syncRoutes();
     prefill();
   }
@@ -298,18 +298,18 @@ export function renderMonitor(ctx, main) {
       const dz = rec && (rec.kind === 'bolus' ? rec.dose : rec.loading);
       adVal.value = dz ? dz.value : ''; adUnit.textContent = d.amountUnit;
       if (dz && dz.overSec) adOver.value = dz.overSec / 60;
-      if (dz) adInfo.append(h('p', {}, `Sourced ${key} range ${dz.range.min ?? 0}–${dz.range.max} ${dz.unit}${dz.perKg ? ` (${dz.perKg.min ?? dz.perKg.value}–${dz.perKg.max ?? dz.perKg.value} ${dz.perKg.unit} × ${rec.weightUsedKg} kg ${rec.scalar})` : ''} `, srcTags(rec.sources)));
+      if (dz) add(adInfo, h('p', {}, `Sourced ${key} range ${dz.range.min ?? 0}–${dz.range.max} ${dz.unit}${dz.perKg ? ` (${dz.perKg.min ?? dz.perKg.value}–${dz.perKg.max ?? dz.perKg.value} ${dz.perKg.unit} × ${rec.weightUsedKg} kg ${rec.scalar})` : ''} `, srcTags(rec.sources)));
     } else {
       const r = rec && rec.rate;
       let v = ds.infusionRate > 0 ? ds.infusionRate : r ? r.value : '';
       const unit = r ? r.unit : ds.rateUnit;
       const ic = kind === 'infusion' ? interlockCeiling(d, unit, patient) : null;
-      if (store.interlocks && ic && isNum(v) && exceedsInterlockCeiling(d, v, unit, patient)) { v = ic.value; adInfo.append(h('p', { class: 'note note--interlock' }, interlockNote(rec, ic), ' ', srcTags([E.pythonConfig]))); }
+      if (store.interlocks && ic && isNum(v) && exceedsInterlockCeiling(d, v, unit, patient)) { v = ic.value; add(adInfo, h('p', { class: 'note note--interlock' }, interlockNote(rec, ic), ' ', srcTags([E.pythonConfig]))); }
       adVal.value = v; adUnit.textContent = unit || '';
-      if (r) adInfo.append(h('p', {}, `Sourced ${key} range ${r.range.min ?? 0}–${r.range.max} ${r.unit}${r.unit.includes('/kg') ? ` · ${rec.weightUsedKg} kg ${rec.scalar}` : ''} `, srcTags(rec.sources)));
-      if (r && r.ageAdjustedMac) adInfo.append(h('p', { class: 'hint hint--hmi' }, `1.0 × age-adjusted MAC = ${r.ageAdjustedMac.value} % `, srcTags(r.ageAdjustedMac.sources)));
+      if (r) add(adInfo, h('p', {}, `Sourced ${key} range ${r.range.min ?? 0}–${r.range.max} ${r.unit}${r.unit.includes('/kg') ? ` · ${rec.weightUsedKg} kg ${rec.scalar}` : ''} `, srcTags(rec.sources)));
+      if (r && r.ageAdjustedMac) add(adInfo, h('p', { class: 'hint hint--hmi' }, `1.0 × age-adjusted MAC = ${r.ageAdjustedMac.value} % `, srcTags(r.ageAdjustedMac.sources)));
     }
-    if (rec) for (const w of rec.warnings) adInfo.append(h('p', { class: 'warn-text' }, 'Warning: ', w));
+    if (rec) for (const w of rec.warnings) add(adInfo, h('p', { class: 'warn-text' }, 'Warning: ', w));
   }
   adGive.addEventListener('click', () => {
     if (!adCtx || !adCtx.drug) { adDrug.focus(); feedback('Choose a drug first.', true); return; }
@@ -498,7 +498,7 @@ export function renderMonitor(ctx, main) {
       const head = det.length ? `Paused — ${det.map((d) => String(d.headline).replace(/[.\s]+$/, '')).join('; ')}. ${det.length === 1 ? det[0].action : 'Do each action below, then press Resume.'}` : `Paused — ${st.message}`;
       setText(autoPausedHead, head);
       const psig = det.map((d) => d.headline + d.action).join('|');
-      if (autoPausedList.dataset.sig !== psig) { autoPausedList.dataset.sig = psig; clear(autoPausedList).append(...(det.length > 1 ? det.map((d) => h('li', {}, h('strong', {}, d.headline), ` — ${d.action}`)) : [])); }
+      if (autoPausedList.dataset.sig !== psig) { autoPausedList.dataset.sig = psig; fill(autoPausedList, ...(det.length > 1 ? det.map((d) => h('li', {}, h('strong', {}, d.headline), ` — ${d.action}`)) : [])); }
     }
     if (focusResume && paused) { focusResume = false; announce(autoPausedHead.textContent, true); if (!autoResume.disabled) autoResume.focus({ preventScroll: true }); }
     const c = st.current;
@@ -541,12 +541,12 @@ export function renderMonitor(ctx, main) {
     const usig = unmet.join('|') + st.state;
     if (autoUnmet.dataset.sig !== usig) {
       autoUnmet.dataset.sig = usig;
-      clear(autoUnmet).append(...(unmet.length ? [h('li', { class: 'auto-unmet__head' }, st.state === 'stopped' ? 'Unmet when stopped:' : `Waiting for${c && c.timedOut ? ' (time limit passed)' : ''}:`), ...unmet.map((u) => h('li', {}, '✗ ', u))] : []));
+      fill(autoUnmet, ...(unmet.length ? [h('li', { class: 'auto-unmet__head' }, st.state === 'stopped' ? 'Unmet when stopped:' : `Waiting for${c && c.timedOut ? ' (time limit passed)' : ''}:`), ...unmet.map((u) => h('li', {}, '✗ ', u))] : []));
     }
     const ssig = st.sequence.map((x) => `${x.done}${x.current}`).join('') + st.state;
     if (autoSeq.dataset.sig !== ssig) {
       autoSeq.dataset.sig = ssig;
-      clear(autoSeq).append(...st.sequence.map((x) => h('li', { class: x.done ? 'is-done' : x.current ? 'is-current' : '' },
+      fill(autoSeq, ...st.sequence.map((x) => h('li', { class: x.done ? 'is-done' : x.current ? 'is-current' : '' },
         h('span', { class: 'auto-seq__mark', 'aria-hidden': 'true' }, x.done ? '✓' : x.current ? '▶' : '○'),
         h('span', { class: 'sr-only' }, x.done ? 'Done: ' : x.current ? 'Current: ' : 'Pending: '),
         `${x.label}${x.gate && st.mode === 'guided' ? ' (you confirm)' : x.gate ? '' : ' (automatic)'}`, h('span', { class: 'hint hint--hmi' }, ` — ${x.describe}`))));
@@ -564,7 +564,7 @@ export function renderMonitor(ctx, main) {
   const toDebrief = h('button', { type: 'button', class: 'btn btn--primary', id: 'mon-debrief' }, 'Finish → Debrief');
   toDebrief.addEventListener('click', () => ctx.go(5));
 
-  clear(main).append(
+  fill(main, 
     h('div', { class: 'step-head' }, h('h2', { id: 'step-title', tabindex: '-1' }, '4 · Run'),
       h('p', { class: 'muted' }, `${isGA ? 'General anaesthesia' : `MAC / sedation (target: ${sim.plan.sedationTarget})`} · fictional patient ${patient.sex}, ${patient.ageYears} y, ${patient.weightKg} kg · seed ${sim.seed} · all values are illustrative model output.`)),
     h('div', { class: 'hmi', id: 'hmi' },
@@ -734,7 +734,7 @@ export function renderMonitor(ctx, main) {
     flStop.disabled = !(M && M.rateMlH > 0);
     const rows = Object.entries(F.byType).map(([id, v]) => `${id}:${Math.round(v.bolusMl)}:${Math.round(v.maintenanceMl)}`).join('|');
     if (flTotals.dataset.sig === rows) return; flTotals.dataset.sig = rows;
-    clear(flTotals).append(...Object.entries(F.byType).map(([id, v]) => h('tr', { dataset: { fluid: id } }, h('th', { scope: 'row' }, (FL.find((f) => f.id === id) || {}).name || id),
+    fill(flTotals, ...Object.entries(F.byType).map(([id, v]) => h('tr', { dataset: { fluid: id } }, h('th', { scope: 'row' }, (FL.find((f) => f.id === id) || {}).name || id),
       h('td', { class: 'mono' }, `${fmtNum(v.bolusMl, 0)} mL`), h('td', { class: 'mono' }, `${fmtNum(v.maintenanceMl, 0)} mL`), h('td', { class: 'mono' }, `${fmtNum(v.bolusMl + v.maintenanceMl, 0)} mL`))));
   }
   function renderAbx() {
@@ -807,7 +807,7 @@ export function renderMonitor(ctx, main) {
         adj.addEventListener('click', () => { adDrug.value = d.id; fillKinds(kinds.has('inhaled') ? 'inhaled' : 'infusion'); adVal.focus(); });
         stop.addEventListener('click', () => { const r = sim.administer({ drugId: d.id, kind: 'stop' }); feedback(r.ok ? `${d.name} stopped.` : r.reasons.join('; '), !r.ok); render(true); });
         drugCells[d.id] = { rate, ce, cum, stop };
-        drugBody.append(h('tr', {}, h('th', { scope: 'row' }, d.name), rate, ce, cum, h('td', { class: 'controls' }, bol, adj, stop)));
+        add(drugBody, h('tr', {}, h('th', { scope: 'row' }, d.name), rate, ce, cum, h('td', { class: 'controls' }, bol, adj, stop)));
       }
     }
     for (const d of active) {
@@ -825,7 +825,7 @@ export function renderMonitor(ctx, main) {
     if (log.length === logLen) return; logLen = log.length;
     const f = logFilter.value;
     const items = log.filter((e) => f === 'all' || e.kind === f).slice(-200).reverse();
-    clear(logList).append(...items.map((e) => h('li', { class: `log__item log__item--${e.kind}` }, h('span', { class: 'mono' }, fmtClock(e.tSec)), ' ', h('span', { class: 'log__kind' }, e.kind), ' ', e.message)));
+    fill(logList, ...items.map((e) => h('li', { class: `log__item log__item--${e.kind}` }, h('span', { class: 'mono' }, fmtClock(e.tSec)), ' ', h('span', { class: 'log__kind' }, e.kind), ' ', e.message)));
   }
 
   function drawCharts() {
@@ -841,7 +841,7 @@ export function renderMonitor(ctx, main) {
       const sig = series.map((s) => s.label).join('|');
       if (c.legend.dataset.sig !== sig) {
         c.legend.dataset.sig = sig;
-        clear(c.legend).append(...series.map((s) => h('li', {}, h('span', { class: `swatch${s.dash ? ' swatch--dash' : ''}` }), s.label)));
+        fill(c.legend, ...series.map((s) => h('li', {}, h('span', { class: `swatch${s.dash ? ' swatch--dash' : ''}` }), s.label)));
         for (const [i, li] of [...c.legend.children].entries()) li.firstChild.style.borderColor = series[i].color;
       }
       const last = series.map((s) => { const v = s.data[s.data.length - 1]; return `${s.label} ${isNum(v) ? fmtNum(v, 2) : 'no value'}`; }).join('; ');
@@ -890,6 +890,8 @@ function updateCheckItem(it, x) {
   setChildrenIf(it.src, x.sources.join(','), () => (x.sources.length ? srcTags(x.sources) : h('span', { class: 'badge badge--illustrative' }, 'convention')));
 }
 export { readinessItem };
+/** One complete readiness row (static lists: extubation dialog, debrief). Same markup as the live panel. */
+export function readinessRow(c) { const it = statusRow(); updateReadinessItem(it, c); return it.el; }
 
 function groupDrugs(lib) {
   const m = new Map();

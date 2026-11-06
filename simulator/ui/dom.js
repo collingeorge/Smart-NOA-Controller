@@ -27,6 +27,13 @@ export function append(el, children) {
 }
 
 export function clear(el) { while (el.firstChild) el.removeChild(el.firstChild); return el; }
+/**
+ * Replaces an element's children. Unlike the native el.append(), null / undefined / false children are
+ * skipped (never rendered as the text "null"), and arrays are flattened, as with h() and append().
+ */
+export function fill(el, ...children) { return append(clear(el), children); }
+/** Appends children like the native el.append(), but skips null / undefined / false and flattens arrays. */
+export function add(el, ...children) { return append(el, children); }
 
 export function setText(el, text) { const s = String(text); if (el.textContent !== s) el.textContent = s; }
 

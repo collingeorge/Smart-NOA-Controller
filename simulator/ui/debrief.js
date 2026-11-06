@@ -1,9 +1,9 @@
 // Step 5 — Debrief: totals, haemodynamic/oxygenation summary, alarms, interlock events, extubation.
-import { h, clear, fmtClock, fmtNum, isNum, announce } from './dom.js';
+import { h, fmtClock, fmtNum, isNum, announce, fill, add } from './dom.js';
 import { srcTags } from './sources.js';
 import { PRIORITY_LABELS, PRIORITY_SHAPES } from './labels.js';
 import { getDrugById } from './plan-model.js';
-import { readinessItem } from './monitor.js';
+import { readinessRow } from './monitor.js';
 import { timingCheckItems } from './timing-view.js';
 import { exportPlan } from './plan-model.js';
 import { loadModelAssumptions, assumptionsList } from './model-card.js';
@@ -39,12 +39,12 @@ export function renderDebrief(ctx, main) {
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = h('a', { href: url, download: `smart-noa-sim-session-seed${sim.seed}.json`, class: 'sr-only' }, 'download');
-    document.body.append(a); a.click(); a.remove();
+    add(document.body, a); a.click(); a.remove();
     setTimeout(() => URL.revokeObjectURL(url), 5000);
     announce('Session JSON downloaded.');
   });
 
-  clear(main).append(
+  fill(main, 
     h('div', { class: 'step-head' }, h('h2', { id: 'step-title', tabindex: '-1' }, '5 · Debrief'),
       h('p', { class: 'muted' }, `Simulated duration ${fmtClock(s.durationSec)} · ${sim.plan.mode === 'GA' ? 'general anaesthesia' : `MAC (${sim.plan.sedationTarget})`} · interlocks ${store.interlocks ? 'on' : 'off'} · seed ${sim.seed}. ${s.modelNote}`)),
     autoCard(s.automatic),
@@ -73,7 +73,7 @@ export function renderDebrief(ctx, main) {
       h('section', { class: 'card' }, h('h3', {}, 'Extubation'),
         sim.plan.mode !== 'GA' ? h('p', {}, 'Not applicable (MAC / sedation).') :
           [h('p', {}, ext.tSec === null || ext.tSec === undefined ? 'Not extubated — readiness at the end of the session:' : `Extubated at ${fmtClock(ext.tSec)} — readiness ${ext.ready ? 'met' : 'NOT met'}:`),
-            h('ul', { class: 'ready-list ready-list--light' }, (ext.criteria || []).map((c) => readinessItem(c))),
+            h('ul', { class: 'ready-list ready-list--light' }, (ext.criteria || []).map((c) => readinessRow(c))),
             overrides.length ? h('p', { class: 'error-text' }, `Extubated despite unmet criteria (user confirmed, logged): ${overrides.map((o) => `${fmtClock(o.tSec)} — ${o.unmet.join(', ')}`).join('; ')}`) : null]),
       h('section', { class: 'card' }, h('h3', {}, 'Interlock events'),
         s.interlockEvents.length ? h('ol', { class: 'list list--tight' }, s.interlockEvents.map((e) => h('li', {}, h('span', { class: 'mono' }, fmtClock(e.tSec)), ` ${e.message}`))) : h('p', {}, store.interlocks ? 'No interlock events.' : 'Interlocks were off.'))),

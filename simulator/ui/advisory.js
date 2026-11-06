@@ -1,7 +1,7 @@
 // "Advisory: haemodynamic rescue" card (engine/rescue.js). EDUCATIONAL SIMULATION — not a medical device.
 // The card only shows the advisory; "Give suggested bolus" is the clinician's explicit approval
 // (advisor.accept) and "Dismiss" is logged (advisor.dismiss). Nothing here runs on its own.
-import { h, clear, setText, fmtClock } from './dom.js';
+import { h, setText, fmtClock, fill } from './dom.js';
 import { srcTags } from './sources.js';
 import { ADVISORY_DISCLAIMER } from '../engine/rescue.js';
 import { DEPTH_LOW_DISCLAIMER } from '../engine/depth-advisory.js';
@@ -46,7 +46,7 @@ export function advisoryCard({ prefix, live, onAccept, onDismiss }) {
     const sig = s ? `${v.entry && v.entry.id}|${s.drugId}|${s.amount}` : '';
     if (suggestion.dataset.sig !== sig) {
       suggestion.dataset.sig = sig;
-      clear(suggestion).append(...(s ? [h('p', {}, h('strong', {}, `Suggested: ${s.name} ${s.amount} ${s.unit} IV bolus `), srcTags(s.sources),
+      fill(suggestion, ...(s ? [h('p', {}, h('strong', {}, `Suggested: ${s.name} ${s.amount} ${s.unit} IV bolus `), srcTags(s.sources),
         ` (label rescue range ${s.range.min}–${s.range.max} ${s.unit}${s.capped ? `; ${s.capped}` : ''}).`)] : []));
     }
     accept.hidden = !v.canAccept; dismiss.hidden = !v.canDismiss;
@@ -55,8 +55,8 @@ export function advisoryCard({ prefix, live, onAccept, onDismiss }) {
     const rsig = (v.rationale || []).join('|') + (v.checklist || []).join('|');
     if (rationale.dataset.sig !== rsig) {
       rationale.dataset.sig = rsig;
-      clear(rationale).append(...(v.rationale || []).map((x) => h('li', {}, x)));
-      clear(checklist).append(...(v.checklist || []).map((x) => h('li', {}, '☐ ', x)));
+      fill(rationale, ...(v.rationale || []).map((x) => h('li', {}, x)));
+      fill(checklist, ...(v.checklist || []).map((x) => h('li', {}, '☐ ', x)));
     }
   }
   return { el, update };
@@ -91,8 +91,8 @@ export function depthAdvisoryCard({ prefix, live, onDismiss }) {
     const sig = `${v.footnote}|${(v.checklist || []).join('|')}`;
     if (sig !== fsig) {
       fsig = sig;
-      clear(checklist).append(...(v.checklist || []).map((x) => h('li', {}, '☐ ', x)));
-      clear(foot).append(`${v.footnote} `, srcTags(v.sources || []), '.');
+      fill(checklist, ...(v.checklist || []).map((x) => h('li', {}, '☐ ', x)));
+      fill(foot, `${v.footnote} `, srcTags(v.sources || []), '.');
     }
     dismiss.hidden = !v.canDismiss; dismiss.disabled = !v.canDismiss;
     if (v.entry) dismiss.dataset.entry = v.entry.id; else delete dismiss.dataset.entry;

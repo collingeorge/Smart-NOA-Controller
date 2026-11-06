@@ -1,7 +1,7 @@
 // Palliative pain management and end-of-life care modules — UI. Educational simulation with
 // fictional patients. CSP: no inline scripts/handlers/styles; listeners via addEventListener (h()).
 // Free text (family notes, documentation) is only ever set as input values or textContent — never HTML.
-import { h, clear, announce, setText, reconcileKeyed, setChildrenIf } from './dom.js';
+import { h, clear, announce, setText, reconcileKeyed, setChildrenIf, fill, add } from './dom.js';
 import { srcTags } from './sources.js';
 import { PALLIATIVE_CASES, PALLIATIVE_OPIOIDS, PALLIATIVE_RULES as R, SEDATION_MIDAZOLAM as SM, ETHICS_PANEL, GOC_PROMPTS, TREATMENTS_TRIED, EXCLUSIONS_TEXT, OPTIONS, PALLIATIVE_BANNER } from '../data/palliative.js';
 import { validatePalliative, derivePalliative, recommendStart, breakthroughDose, convertOpioid, createPalliativeSim, mmePerDay, fmtDay } from '../engine/palliative.js';
@@ -34,7 +34,7 @@ export function renderPalliative(main) {
     return h('li', { class: pal.step === s.n ? 'is-current' : '' }, b);
   })));
   const box = h('div', { class: 'pal', id: 'pal-root', dataset: { module: pal.module, step: String(pal.step) } });
-  main.append(nav, box);
+  add(main, nav, box);
   ({ 1: stepCase, 2: stepPlan, 3: stepRun, 4: stepDebrief })[pal.step](box, main);
 }
 function canGo(n) { if (n === 1) return true; if (n === 2) return !!pal.derived; if (n >= 3) return !!pal.sim; return false; }
@@ -67,7 +67,7 @@ function stepCase(box, main) {
   const load = h('button', { type: 'button', class: 'btn', id: 'pal-load' }, 'Load example case');
   load.addEventListener('click', () => { const c = PALLIATIVE_CASES.find((x) => x.id === sel.value); pal.caseId = c.id; pal.input = JSON.parse(JSON.stringify(c.patient)); pal.derived = null; pal.sim = null; pal.plan = null; renderPalliative(main); announce(`Example loaded: ${c.label}.`); });
   const cont = h('button', { type: 'button', class: 'btn btn--primary', id: 'pal-continue' }, 'Continue to assessment & plan');
-  box.append(head(`1 · ${MODULE_LABEL[pal.module]}: fictional case`, 'All values are fictional. Load an example or edit the fields.'),
+  add(box, head(`1 · ${MODULE_LABEL[pal.module]}: fictional case`, 'All values are fictional. Load an example or edit the fields.'),
     h('section', { class: 'card' }, h('div', { class: 'inline-form' }, h('label', { for: 'pal-example', class: 'label' }, 'Example case'), sel, load), pal.caseId ? h('p', { class: 'hint' }, `Loaded: ${caseDef().label}`) : null),
     errBox,
     h('section', { class: 'card' }, h('h3', {}, 'Patient'), h('div', { class: 'grid grid--4' },
@@ -98,7 +98,7 @@ function stepCase(box, main) {
     if (!v.ok) {
       const map = { ageYears: 'pc-age', weightKg: 'pc-weight', egfr: 'pc-egfr', baselineRr: 'pc-rr', medicationCount: 'pc-meds', currentRegimen: 'pc-cur' };
       for (const [k, msg] of Object.entries(v.errors)) { const id = map[k]; const e = id && box.querySelector(id === 'pc-cur' ? '#pc-cur-err' : `#${id}-err`); if (e) { e.textContent = msg; e.hidden = false; } const inp = id && box.querySelector(`#${id}`); if (inp && inp.tagName === 'INPUT') inp.setAttribute('aria-invalid', 'true'); }
-      errBox.append(h('div', { class: 'error-summary' }, h('h3', {}, 'Please fix:'), h('ul', {}, Object.values(v.errors).map((m) => h('li', {}, m)))));
+      add(errBox, h('div', { class: 'error-summary' }, h('h3', {}, 'Please fix:'), h('ul', {}, Object.values(v.errors).map((m) => h('li', {}, m)))));
       announce(`${Object.keys(v.errors).length} field(s) need attention.`, true); return;
     }
     pal.input = f; pal.derived = derivePalliative(f); pal.plan = null; pal.sim = null; pal.step = 2; renderPalliative(main);
@@ -175,13 +175,13 @@ function stepPlan(box, main) {
     if (!(pl.dose > 0)) problems.push(tolerant && pl.convert ? 'Compute the conversion (enter the reduction %).' : 'Enter a dose.');
     if (warns.length && !pl.ack) problems.push('Acknowledge the warning.');
     if (pl.prnDose === null || !(pl.prnDose >= 0)) problems.push('Enter a PRN dose (0 for none).');
-    if (problems.length) { clear(out).append(h('p', { class: 'notice notice--warn', role: 'alert', id: 'pal-approve-err' }, problems.join(' '))); announce(problems.join(' '), true); return; }
+    if (problems.length) { fill(out, h('p', { class: 'notice notice--warn', role: 'alert', id: 'pal-approve-err' }, problems.join(' '))); announce(problems.join(' '), true); return; }
     const sim = createPalliativeSim({ patient: p, caseDef: caseDef(), module: pal.module, seed: 1 });
     const res = sim.approveRegimen({ drugId: pl.drugId, route: pl.route, dose: pl.dose, intervalH: pl.intervalH, scheduled: pl.scheduled, prnDose: pl.prnDose, bowel: pl.bowel }, { approved: true });
-    if (!res.ok) { clear(out).append(h('p', { class: 'notice notice--warn', role: 'alert', id: 'pal-approve-err' }, res.reason)); return; }
+    if (!res.ok) { fill(out, h('p', { class: 'notice notice--warn', role: 'alert', id: 'pal-approve-err' }, res.reason)); return; }
     pal.sim = sim; pal.step = 3; renderPalliative(main); announce('Regimen approved. Scheduled and PRN doses now run automatically; the daily review asks for your decisions.');
   });
-  box.append(head('2 · Assess & plan', 'Doses auto-fill from the label/guideline values with their source tags; you approve the regimen. Nothing changes later without your approval.'), assess,
+  add(box, head('2 · Assess & plan', 'Doses auto-fill from the label/guideline values with their source tags; you approve the regimen. Nothing changes later without your approval.'), assess,
     h('section', { class: 'card' }, h('h3', {}, 'Opioid regimen'), h('div', { class: 'grid grid--2' }, h('div', { class: 'field' }, h('label', { for: 'pal-drug', class: 'label' }, 'Opioid'), drug), h('div', { class: 'field' }, h('label', { for: 'pal-route', class: 'label' }, 'Route'), route)),
       h('p', { class: 'hint' }, 'Subcutaneous opioid dosing, methadone and fentanyl: not simulated — specialist decision.'),
       tolerant ? null : start, conv,
@@ -248,7 +248,7 @@ function stepRun(box, main) {
   family.value = st.familyNotes; family.addEventListener('input', () => sim.setFamilyNotes(family.value));
   const deb = h('button', { type: 'button', class: 'btn btn--primary', id: 'pal-debrief' }, 'Go to debrief');
   deb.addEventListener('click', () => { stop(); pal.step = 4; renderPalliative(main); });
-  box.append(head(`3 · Run — ${MODULE_LABEL[pal.module]}`, 'Illustrative model output (author estimates; not validated). Scheduled and PRN doses run from your approved regimen; reviews and alarms pause for your decisions.'),
+  add(box, head(`3 · Run — ${MODULE_LABEL[pal.module]}`, 'Illustrative model output (author estimates; not validated). Scheduled and PRN doses run from your approved regimen; reviews and alarms pause for your decisions.'),
     h('div', { class: 'pal-toolbar' }, clock, play, h('span', { class: 'pal-toolbar__group', role: 'group', 'aria-label': 'Speed' }, speeds), h('span', { class: 'pal-toolbar__group', role: 'group', 'aria-label': 'Step' }, stepBtns)),
     pausedBox, fb, tiles,
     h('div', { class: 'grid grid--3 pal-charts' },
@@ -262,7 +262,7 @@ function stepRun(box, main) {
     h('div', { class: 'actions' }, deb));
 
   const alarmUl = h('ul', { class: 'pal-alarms' }); const alarmNone = h('p', { class: 'hint' }, 'No alarms.');
-  alarms.append(alarmUl, alarmNone);
+  add(alarms, alarmUl, alarmNone);
   function palAlarmItem(a) {
     const id = a.id;
     const prio = h('strong', {}); const text = h('span', {}); const src = h('span', {}); const cleared = h('span', {});
@@ -283,10 +283,10 @@ function stepRun(box, main) {
     clock.textContent = fmtDay(s.tMin);
     play.textContent = pal.playing ? 'Pause' : 'Play'; play.setAttribute('aria-pressed', pal.playing ? 'true' : 'false');
     for (const b of speeds) b.setAttribute('aria-pressed', String(Number(b.dataset.speed) === pal.speed));
-    if (s.paused) { setText(pausedMsg, `${s.paused.message} `); if (!pausedMsg.isConnected) pausedBox.append(pausedMsg, resumeBtn); }
+    if (s.paused) { setText(pausedMsg, `${s.paused.message} `); if (!pausedMsg.isConnected) add(pausedBox, pausedMsg, resumeBtn); }
     else if (pausedMsg.isConnected) clear(pausedBox);
     const sy = s.symptoms;
-    clear(tiles).append(tile('pal-t-pain', 'Pain (NRS)', fmt(sy.pain), '0–10'), tile('pal-t-dys', 'Dyspnoea', fmt(sy.dyspnoea), '0–10'), tile('pal-t-agi', 'Agitation', fmt(sy.agitation), '0–10'),
+    fill(tiles, tile('pal-t-pain', 'Pain (NRS)', fmt(sy.pain), '0–10'), tile('pal-t-dys', 'Dyspnoea', fmt(sy.dyspnoea), '0–10'), tile('pal-t-agi', 'Agitation', fmt(sy.agitation), '0–10'),
       tile('pal-t-rass', 'RASS', String(s.rass), s.sedation.targetRass !== null ? `target ${s.sedation.targetRass}` : 'no sedation target', s.rass <= -3 ? 'pal-tile--alert' : ''),
       tile('pal-t-rr', 'Resp. rate', fmt(s.rr), s.rr < R.RR_ALARM.value ? 'BELOW 8 — alarm' : '/min', s.rr < R.RR_ALARM.value ? 'pal-tile--alert' : ''),
       tile('pal-t-sec', 'Secretions', fmt(sy.secretions), '0–10'), tile('pal-t-nau', 'Nausea', fmt(sy.nausea), '0–10'), tile('pal-t-con', 'Constipation', fmt(sy.constipation), '0–10'),
@@ -298,7 +298,7 @@ function stepRun(box, main) {
     reconcileKeyed(alarmUl, s.alarms, { key: (a) => a.id, create: palAlarmItem, update: updatePalAlarmItem });
     renderReview(review, sim, refresh, say);
     const w = sim.windowStats(Math.max(0, s.tMin - 1440)); const mme = mmePerDay(s.regimen);
-    clear(mar).append(kv([['Regimen', `${s.regimen.scheduled ? 'Scheduled' : 'As needed'} ${s.regimen.drugId} ${s.regimen.dose} mg ${s.regimen.route.toUpperCase()} every ${s.regimen.intervalH} h; PRN ${s.regimen.prn ? `${s.regimen.prn.dose} mg` : 'none'}; bowel regimen ${s.bowelRegimen ? 'yes' : 'no'}`],
+    fill(mar, kv([['Regimen', `${s.regimen.scheduled ? 'Scheduled' : 'As needed'} ${s.regimen.drugId} ${s.regimen.dose} mg ${s.regimen.route.toUpperCase()} every ${s.regimen.intervalH} h; PRN ${s.regimen.prn ? `${s.regimen.prn.dose} mg` : 'none'}; bowel regimen ${s.bowelRegimen ? 'yes' : 'no'}`],
       ['Last 24 h', `scheduled ${w.scheduled24h} mg + PRN ${w.prn24h} mg (${w.prnCount} PRN doses) = ${w.total24h} mg`], ['MME/day (current regimen)', mme === null ? 'not computed (IV or no CDC factor)' : `${mme} — risk estimate only`]]),
     h('div', { class: 'table-wrap' }, h('table', { class: 'table table--compact', id: 'pal-mar-table' }, h('thead', {}, h('tr', {}, ['Time', 'Drug', 'Route', 'Dose', 'Type', 'By'].map((x) => h('th', { scope: 'col' }, x)))),
       h('tbody', {}, s.mar.slice(-10).reverse().map((m) => h('tr', {}, h('td', {}, fmtDay(m.tMin)), h('td', {}, m.drugId), h('td', {}, m.route.toUpperCase()), h('td', {}, `${m.dose} ${m.unit}`), h('td', {}, m.kind), h('td', {}, m.by)))))));
@@ -315,7 +315,7 @@ function stepRun(box, main) {
 // rebuilt only when its own status changes, so the other rows' checkboxes, selects and buttons persist.
 function renderReview(box, sim, refresh, say) {
   const r = sim.state.pendingReview;
-  if (!box.palParts) { const line = h('p', {}); const list = h('div', {}); box.append(line, list); box.palParts = { line, list }; }
+  if (!box.palParts) { const line = h('p', {}); const list = h('div', {}); add(box, line, list); box.palParts = { line, list }; }
   const { line: headP, list: rows } = box.palParts;
   if (!r) {
     headP.className = 'hint'; setText(headP, `Next review at the next ${R.REVIEW_INTERVAL_H.value}-h mark. Completed reviews: ${sim.state.reviews.length}.`);
@@ -327,13 +327,13 @@ function renderReview(box, sim, refresh, say) {
 
 function reviewRow(s, sim, refresh, say) {
   const row = h('div', { class: `pal-sugg pal-sugg--${s.status}`, dataset: { sugg: s.id, kind: s.kind } }, h('p', {}, s.text, ' ', srcTags(s.sources)));
-  if (s.status !== 'pending') { row.append(h('p', { class: 'hint' }, `Decision: ${s.status}`)); return row; }
+  if (s.status !== 'pending') { add(row, h('p', { class: 'hint' }, `Decision: ${s.status}`)); return row; }
   let ack = null; let rot = null;
-  if (s.needsAck) { ack = h('input', { type: 'checkbox', id: `ack-${s.id}` }); row.append(h('label', { class: 'check check--block' }, ack, ' ', s.needsAck)); }
+  if (s.needsAck) { ack = h('input', { type: 'checkbox', id: `ack-${s.id}` }); add(row, h('label', { class: 'check check--block' }, ack, ' ', s.needsAck)); }
   if (s.kind === 'rotation') {
     const to = h('select', { id: `rot-${s.id}`, class: 'input' }, [['oxycodone:oral', 'Oral oxycodone'], ['hydromorphone:oral', 'Oral hydromorphone'], ['morphine:oral', 'Oral morphine'], ['morphine:iv', 'IV morphine']].map(([v, t]) => h('option', { value: v }, t)));
     const red = h('input', { id: `rotred-${s.id}`, class: 'input input--num', type: 'number', min: '0', max: '50', step: '5' });
-    rot = { to, red }; row.append(h('div', { class: 'grid grid--2' }, h('div', { class: 'field' }, h('label', { for: `rot-${s.id}`, class: 'label' }, 'Rotate to'), to), h('div', { class: 'field' }, h('label', { for: `rotred-${s.id}`, class: 'label' }, 'Cross-tolerance reduction % (you choose)'), red)));
+    rot = { to, red }; add(row, h('div', { class: 'grid grid--2' }, h('div', { class: 'field' }, h('label', { for: `rot-${s.id}`, class: 'label' }, 'Rotate to'), to), h('div', { class: 'field' }, h('label', { for: `rotred-${s.id}`, class: 'label' }, 'Cross-tolerance reduction % (you choose)'), red)));
   }
   const yes = h('button', { type: 'button', class: 'btn btn--primary btn--small', dataset: { decide: 'approve' } }, s.kind === 'info' ? 'Acknowledge' : 'Approve');
   const no = s.kind === 'info' ? null : h('button', { type: 'button', class: 'btn btn--small', dataset: { decide: 'decline' } }, 'Decline');
@@ -343,7 +343,7 @@ function reviewRow(s, sim, refresh, say) {
     const res = sim.decide(s.id, 'approve', opts); if (!res.ok) say(res.reason, true); refresh();
   });
   if (no) no.addEventListener('click', () => { sim.decide(s.id, 'decline'); refresh(); });
-  row.append(h('div', { class: 'btn-row' }, yes, no)); return row;
+  add(row, h('div', { class: 'btn-row' }, yes, no)); return row;
 }
 
 // EOL panels: non-pharmacological measures, monitoring toggle, documentation gate, sedation, hydration.
@@ -368,7 +368,7 @@ function eolPanels(sim, say, refresh) {
   const consType = h('select', { id: 'pd-consent-type', class: 'input' }, [['', '— choose —'], ['patient_consent', 'Patient consent'], ['surrogate_consent', 'Surrogate consent'], ['assent', 'Patient assent (with surrogate)']].map(([v, t]) => h('option', { value: v, selected: d.consent && d.consent.type === v }, t)));
   const ck = (id, label, on) => h('label', { class: 'check check--block' }, h('input', { type: 'checkbox', id, checked: !!on }), ' ', label);
   const save = h('button', { type: 'button', class: 'btn', id: 'pd-save' }, 'Save documentation');
-  doc.append(
+  add(doc, 
     h('fieldset', { class: 'fieldset' }, h('legend', {}, '1. Refractory symptom'), h('label', { for: 'pd-ref-symptom', class: 'label' }, 'Symptom'), refSym, h('p', { class: 'label' }, 'Treatments tried'), tried, ...txt('pd-ref-why', 'Why it is refractory', d.refractory && d.refractory.why)),
     h('fieldset', { class: 'fieldset' }, h('legend', {}, '2. Goals-of-care conversation'), h('details', {}, h('summary', {}, 'Conversation topics (paraphrased; Serious Illness Conversation Guide, CC BY-NC-SA 4.0) ', srcTags(['S104'])), h('ul', { class: 'list list--tight' }, GOC_PROMPTS.map((g) => h('li', {}, g)))),
       h('label', { for: 'pd-goc-with', class: 'label' }, 'Conversation with'), gocWith, ...txt('pd-goc-summary', 'Summary of what matters to the patient', d.goals && d.goals.summary)),
@@ -398,7 +398,7 @@ function eolPanels(sim, say, refresh) {
     sAct('pal-sed-bolus', 'Approve starting bolus', () => ({ type: 'bolus', route: routeSel.value })), sAct('pal-sed-repeat', 'Approve repeat (half bolus)', () => ({ type: 'repeat' })),
     sAct('pal-sed-apply', 'Approve infusion rate', () => ({ type: 'infusion', rateMgH: Number(rate.value) })), sAct('pal-sed-stop', 'Approve stop', () => ({ type: 'stop' }))];
   const sedState = h('p', { id: 'pal-sed-state', class: 'hint' });
-  sed.append(h('p', { class: 'hint' }, `Midazolam (step 1, revised EAPC framework): light — ${SM.bolus.light.sc.value} mg SC / ${SM.bolus.light.iv.value} mg IV; deep — ${SM.bolus.deep.sc.min}–${SM.bolus.deep.sc.max} mg SC / ${SM.bolus.deep.iv.min}–${SM.bolus.deep.iv.max} mg IV; half the starting bolus may be repeated after ${SM.repeatAfterMin.sc} min SC / ${SM.repeatAfterMin.iv} min IV; infusion starts at ${SM.infusionStartMgH} mg/h then adjust; above ${R.MIDAZOLAM_MAX_SIM_MG_H.value} mg/h consider adding/changing medication ${SM.notSimulated} Light/deep ↔ RASS mapping: ${SM.depthMapping}. `, srcTags(['S101', 'S120'])),
+  add(sed, h('p', { class: 'hint' }, `Midazolam (step 1, revised EAPC framework): light — ${SM.bolus.light.sc.value} mg SC / ${SM.bolus.light.iv.value} mg IV; deep — ${SM.bolus.deep.sc.min}–${SM.bolus.deep.sc.max} mg SC / ${SM.bolus.deep.iv.min}–${SM.bolus.deep.iv.max} mg IV; half the starting bolus may be repeated after ${SM.repeatAfterMin.sc} min SC / ${SM.repeatAfterMin.iv} min IV; infusion starts at ${SM.infusionStartMgH} mg/h then adjust; above ${R.MIDAZOLAM_MAX_SIM_MG_H.value} mg/h consider adding/changing medication ${SM.notSimulated} Light/deep ↔ RASS mapping: ${SM.depthMapping}. `, srcTags(['S101', 'S120'])),
     h('p', { class: 'hint' }, 'Opioids are continued for comfort and are not escalated to sedate. The simulator never changes the sedation on its own.'),
     h('div', { class: 'grid grid--4' }, h('div', { class: 'field' }, h('label', { for: 'pal-sed-target', class: 'label' }, 'Target RASS (lowest level that relieves)'), target), h('div', { class: 'field' }, h('label', { for: 'pal-sed-symptom', class: 'label' }, 'Symptom to relieve'), symSel),
       h('div', { class: 'field' }, h('label', { for: 'pal-sed-route', class: 'label' }, 'Bolus route'), routeSel), h('div', { class: 'field' }, h('label', { for: 'pal-sed-rate', class: 'label' }, 'Infusion (mg/h)'), rate)),
@@ -410,11 +410,11 @@ function eolPanels(sim, say, refresh) {
   const hnote = h('textarea', { id: 'pal-hyd-note', class: 'input', rows: '2', maxlength: '1000' }); hnote.value = st.hydration.note;
   const hsave = h('button', { type: 'button', class: 'btn btn--small', id: 'pal-hyd-save' }, 'Save hydration decision');
   hsave.addEventListener('click', () => { sim.setHydration({ discussed: hd.checked, decision: hdec.value, note: hnote.value }); say('Hydration decision documented.'); });
-  hyd.append(h('p', { class: 'hint' }, 'Decided independently of sedation and discussed with the patient or family ', srcTags(['S101']), '. No outcome is modelled.'), h('label', { class: 'check check--block' }, hd, ' Discussed with patient / family'), h('label', { for: 'pal-hyd-decision', class: 'label' }, 'Decision'), hdec, h('label', { for: 'pal-hyd-note', class: 'label' }, 'Note'), hnote, hsave);
+  add(hyd, h('p', { class: 'hint' }, 'Decided independently of sedation and discussed with the patient or family ', srcTags(['S101']), '. No outcome is modelled.'), h('label', { class: 'check check--block' }, hd, ' Discussed with patient / family'), h('label', { for: 'pal-hyd-decision', class: 'label' }, 'Decision'), hdec, h('label', { for: 'pal-hyd-note', class: 'label' }, 'Note'), hnote, hsave);
   const wrap = h('div', { class: 'pal-eol' }, sym, doc, sed, hyd);
   wrap.refresh = () => {
     const g = sim.gateStatus();
-    clear(gate).append(g.complete ? h('p', { class: 'notice', id: 'pal-gate-ok' }, 'All six documentation items are complete.') : h('div', { class: 'notice notice--warn', id: 'pal-gate-missing' }, h('strong', {}, 'Sedation controls disabled — missing:'), h('ul', {}, g.missing.map((m) => h('li', {}, m)))));
+    fill(gate, g.complete ? h('p', { class: 'notice', id: 'pal-gate-ok' }, 'All six documentation items are complete.') : h('div', { class: 'notice notice--warn', id: 'pal-gate-missing' }, h('strong', {}, 'Sedation controls disabled — missing:'), h('ul', {}, g.missing.map((m) => h('li', {}, m)))));
     for (const b of ctrls) b.disabled = !g.complete;
     const s = sim.state.sedation; sedState.textContent = `Sedation ${s.active ? 'active' : 'not active'}; target ${s.targetRass === null ? 'not set' : `RASS ${s.targetRass} for ${s.symptom}`}; infusion ${s.infusionMgH} mg/h; approved titrations ${s.titrations.length}.`;
   };
@@ -429,13 +429,13 @@ function stepDebrief(box) {
   dl.addEventListener('click', () => {
     const data = { tool: 'Smart NOA simulator — palliative modules (educational; fictional patient)', banner: PALLIATIVE_BANNER, module: pal.module, caseId: pal.caseId, patient: sim.patient, summary: sm, log: sim.state.log, mar: sim.state.mar };
     const url = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }));
-    const a = h('a', { href: url, download: `smart-noa-palliative-${pal.module}.json`, class: 'sr-only' }, 'download'); document.body.append(a); a.click(); a.remove();
+    const a = h('a', { href: url, download: `smart-noa-palliative-${pal.module}.json`, class: 'sr-only' }, 'download'); add(document.body, a); a.click(); a.remove();
     setTimeout(() => URL.revokeObjectURL(url), 1000); announce('Session JSON downloaded.');
   });
   const canvas = h('canvas', { class: 'pal-chart pal-chart--tall', id: 'pal-db-timeline', role: 'img', 'aria-label': 'Proportionality timeline: RASS, documented target and symptom score' });
   const family = h('p', { class: 'pal-pre', id: 'pal-db-family' }); family.textContent = sm.familyNotes || '—';
   const hydNote = h('span', {}); hydNote.textContent = sm.hydration.note || '';
-  box.append(head('4 · Debrief', `${MODULE_LABEL[pal.module]} · ${fmtDay(sm.durationMin)} · illustrative model output`),
+  add(box, head('4 · Debrief', `${MODULE_LABEL[pal.module]} · ${fmtDay(sm.durationMin)} · illustrative model output`),
     h('section', { class: 'card' }, h('h3', {}, 'Regimen and totals'), kv([['Final regimen', `${sm.regimen.drugId} ${sm.regimen.dose} mg ${sm.regimen.route.toUpperCase()} every ${sm.regimen.intervalH} h (${sm.regimen.scheduled ? 'scheduled' : 'as needed'}); PRN ${sm.regimen.prn ? `${sm.regimen.prn.dose} mg` : 'none'}`], ['Bowel regimen', sm.bowelRegimen ? 'yes' : 'no'], ['MME/day', sm.mmeDayNow === null ? 'not computed' : `${sm.mmeDayNow} (risk estimate; CDC 2022 ${sm.cdcApplies ? 'applies' : 'does not apply'})`]]),
       h('div', { class: 'table-wrap' }, h('table', { class: 'table table--compact', id: 'pal-db-totals' }, h('thead', {}, h('tr', {}, h('th', { scope: 'col' }, 'Drug / route / type'), h('th', { scope: 'col' }, 'Total (mg)'))), h('tbody', {}, Object.entries(sm.totals).map(([k, v]) => h('tr', {}, h('td', {}, k), h('td', {}, String(v))))))),
       h('p', {}, `Per day (opioid scheduled + PRN): ${sm.perDay.map((d) => `day ${d.day}: ${d.total} mg (${d.doses} doses)`).join('; ') || '—'}`)),
@@ -461,7 +461,7 @@ function stepDebrief(box) {
 
 // ----------------------------------------------------------------------------- ethics dialog
 export function renderEthics(body) {
-  clear(body).append(h('p', { class: 'notice notice--warn' }, PALLIATIVE_BANNER),
+  fill(body, h('p', { class: 'notice notice--warn' }, PALLIATIVE_BANNER),
     ...ETHICS_PANEL.map((sec) => h('section', { class: 'pal-ethics' }, h('h3', {}, sec.h), h('dl', { class: 'kv kv--wide' }, sec.items.flatMap(([k, v, s]) => [h('dt', {}, k), h('dd', {}, v, ' ', srcTags(s))])))),
     h('section', { class: 'pal-ethics' }, h('h3', {}, 'Communication: goals-of-care topics (paraphrased)'), h('p', { class: 'hint' }, 'Adapted in paraphrase from the Serious Illness Conversation Guide, © Ariadne Labs, CC BY-NC-SA 4.0 ', srcTags(['S104'])), h('ol', { class: 'list list--tight' }, GOC_PROMPTS.map((g) => h('li', {}, g)))),
     h('p', { class: 'hint' }, EXCLUSIONS_TEXT));

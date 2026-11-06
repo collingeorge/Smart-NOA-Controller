@@ -131,6 +131,17 @@ test('simulator UI smoke', { skip, timeout: 900000 }, async (t) => {
   const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 }, acceptDownloads: true });
   const page = await ctx.newPage();
   const problems = [];
+  // Page-wide guard (05l final review): no text node may ever render as "null", "undefined", "NaN" or "[object …]".
+  await page.addInitScript(() => {
+    const bad = (txt) => /^\s*(null|undefined|NaN)\s*$/.test(txt) || /\[object [A-Za-z]+\]/.test(txt);
+    window.__junkText = [];
+    const scan = (n) => {
+      if (n.nodeType === 3) { if (bad(n.data)) window.__junkText.push(`${n.parentElement ? n.parentElement.id || n.parentElement.className || n.parentElement.tagName : '?'}: ${n.data.slice(0, 80)}`); return; }
+      if (n.nodeType === 1) for (const c of n.childNodes) scan(c);
+    };
+    new MutationObserver((ms) => { for (const m of ms) { if (m.type === 'characterData') scan(m.target); for (const x of m.addedNodes || []) scan(x); } })
+      .observe(document, { subtree: true, childList: true, characterData: true });
+  });
   page.on('console', (m) => { if (m.type() === 'error' || m.type() === 'warning' || /Content Security Policy|Refused to/i.test(m.text())) problems.push(`console ${m.type()}: ${m.text()}`); });
   page.on('pageerror', (e) => problems.push(`pageerror: ${e.message}`));
   page.on('requestfailed', (r) => problems.push(`requestfailed: ${r.url()}`));
@@ -157,6 +168,7 @@ test('simulator UI smoke', { skip, timeout: 900000 }, async (t) => {
         await toRun(page);
         await page.click('[data-step="60"]');
         await page.click('#mon-debrief'); await page.waitForSelector('#db-download');
+        assert.doesNotMatch(await page.textContent('main'), /\[object /, 'debrief never shows [object …]'); { const rl = await page.$$eval('#db-root .ready-list li, main .ready-list li', (ls) => ls.map((l) => l.textContent)); for (const row of rl) assert.match(row, / — /, `debrief readiness row: ${row}`); }
         assert.ok(await page.isVisible('#db-totals') || (await page.textContent('main')).includes('No drugs given'), `${id}: debrief`);
       }
       // MH-susceptible: volatile agents and succinylcholine are locked
@@ -206,6 +218,7 @@ test('simulator UI smoke', { skip, timeout: 900000 }, async (t) => {
       await page.click('#ext-confirm');
       assert.equal((await simState(page)).airway.secured, false);
       await page.click('#mon-debrief'); await page.waitForSelector('#db-download');
+      assert.doesNotMatch(await page.textContent('main'), /\[object /, 'debrief never shows [object …]'); { const rl = await page.$$eval('#db-root .ready-list li, main .ready-list li', (ls) => ls.map((l) => l.textContent)); for (const row of rl) assert.match(row, / — /, `debrief readiness row: ${row}`); }
       assert.match(await page.textContent('main'), /Extubated at .* readiness met/);
       assert.ok(await page.isVisible('#db-timing'), 'debrief timing check');
       assert.match(await page.textContent('#db-timing'), /Opioid → hypnotic/);
@@ -435,6 +448,12 @@ test('simulator UI smoke', { skip, timeout: 900000 }, async (t) => {
       const b = await simState(page);
       assert.equal(b.t, a.t, `sim time did not advance (${a.t} → ${b.t})`);
       assert.ok(await page.isVisible('#ext-override'), 'not ready: override path offered');
+      { // regression (05l final review): the dialog lists the real readiness criteria, never "[object Object]"
+        const items = await page.$$eval('#extubate-dialog .ready-list li', (ls) => ls.map((l) => l.textContent));
+        assert.ok(items.length >= 4, `readiness rows in the dialog: ${items.length}`);
+        for (const row of items) { assert.doesNotMatch(row, /\[object /, row); assert.match(row, / — /, row); }
+        assert.ok(items.some((row) => /TOF/i.test(row)), 'TOF criterion listed');
+      }
       await page.click('#extubate-dialog .btn:has-text("Cancel")');
       await page.waitForFunction((x) => { const l = window.__smartNoa.lite(); return l.playing && l.t > x; }, b.t);
       const c = await simState(page);
@@ -949,6 +968,8 @@ test('simulator UI smoke', { skip, timeout: 900000 }, async (t) => {
       await page.click('#open-sources'); assert.ok(await noHScroll(page), 'sources'); await page.click('#sources-dialog [data-close-dialog]');
     });
 
+    const junk = await page.evaluate(() => [...new Set(window.__junkText)]);
+    assert.deepEqual(junk, [], `text rendered as null/undefined/NaN/[object …]:\n${junk.join('\n')}`);
     assert.deepEqual(problems, [], `console/CSP/network problems:\n${problems.join('\n')}`);
   } finally {
     await browser.close();

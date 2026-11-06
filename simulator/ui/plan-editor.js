@@ -1,5 +1,5 @@
 // Step 3 — Anesthetic plan editor.
-import { h, clear, announce, fmtClock, parseClock, isNum } from './dom.js';
+import { h, clear, announce, fmtClock, parseClock, isNum, fill, add } from './dom.js';
 import { recommend } from '../engine/dosing.js';
 import { EXAMPLE_PLANS, buildPlan } from '../data/scenarios.js';
 import { srcTags, sourcesInText } from './sources.js';
@@ -121,13 +121,13 @@ export function renderPlan(ctx, main) {
     tplOpts.hidden = !opts.length;
     for (const o of opts) {
       const id = `pl-tpl-opt-${o.id}`;
-      tplOpts.append(h('div', { class: 'check' }, h('input', { type: 'checkbox', id, checked: o.default, dataset: { opt: o.id } }), h('label', { for: id }, o.label)));
+      add(tplOpts, h('div', { class: 'check' }, h('input', { type: 'checkbox', id, checked: o.default, dataset: { opt: o.id } }), h('label', { for: id }, o.label)));
     }
   }
   function renderTemplateNotes() {
     clear(tplNotes);
     const notes = plan.templateNotes && plan.template && plan.template.mode === plan.mode ? plan.templateNotes : [];
-    for (const n of notes) tplNotes.append(h('p', { class: `note note--template note--${n.key}`, dataset: { note: n.key } }, n.text, ' ', srcTags(n.sources)));
+    for (const n of notes) add(tplNotes, h('p', { class: `note note--template note--${n.key}`, dataset: { note: n.key } }, n.text, ' ', srcTags(n.sources)));
   }
   tplSel.addEventListener('change', renderTemplateChoice);
   tplBtn.addEventListener('click', () => {
@@ -167,7 +167,7 @@ export function renderPlan(ctx, main) {
     timingList);
   function renderTiming() {
     const checks = validatePlanTiming(exportPlan(plan), lib);
-    clear(timingList).append(...timingCheckItems(checks));
+    fill(timingList, ...timingCheckItems(checks));
     timingCard.dataset.warnings = String(checks.filter((x) => x.status === 'warn').length);
   }
   const timeline = h('section', { class: 'card', 'aria-labelledby': 'pl-tl-title' });
@@ -205,30 +205,30 @@ export function renderPlan(ctx, main) {
     const fields = h('div', { class: 'step-card__fields' });
     const time = h('input', { type: 'text', inputmode: 'numeric', id: fid('t'), class: 'input input--time', value: fmtClock(s.atSec), 'aria-describedby': fid('t-hint'), pattern: '(\\d{1,2}:[0-5]\\d:[0-5]\\d|\\d{1,3}:[0-5]\\d|\\d{1,5})' });
     time.addEventListener('change', () => { const v = parseClock(time.value); s.atSec = v; if (v !== null) time.value = fmtClock(v); update(); });
-    fields.append(h('div', { class: 'field field--sm' }, h('label', { class: 'label', for: fid('t') }, 'Time offset in phase'), time, h('p', { class: 'hint', id: fid('t-hint') }, 'mm:ss (or h:mm:ss) from phase start')));
+    add(fields, h('div', { class: 'field field--sm' }, h('label', { class: 'label', for: fid('t') }, 'Time offset in phase'), time, h('p', { class: 'hint', id: fid('t-hint') }, 'mm:ss (or h:mm:ss) from phase start')));
     if (s.kind === 'fluid' || s.kind === 'fluid_bolus' || s.kind === 'antibiotic') {
       const isRate = s.kind === 'fluid';
       const inp = h('input', { type: 'number', step: 'any', min: 0, id: fid(isRate ? 'r' : 'a'), class: 'input input--num', value: isRate ? s.rate : s.amount });
       inp.addEventListener('change', () => { const v = inp.value === '' ? NaN : Number(inp.value); if (isRate) s.rate = v; else s.amount = v; update(); });
-      fields.append(h('div', { class: 'field field--sm' }, h('label', { class: 'label', for: inp.id }, isRate ? 'Maintenance rate' : s.kind === 'fluid_bolus' ? 'Volume' : 'Dose', h('span', { class: 'unit' }, ` (${isRate ? 'mL/h' : s.amountUnit})`)), inp,
+      add(fields, h('div', { class: 'field field--sm' }, h('label', { class: 'label', for: inp.id }, isRate ? 'Maintenance rate' : s.kind === 'fluid_bolus' ? 'Volume' : 'Dose', h('span', { class: 'unit' }, ` (${isRate ? 'mL/h' : s.amountUnit})`)), inp,
         isRate ? h('p', { class: 'hint' }, '0 stops the maintenance infusion') : null));
     } else if (s.kind === 'bolus') {
       const amt = h('input', { type: 'number', step: 'any', min: 0, id: fid('a'), class: 'input input--num', value: s.amount });
       amt.addEventListener('change', () => { s.amount = amt.value === '' ? NaN : Number(amt.value); update(); });
       const over = h('input', { type: 'number', step: 'any', min: 0, id: fid('o'), class: 'input input--num', value: isNum(s.overSec) && s.overSec > 0 ? Math.round(s.overSec / 6) / 10 : '', placeholder: 'push' });
       over.addEventListener('change', () => { s.overSec = over.value === '' ? null : Number(over.value) * 60; update(); });
-      fields.append(
+      add(fields, 
         h('div', { class: 'field field--sm' }, h('label', { class: 'label', for: fid('a') }, s.loading ? 'Loading dose' : 'Dose', h('span', { class: 'unit' }, ` (${s.amountUnit})`)), amt),
         h('div', { class: 'field field--sm' }, h('label', { class: 'label', for: fid('o') }, 'Give over', h('span', { class: 'unit' }, ' (min)')), over, h('p', { class: 'hint' }, 'blank = push; ≥ 1 min runs as a timed infusion')));
     } else if (s.kind === 'stop' && s.phase === 'maintenance') {
       const be = h('input', { type: 'number', step: 'any', min: 0, id: fid('be'), class: 'input input--num', value: isNum(s.beforeEndSec) ? Math.round(s.beforeEndSec / 6) / 10 : '', placeholder: 'not anchored', 'aria-describedby': fid('be-hint') });
       be.addEventListener('change', () => { if (be.value === '') delete s.beforeEndSec; else s.beforeEndSec = Number(be.value) * 60; update(); });
-      fields.append(h('div', { class: 'field field--sm' }, h('label', { class: 'label', for: fid('be') }, 'Before end of surgery', h('span', { class: 'unit' }, ' (min)')), be,
+      add(fields, h('div', { class: 'field field--sm' }, h('label', { class: 'label', for: fid('be') }, 'Before end of surgery', h('span', { class: 'unit' }, ' (min)')), be,
         h('p', { class: 'hint', id: fid('be-hint') }, 'blank = at the time offset; a value = that many minutes before the planned end of surgery')));
     } else if (s.kind === 'infusion' || s.kind === 'inhaled') {
       const rate = h('input', { type: 'number', step: 'any', min: 0, id: fid('r'), class: 'input input--num', value: s.rate });
       rate.addEventListener('change', () => { s.rate = rate.value === '' ? NaN : Number(rate.value); delete s.prefillNote; update(); });
-      fields.append(h('div', { class: 'field field--sm' }, h('label', { class: 'label', for: fid('r') }, s.kind === 'inhaled' ? 'Dial setting' : 'Rate', h('span', { class: 'unit' }, ` (${s.rateUnit})`)), rate));
+      add(fields, h('div', { class: 'field field--sm' }, h('label', { class: 'label', for: fid('r') }, s.kind === 'inhaled' ? 'Dial setting' : 'Rate', h('span', { class: 'unit' }, ` (${s.rateUnit})`)), rate));
     }
     const up = h('button', { type: 'button', class: 'btn btn--icon', dataset: { move: s.uid, dir: '-1' }, disabled: idx === 0, 'aria-label': `Move ${drug.name} ${KIND_LABELS[s.kind]} up` }, '↑');
     const down = h('button', { type: 'button', class: 'btn btn--icon', dataset: { move: s.uid, dir: '1' }, disabled: idx === count - 1, 'aria-label': `Move ${drug.name} ${KIND_LABELS[s.kind]} down` }, '↓');
@@ -250,16 +250,16 @@ export function renderPlan(ctx, main) {
       clear(whyHost);
       const anchor = s.kind === 'stop' && isNum(s.beforeEndSec) ? h('p', { class: 'hint' }, h('strong', {}, 'Anchored: '), `runs ${Math.round(s.beforeEndSec / 6) / 10} min before the planned end of surgery (automatic demonstration: planned end − ${Math.round(s.beforeEndSec / 6) / 10} min; guided/manual: when End surgery is pressed, if not earlier).`) : null;
       const after = s.afterLoadingOf ? h('p', { class: 'hint' }, h('strong', {}, 'Anchored: '), `starts only when the ${getDrugById(lib, s.afterLoadingOf).name} loading dose has finished.`) : null;
-      whyHost.append(...[rationaleLine(s.timingRationale, { id: fid('why') }), anchor, after].filter(Boolean));
+      add(whyHost, ...[rationaleLine(s.timingRationale, { id: fid('why') }), anchor, after].filter(Boolean));
       const r = checkStep(c(), s, plan.steps);
       clear(info);
       const rec = r.rec;
       if (isFluidStep(s)) {
-        info.append(h('p', {}, h('strong', {}, `${drug.name}: `), `${drug.type}; ${fluidCompositionText(drug)} (approx., label) `, srcTags(drug.sources)),
+        add(info, h('p', {}, h('strong', {}, `${drug.name}: `), `${drug.type}; ${fluidCompositionText(drug)} (approx., label) `, srcTags(drug.sources)),
           h('p', { class: 'hint' }, `${drug.dosing} Default ${FLUID_MODEL.MAINTENANCE_DEFAULT_ML_H} mL/h; boluses ${FLUID_MODEL.ALLOWED_ML.join(' / ')} mL (simulator conventions). Maintenance continues across phases until changed. Same illustrative volume model for every fluid type.`));
-        if (lib.FLUID_EVIDENCE_NOTE) info.append(h('p', { class: 'note' }, lib.FLUID_EVIDENCE_NOTE.text, ' ', srcTags(lib.FLUID_EVIDENCE_NOTE.sources)));
+        if (lib.FLUID_EVIDENCE_NOTE) add(info, h('p', { class: 'note' }, lib.FLUID_EVIDENCE_NOTE.text, ' ', srcTags(lib.FLUID_EVIDENCE_NOTE.sources)));
       } else if (s.kind === 'antibiotic' && rec && !rec.locked) {
-        info.append(h('p', {}, h('strong', {}, 'Guideline dose: '), `${rec.dose.range.min === rec.dose.range.max ? rec.dose.value : `${rec.dose.range.min}–${rec.dose.range.max}`} ${rec.dose.unit}${rec.dose.perKg ? ` (${rec.dose.perKg.value} ${rec.dose.perKg.unit} × ${rec.weightUsedKg} kg ${rec.scalar})` : ''} `, srcTags(rec.sources)),
+        add(info, h('p', {}, h('strong', {}, 'Guideline dose: '), `${rec.dose.range.min === rec.dose.range.max ? rec.dose.value : `${rec.dose.range.min}–${rec.dose.range.max}`} ${rec.dose.unit}${rec.dose.perKg ? ` (${rec.dose.perKg.value} ${rec.dose.perKg.unit} × ${rec.weightUsedKg} kg ${rec.scalar})` : ''} `, srcTags(rec.sources)),
           h('p', { class: 'hint' }, h('strong', {}, 'Timing (guideline): '), rec.timing),
           ...rec.notes.map((n) => h('p', { class: 'note' }, h('strong', {}, 'Note: '), n)));
       } else if (rec && rec.available && !rec.locked) {
@@ -297,19 +297,19 @@ export function renderPlan(ctx, main) {
         if (s.prefillNote) lines.push(h('p', { class: 'note note--interlock' }, h('strong', {}, 'Interlock ceiling: '), s.prefillNote, ' ', srcTags([E.pythonConfig, ...(rec.sources || [])])));
         if (s.dialNote) lines.push(h('p', { class: 'hint' }, s.dialNote, ' ', srcTags(rec.rate ? rec.rate.ageAdjustedMac?.sources : [])));
         if (store.patientVersion !== s.filledFor) lines.push(h('p', { class: 'warn-text' }, 'Patient details changed after this dose was filled. Use “Re-fill all doses” to recompute.'));
-        info.append(...lines);
+        add(info, ...lines);
       } else if (s.kind === 'stop') {
-        info.append(h('p', { class: 'hint' }, `Stops ${drug.name} (${isInhaledDrug(drug) ? 'dial to 0 %' : 'infusion to 0'}) at this time.`));
+        add(info, h('p', { class: 'hint' }, `Stops ${drug.name} (${isInhaledDrug(drug) ? 'dial to 0 %' : 'infusion to 0'}) at this time.`));
       }
-      for (const w of r.warnings) info.append(h('p', { class: 'warn-text', role: 'note' }, h('span', { class: 'badge badge--warn' }, 'Out of range'), ' ', w));
+      for (const w of r.warnings) add(info, h('p', { class: 'warn-text', role: 'note' }, h('span', { class: 'badge badge--warn' }, 'Out of range'), ' ', w));
       for (const e of r.errors) {
         const p = h('p', { class: 'error-text' }, h('span', { class: 'badge badge--lock' }, 'Blocked'), ' ', e.text);
         if (e.fix) {
           const b = h('button', { type: 'button', class: 'btn btn--small' }, e.fix.label);
           b.addEventListener('click', () => { e.fix.apply(s); const ri = document.getElementById(fid(s.kind === 'bolus' || s.kind === 'fluid_bolus' || s.kind === 'antibiotic' ? 'a' : 'r')); if (ri) ri.value = s.kind === 'bolus' ? s.amount : s.rate; update(); announce('Value updated.'); });
-          p.append(' ', b);
+          add(p, ' ', b);
         }
-        info.append(p);
+        add(info, p);
       }
       card.classList.toggle('step-card--error', r.errors.length > 0);
       card.classList.toggle('step-card--warn', !r.errors.length && r.warnings.length > 0);
@@ -340,10 +340,10 @@ export function renderPlan(ctx, main) {
     // Lidocaine pretreatment before propofol (propofol label) is offered in the induction phase.
     if (ph === 'induction') {
       const lido = lib.DRUGS.find((d) => d.id === 'lidocaine' && d.regimens && d.regimens.pretreatment);
-      if (lido) { const rec = recommend(patient, 'pretreatment', 'lidocaine', lib); sel.append(h('optgroup', { label: 'Pretreatment (before propofol)' }, h('option', { value: 'lidocaine|pretreatment', disabled: rec.locked }, `Lidocaine pretreatment (propofol injection pain)${rec.locked ? ' — LOCKED' : ''}`))); }
+      if (lido) { const rec = recommend(patient, 'pretreatment', 'lidocaine', lib); add(sel, h('optgroup', { label: 'Pretreatment (before propofol)' }, h('option', { value: 'lidocaine|pretreatment', disabled: rec.locked }, `Lidocaine pretreatment (propofol injection pain)${rec.locked ? ' — LOCKED' : ''}`))); }
     }
-    const add = h('button', { type: 'button', class: 'btn', id: `pl-add-${ph}` }, 'Add');
-    add.addEventListener('click', () => {
+    const addBtn = h('button', { type: 'button', class: 'btn', id: `pl-add-${ph}` }, 'Add');
+    addBtn.addEventListener('click', () => {
       if (!sel.value) { sel.focus(); announce('Choose a drug first.'); return; }
       const [drugId, k] = sel.value.split('|');
       const { steps, reason } = makeSteps(c(), drugId, k, ph);
@@ -371,7 +371,7 @@ export function renderPlan(ctx, main) {
       stopRow = h('div', { class: 'inline-form' }, h('label', { class: 'sr-only', for: `pl-stop-${ph}` }, `Stop an infusion in ${phaseLabels()[ph]}`), ssel, sb);
     }
     return h('div', { class: 'picker' },
-      h('div', { class: 'inline-form' }, h('label', { class: 'sr-only', for: `pl-pick-${ph}` }, `Add a drug to ${phaseLabels()[ph]}`), sel, add),
+      h('div', { class: 'inline-form' }, h('label', { class: 'sr-only', for: `pl-pick-${ph}` }, `Add a drug to ${phaseLabels()[ph]}`), sel, addBtn),
       stopRow, fluidRow(ph), antibioticRow(ph),
       locked.length ? h('details', { class: 'locked-list' }, h('summary', {}, `${locked.length} locked for this patient`),
         h('ul', { class: 'list list--tight' }, locked.map(({ d, rec }) => h('li', {}, h('strong', {}, d.name), ': ', rec.lockReasons.join('; '), ' ', srcTags((rec.contraindications || []).filter((x) => x.severity === 'lock').flatMap((x) => x.sources).concat(sourcesInText(rec.lockReasons.join(' ')))))))) : null);
@@ -414,8 +414,8 @@ export function renderPlan(ctx, main) {
       const steps = plan.steps.filter((s) => s.phase === ph);
       const key = keyForPhase(ph, plan.sedationTarget);
       const list = h('ol', { class: 'step-list', 'aria-label': `${phaseLabels()[ph]} steps` });
-      steps.forEach((s, i) => { const cd = stepCard(s, i, steps.length); cards.push(cd); list.append(cd); });
-      phasesWrap.append(h('section', { class: 'card phase', id: `pl-phase-${ph}`, 'aria-labelledby': `pl-phase-${ph}-h` },
+      steps.forEach((s, i) => { const cd = stepCard(s, i, steps.length); cards.push(cd); add(list, cd); });
+      add(phasesWrap, h('section', { class: 'card phase', id: `pl-phase-${ph}`, 'aria-labelledby': `pl-phase-${ph}-h` },
         h('h3', { id: `pl-phase-${ph}-h` }, phaseLabels()[ph], ph === 'premed' ? h('span', { class: 'hint' }, ' (optional; runs from the start of the case)') : null),
         h('p', { class: 'hint' }, ph === 'sedation' ? `Uses ${REGIMEN_LABELS[key]} regimens.` : `Drugs with a sourced ${REGIMEN_LABELS[key]} regimen. Steps run at their time offset; list order breaks ties.`),
         steps.length ? list : h('p', { class: 'muted' }, 'No steps yet.'),
@@ -427,7 +427,7 @@ export function renderPlan(ctx, main) {
   function renderTimeline() {
     renderTiming();
     clear(timeline);
-    timeline.append(h('h3', { id: 'pl-tl-title' }, 'Phase timeline preview'));
+    add(timeline, h('h3', { id: 'pl-tl-title' }, 'Phase timeline preview'));
     const L = phaseLabels();
     for (const ph of phasesFor(plan.mode)) {
       const steps = plan.steps.filter((s) => s.phase === ph);
@@ -436,15 +436,15 @@ export function renderPlan(ctx, main) {
       for (let t = 0; t <= maxT; t += maxT > 1200 ? 300 : 60) {
         const tick = h('span', { class: 'tl-tick', dataset: { t: fmtClock(t) } });
         tick.style.left = `${(t / maxT) * 100}%`; // position from the numeric time, not by re-parsing the label
-        track.append(tick);
+        add(track, tick);
       }
       steps.forEach((s, i) => {
         const left = ((s.atSec || 0) / maxT) * 100;
         const m = h('span', { class: `tl-mark tl-mark--${s.kind}`, title: rationaleText(s.timingRationale) || null }, String(i + 1));
         m.style.left = `${Math.min(left, 97)}%`;
-        if (s.kind === 'infusion' || s.kind === 'inhaled' || (s.kind === 'fluid' && s.rate > 0)) { const bar = h('span', { class: 'tl-bar' }); bar.style.left = `${left}%`; bar.style.right = '0'; track.append(bar); }
-        if (s.kind === 'bolus' && isNum(s.overSec) && s.overSec >= 60) { const bar = h('span', { class: 'tl-bar tl-bar--timed' }); bar.style.left = `${left}%`; bar.style.width = `${(s.overSec / maxT) * 100}%`; track.append(bar); }
-        track.append(m);
+        if (s.kind === 'infusion' || s.kind === 'inhaled' || (s.kind === 'fluid' && s.rate > 0)) { const bar = h('span', { class: 'tl-bar' }); bar.style.left = `${left}%`; bar.style.right = '0'; add(track, bar); }
+        if (s.kind === 'bolus' && isNum(s.overSec) && s.overSec >= 60) { const bar = h('span', { class: 'tl-bar tl-bar--timed' }); bar.style.left = `${left}%`; bar.style.width = `${(s.overSec / maxT) * 100}%`; add(track, bar); }
+        add(track, m);
       });
       const legend = h('ol', { class: 'tl-legend' }, steps.map((s) => {
         const d = getDrugById(lib, s.drugId);
@@ -453,7 +453,7 @@ export function renderPlan(ctx, main) {
         return h('li', { title: rationaleText(s.timingRationale) || null }, h('span', { class: 'mono' }, at), ` ${d.name} ${what}`,
           s.timingRationale ? h('span', { class: 'tl-why hint' }, ` — ${s.timingRationale.text} (${s.timingRationale.provenance})`) : null);
       }));
-      timeline.append(h('div', { class: 'tl-row' }, h('div', { class: 'tl-label' }, L[ph]), track, steps.length ? legend : h('p', { class: 'hint' }, 'No steps')));
+      add(timeline, h('div', { class: 'tl-row' }, h('div', { class: 'tl-label' }, L[ph]), track, steps.length ? legend : h('p', { class: 'hint' }, 'No steps')));
     }
   }
 
@@ -472,7 +472,7 @@ export function renderPlan(ctx, main) {
 
   function renderSummary() {
     const iss = planIssues(c(), plan);
-    clear(summary).append(
+    fill(summary, 
       h('p', {}, h('strong', {}, `${plan.steps.length} step(s)`), ' · ',
         iss.errors ? h('span', { class: 'error-text' }, `${iss.errors} blocking issue(s)`) : h('span', {}, 'no blocking issues'), ' · ',
         iss.warnings ? h('span', { class: 'warn-text' }, `${iss.warnings} warning(s)`) : 'no warnings',
@@ -484,9 +484,9 @@ export function renderPlan(ctx, main) {
     if (stale) {
       const b = h('button', { type: 'button', class: 'btn btn--small' }, 'Re-fill all doses for the current patient');
       b.addEventListener('click', () => { for (const s of plan.steps) refillStep(c(), s); ctx.planChanged(); renderAll(); announce('All doses re-filled from the drug library.'); });
-      notice.append(h('p', { class: 'notice notice--warn' }, 'The patient changed after some doses were auto-filled. ', b));
+      add(notice, h('p', { class: 'notice notice--warn' }, 'The patient changed after some doses were auto-filled. ', b));
     }
-    if (store.planNotice) notice.append(h('p', { class: 'notice' }, store.planNotice));
+    if (store.planNotice) add(notice, h('p', { class: 'notice' }, store.planNotice));
     // Lockout removed the only maintenance hypnotic (engine/plan-safety.js): blocking; never fixed automatically.
     const gap = iss.hypnoticGap;
     if (gap) {
@@ -500,9 +500,9 @@ export function renderPlan(ctx, main) {
           ctx.planChanged(); renderAll(); announce(r.message, !r.ok);
           const card = r.added[0] && document.getElementById(`card-${r.added[0].uid}`); if (card) card.scrollIntoView({ block: 'center' });
         });
-        box.append(h('p', { class: 'hint' }, 'Adds the propofol maintenance infusion from the drug library (label regimen, auto-filled like any step) at maintenance +0:00 and its stop at emergence. Nothing is changed until you press it; review the step afterwards.'), b);
+        add(box, h('p', { class: 'hint' }, 'Adds the propofol maintenance infusion from the drug library (label regimen, auto-filled like any step) at maintenance +0:00 and its stop at emergence. Nothing is changed until you press it; review the step afterwards.'), b);
       }
-      notice.append(box);
+      add(notice, box);
     }
   }
 
@@ -515,7 +515,7 @@ export function renderPlan(ctx, main) {
     renderPhases(); renderTimeline(); renderSummary();
   }
 
-  clear(main).append(
+  fill(main, 
     h('div', { class: 'step-head' },
       h('h2', { id: 'step-title', tabindex: '-1' }, '3 · Anesthetic plan'),
       h('p', { class: 'muted' }, 'Doses are auto-filled from the drug library for this patient. Every value shows its sourced range, the weight scalar used and its source. Defaults are a simulator convention, not a recommendation.')),
