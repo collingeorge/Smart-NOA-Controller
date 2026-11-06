@@ -290,6 +290,8 @@ try {
       inject: (id) => (store.sim ? JSON.parse(JSON.stringify(store.sim.inject(id))) : null),
       /** Advisory record (engine/rescue.js), plain data. */
       advisories: () => (store.sim ? JSON.parse(JSON.stringify(store.sim.summary().advisories)) : null),
+      /** Depth-low advisory record (engine/depth-advisory.js), plain data. */
+      depthAdvisories: () => (store.sim ? JSON.parse(JSON.stringify(store.sim.summary().depthAdvisories)) : null),
       /** Palliative modules: plain-data snapshot, step-driven clock, synchronous advance by `min` simulated minutes. */
       pal: () => palSnapshot(),
       palTestClock: (on) => { pal.testClock = !!on; return pal.testClock; },

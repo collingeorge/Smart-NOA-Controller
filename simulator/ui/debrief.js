@@ -49,6 +49,7 @@ export function renderDebrief(ctx, main) {
       h('p', { class: 'muted' }, `Simulated duration ${fmtClock(s.durationSec)} · ${sim.plan.mode === 'GA' ? 'general anaesthesia' : `MAC (${sim.plan.sedationTarget})`} · interlocks ${store.interlocks ? 'on' : 'off'} · seed ${sim.seed}. ${s.modelNote}`)),
     autoCard(s.automatic),
     advisoryDebrief(s.advisories),
+    depthAdvisoryDebrief(s.depthAdvisories, s.depthOutOfBandSec),
     h('div', { class: 'grid grid--4 stats' },
       stat('Time MAP < 65 mmHg', fmtClock(s.timeMapBelow65Sec)),
       stat('Minimum SpO2', isNum(s.minSpo2) ? `${s.minSpo2} %` : '—'),
@@ -128,6 +129,21 @@ function advisoryDebrief(A) {
       h('span', { class: 'mono' }, fmtClock(x.shownAtSec)), ` ${x.id} — ${x.kind === 'hypotension' ? `MAP ${x.map}, HR ${x.hr}: suggested ${x.name} ${x.amount} ${x.unit} IV bolus ` : `MAP ${x.map}: high-MAP advice (text only, no drug) `}`,
       x.sources.length ? srcTags(x.sources) : null,
       ` — ${ADV_STATUS[x.status] || x.status}${x.resolvedAtSec !== null ? ` at ${fmtClock(x.resolvedAtSec)}` : ''}${x.note && x.status !== 'accepted' && x.status !== 'dismissed' ? ` (${x.note})` : ''}`))) : h('p', { class: 'hint' }, 'No advisory was shown in this case.'));
+}
+
+const DEPTH_STATUS = { shown: 'shown (open at the end)', dismissed: 'dismissed by the clinician', expired: 'ended' };
+/** Depth-low advisory (engine/depth-advisory.js; text only): every card shown / dismissed, with times, and total time below the band. */
+function depthAdvisoryDebrief(D, outOfBandSec) {
+  if (!D || !D.used) return null;
+  const [lo, hi] = D.band;
+  return h('section', { class: 'card', id: 'db-depth-advisories' }, h('h3', {}, 'Advisory: depth index below the GA band'),
+    h('p', {}, `Shown ${D.shown} · dismissed ${D.dismissed} · time below the band (${lo}) during GA maintenance after incision: `, h('strong', { id: 'db-depth-below' }, fmtClock(D.totalBelowBandSec)),
+      isNum(outOfBandSec) ? ` (time outside ${lo}–${hi} in either direction: ${fmtClock(outOfBandSec)}). ` : '. ',
+      `Shown after ≥ ${D.sustainSec} s below ${lo}; ends at ≥ ${D.clearAt} (simulator conventions). ${D.note} Band `, srcTags(D.entries.length ? D.entries[0].sources : []), '.'),
+    D.entries.length ? h('ol', { class: 'list list--tight', id: 'db-depth-advisory-list' }, D.entries.map((x) => h('li', { dataset: { status: x.status } },
+      h('span', { class: 'mono' }, fmtClock(x.shownAtSec)), ` ${x.id} — index ${x.index} below the GA band (text only, no dose changed) — ${DEPTH_STATUS[x.status] || x.status}${x.resolvedAtSec !== null ? ` at ${fmtClock(x.resolvedAtSec)}` : ''}`,
+      x.endedAtSec !== null ? `; episode ended at ${fmtClock(x.endedAtSec)}${x.note && x.status === 'expired' ? ` (${x.note})` : ''}` : '',
+      x.episodeSec !== null ? `; below the band ${fmtClock(x.episodeSec)} in this episode` : ''))) : h('p', { class: 'hint' }, 'No depth-index advisory was shown in this case.'));
 }
 
 function fluidsCard(F, p) {

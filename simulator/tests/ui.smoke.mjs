@@ -702,6 +702,73 @@ test('simulator UI smoke', { skip, timeout: 900000 }, async (t) => {
       assert.ok(await page.locator('#db-advisory-list li[data-status="accepted"]').count() === 1);
     });
 
+    await t.test('depth-low advisory (text only): sustained index < 40 in a GA run shows the card (Run + panel), Dismiss logs, no alarm/pause, debrief lists it, phone width', async () => {
+      await loadCase(page, 'healthy_adult'); await toRun(page);
+      assert.ok(await page.locator('#dadv').isHidden(), 'no depth advisory before the case');
+      await page.click('#auto-full');
+      let s = await lite(page); const t0 = s.t;
+      while (!(await page.isVisible('#dadv'))) {
+        if (s.auto && s.auto.state === 'paused') { await userResolvesPause(page); s = await lite(page); continue; }
+        if (s.auto && ['stopped', 'manual', 'completed'].includes(s.auto.state)) throw new Error(`runner ${s.auto.state} before the depth advisory`);
+        if (s.t - t0 > 6000) throw new Error('depth advisory not shown within 6000 simulated s');
+        s = await adv(page, 10);
+      }
+      const x = await snap(page);
+      assert.equal(x.sim.phase, 'maintenance'); assert.ok(x.sim.v.depthIndex < 42, `index ${x.sim.v.depthIndex}`);
+      assert.ok(x.periop && x.periop.depthAck, 'after the pre-incision acknowledgement (gate unchanged)');
+      assert.equal(await page.getAttribute('#dadv', 'role'), 'region');
+      assert.equal(await page.getAttribute('#dadv-headline', 'aria-live'), 'polite');
+      assert.equal(await page.getAttribute('#auto-dadv-headline', 'aria-live'), 'off', 'only one copy announces');
+      assert.ok(await page.isVisible('#auto-dadv'), 'guided/automatic panel copy');
+      assert.match(await page.textContent('#dadv-headline'), /^Depth index \d+ below the GA target band \(40–60\) for ≥ 120 s — the anaesthetic may be deeper than needed\.$/);
+      assert.match(await page.textContent('#dadv-foot'), /Advisory only — the simulator never changes a dose by itself\. Simulated index \(illustrative\); the 40–60 band is the protocol target used in B-Unaware\/BAG-RECALL/);
+      for (const id of ['S52', 'S53']) assert.ok(await page.locator('#dadv-foot .src-tag', { hasText: id }).count(), id);
+      const card = await page.textContent('#dadv');
+      assert.ok(!/\d\s*(mg|mcg|mL\/h|%)/.test(card), `no dose/rate/percentage in the card: ${card}`);
+      assert.equal(await page.locator('#dadv button:not(.src-tag)').count(), 1, 'Dismiss is the only control');
+      assert.ok(!x.sim.alarms.some((a) => /depth_low/.test(a.id)), 'no alarm added');
+      assert.equal((await lite(page)).auto.state, 'running', 'not paused by the advisory');
+      let log = (await simLog(page)).map((e) => e.message);
+      assert.ok(log.some((m) => /^ADVISORY shown: DEPTH-1 — processed-EEG depth index \d+ below the GA target band/.test(m)));
+      await page.setViewportSize({ width: 390, height: 844 });
+      assert.ok(await noHScroll(page), 'depth advisory card at 390 px'); await shot(page, 'phone-depth-advisory.png', false);
+      await page.setViewportSize({ width: 1280, height: 900 });
+      await page.click('#dadv-dismiss');
+      log = (await simLog(page)).map((e) => e.message);
+      assert.ok(log.some((m) => /^ADVISORY dismissed by the clinician: DEPTH-1 \(depth index below the GA band; text only, no dose changed\)\./.test(m)));
+      assert.ok(await page.isHidden('#dadv')); assert.ok(await page.isHidden('#auto-dadv'));
+      assert.ok((await lite(page)).auto, 'Dismiss does not end automatic mode');
+      const rec = await page.evaluate(() => window.__smartNoa.depthAdvisories());
+      assert.equal(rec.dismissed, 1); assert.ok(rec.shown >= 1);
+      await waitAuto(page, (y) => y.state === 'completed', { label: 'full healthy GA complete' });
+      await page.click('#mon-debrief'); await page.waitForSelector('#db-depth-advisories');
+      assert.match(await page.textContent('#db-depth-advisories'), /Shown \d+ · dismissed 1 · time below the band \(40\)/);
+      assert.ok(await page.locator('#db-depth-advisory-list li[data-status="dismissed"]').count() === 1);
+      assert.match(await page.textContent('#db-depth-below'), /^\d{2}:\d{2}/);
+      await page.setViewportSize({ width: 390, height: 844 });
+      assert.ok(await noHScroll(page), 'debrief at 390 px');
+      await page.setViewportSize({ width: 1280, height: 900 });
+    });
+
+    await t.test('depth-low and hypotension advisories together: both cards shown, each names the other', async () => {
+      await loadCase(page, 'healthy_adult'); await toRun(page);
+      await adv(page, 760);
+      await page.selectOption('#aw-fio2', '1'); await page.click('#aw-fio2-set');
+      await page.click('#ph-induction'); await page.click('#aw-mask');
+      await advanceUntil(page, (x) => x.v.tofCount === 0 && x.v.depthIndex < 60, { maxSec: 900, label: 'paralysis + depth' });
+      await page.click('#ph-secure'); await page.click('#ph-maintenance'); await page.click('#ph-surgery');
+      for (let i = 0; i < 300 && !(await page.isVisible('#dadv')); i++) await adv(page, 5);
+      assert.ok(await page.isVisible('#dadv'), 'depth advisory in manual GA after incision');
+      await page.selectOption('#cx-select', 'hemorrhage'); await page.click('#cx-inject');
+      for (let i = 0; i < 300 && !((await page.isVisible('#adv')) && (await page.isVisible('#dadv')) && /hypotension/.test(await page.getAttribute('#adv', 'data-kind') || '')); i++) await adv(page, 5);
+      assert.ok(await page.isVisible('#adv') && await page.isVisible('#dadv'), 'both cards visible');
+      assert.match(await page.textContent('#adv-cross'), /depth-index advisory is also shown/);
+      assert.match(await page.textContent('#dadv-cross'), /haemodynamic rescue advisory is also shown/);
+      await page.setViewportSize({ width: 390, height: 844 });
+      assert.ok(await noHScroll(page), 'both cards at 390 px'); await shot(page, 'phone-both-advisories.png', false);
+      await page.setViewportSize({ width: 1280, height: 900 });
+    });
+
     await t.test('example plans show "Why this time" rationale', async () => {
       await loadCase(page, 'obese_osa');
       await page.click('#pf-continue'); await page.waitForSelector('#as-continue');

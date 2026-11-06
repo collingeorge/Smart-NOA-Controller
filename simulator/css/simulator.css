@@ -446,4 +446,8 @@ select.input { padding-right: 1.8rem; }
 .advisory__countdown { margin: .2rem 0; color: #ffe9a6; }
 .advisory__suggestion p { margin: .2rem 0; }
 .advisory .btn-row .btn { white-space: normal; max-width: 100%; }
+/* Advisory: depth index below the GA band (ui/advisory.js depthAdvisoryCard; text only) */
+.advisory--depth { border-color: #c9b8ff; }
+.advisory__cross { margin: .3rem 0; padding: .3rem .5rem; border-left: 3px solid #c1a36c; }
+.advisory__foot { margin: .4rem 0 .2rem; }
 .auto-panel .btn-row .btn { white-space: normal; max-width: 100%; }

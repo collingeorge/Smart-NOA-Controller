@@ -25,7 +25,7 @@ Compiled 2026-11-05 (branch `autorun-2026-11`), after the November 2026 timing p
 | no published timing | 25 |
 | **total** | **55** |
 
-**Added after this check (November 2026, section G, rows 56–63; row 64 added with the final-check fixes):** advisory rescue and MAC sedation-titration timings — agrees 3, no published timing 5 (all simulator conventions). The counts above cover rows 1–55 only; no row 1–55 was changed. Sources for rows 56–60 are the existing registry records (S18, S19); no new search was made for them.
+**Added after this check (November 2026, section G, rows 56–63; row 64 added with the final-check fixes; row 65 with the depth-low advisory):** advisory rescue and MAC sedation-titration timings (rows 56–63) — agrees 3, no published timing 5 (all simulator conventions); rows 64–65 (depth-high alarm, depth-low advisory) — no published timing 2 (simulator conventions). The counts above cover rows 1–55 only; no row 1–55 was changed. Sources for rows 56–60 are the existing registry records (S18, S19); no new search was made for them.
 
 **The one conflict:** `mac_propofol` template and the MAC example plan (`mac_obese_osa`) started the propofol MAC-sedation initiation at sedation +2:00 — the moment the midazolam injection (given over ≥ 2 min) ends, before its effect could be evaluated. Midazolam label: give over at least 2 minutes and wait an additional 2 or more minutes to fully evaluate the sedative effect [S17]; ASA 2018 moderate-sedation guideline: allow sufficient time between doses to assess the effect of each [S32]. **Fix:** propofol initiation now starts at +4:00 (maintenance at +9:00), recorded as `TIMING_CONFIG.MAC_SEDATIVE_AFTER_MIDAZOLAM_SEC` = 240 s (provenance label, S17/S32); test T2 checks the template, the example plan and the config value agree. No dose changed.
 
@@ -133,6 +133,7 @@ Plan/live checks that re-use rows above (PONV, antibiotic window/redose, reversa
 | 62 | Guided titration: reassessment after an infusion-rate step | 180 s (`AUTORUN_CONFIG.SEDATION_TITRATION_REASSESS_SEC`) | ASA 2018 moderate sedation [S32]: allow sufficient time between doses to assess the effect of each *(summary; no number)*; propofol label [S11] gives no titration interval. | no published timing | simulator convention | none |
 | 63 | Full demonstration: pause when sedation stays below the target | 300 s after the last sedation plan step (`SEDATION_BELOW_TARGET_PAUSE_SEC`) | None. | no published timing | simulator convention | none |
 | 64 | Depth-high (awareness-risk) alarm: sustain duration | index > 60 (GA band upper bound, row 28) for ≥ 60 s during GA with the airway secured (`TIMING_CONFIG.DEPTH_HIGH_ALARM_SUSTAIN_SEC`; clears at ≤ 58, `DEPTH_HIGH_ALARM_CLEAR`) — added in the final-check fixes, November 2026 | None for this use; the band is from B-Unaware [S52] / BAG-RECALL [S53] (row 28), the duration is not. | no published timing | simulator convention | none |
+| 65 | Depth-low advisory (text only, not an alarm): sustain duration | index < 40 (GA band lower bound, row 28) for ≥ 120 s during GA maintenance after incision with the airway secured (`TIMING_CONFIG.DEPTH_LOW_ADVISORY_SUSTAIN_SEC`; ends at ≥ 42, `DEPTH_LOW_ADVISORY_CLEAR`) — added November 2026 (owner-approved, instead of recalibrating the illustrative depth model) | None for this use; the band is from B-Unaware [S52] / BAG-RECALL [S53] (row 28), the duration and hysteresis are not. No new search was made. | no published timing | simulator convention | none |
 
 ## Sources verified in this check, and what could not be accessed
 
@@ -212,3 +213,4 @@ Reviewer: ______________________  Credential: ________  Date: __________
 | 62 | Guided titration: 180-s reassessment after a rate step | [ ] | [ ] | |
 | 63 | Full demonstration pauses 300 s after the last sedation step if below target | [ ] | [ ] | |
 | 64 | Depth-high alarm: index > 60 for ≥ 60 s (convention) | [ ] | [ ] | |
+| 65 | Depth-low advisory: index < 40 for ≥ 120 s, ends at ≥ 42 (convention; text only) | [ ] | [ ] | |

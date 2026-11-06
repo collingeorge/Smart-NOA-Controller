@@ -135,6 +135,7 @@ class Simulation {
     this.executed = new Map();
     this.autoRun = null; // set by engine/autorun.js while/after an automatic or guided run
     this.rescueAdvisor = null; // set by engine/rescue.js createRescueAdvisor(); advisory only, never doses
+    this.depthAdvisor = null; // set by engine/depth-advisory.js createDepthAdvisor(); text only, never doses, not an alarm
     this.stats = { depthOutOfBandSec: 0, timeMapBelow65Sec: 0, minSpo2: Infinity, maxHr: -Infinity, minHr: Infinity, maxMap: -Infinity, minMap: Infinity, interlockEvents: [], extubation: null };
     this.maskVentSec = 0;
     this.depots = [];
@@ -713,6 +714,8 @@ class Simulation {
     // Advisory haemodynamic rescue (engine/rescue.js): re-evaluated after each step; it only records
     // what is shown — a dose is given only by the clinician's explicit accept().
     if (this.rescueAdvisor && typeof this.rescueAdvisor.update === 'function') this.rescueAdvisor.update();
+    // Depth-low advisory (engine/depth-advisory.js): text only; records what is shown, changes nothing.
+    if (this.depthAdvisor && typeof this.depthAdvisor.update === 'function') this.depthAdvisor.update();
     return this.state;
   }
 
@@ -1134,6 +1137,7 @@ class Simulation {
       lidocaine: this.state.drugs.lidocaine ? { totalMg: roundSig(this.state.drugs.lidocaine.cumulative), perKgIbw: roundSig(this.state.drugs.lidocaine.cumulative / scalarWeight(this.patient, 'IBW').weightKg, 3), pretreatmentMg: roundSig(this.lido.pretreatAt.reduce((a, x) => a + (x.amount || 0), 0)), pretreatmentDoses: this.lido.pretreatAt.length, overlapWarning: this.lido.warned } : null,
       automatic: this.autoRun && typeof this.autoRun.record === 'function' ? this.autoRun.record() : { used: false },
       advisories: this.rescueAdvisor && typeof this.rescueAdvisor.record === 'function' ? this.rescueAdvisor.record() : { used: false, shown: 0, accepted: 0, dismissed: 0, entries: [] },
+      depthAdvisories: this.depthAdvisor && typeof this.depthAdvisor.record === 'function' ? this.depthAdvisor.record() : { used: false, shown: 0, dismissed: 0, entries: [] },
       modelNote: 'Illustrative model output — educational simulation, fictional patient; not a medical device.',
     };
   }
