@@ -134,6 +134,9 @@ Plan/live checks that re-use rows above (PONV, antibiotic window/redose, reversa
 | 63 | Full demonstration: pause when sedation stays below the target | 300 s after the last sedation plan step (`SEDATION_BELOW_TARGET_PAUSE_SEC`) | None. | no published timing | simulator convention | none |
 | 64 | Depth-high (awareness-risk) alarm: sustain duration | index > 60 (GA band upper bound, row 28) for ≥ 60 s during GA with the airway secured (`TIMING_CONFIG.DEPTH_HIGH_ALARM_SUSTAIN_SEC`; clears at ≤ 58, `DEPTH_HIGH_ALARM_CLEAR`) — added in the final-check fixes, November 2026 | None for this use; the band is from B-Unaware [S52] / BAG-RECALL [S53] (row 28), the duration is not. | no published timing | simulator convention | none |
 | 65 | Depth-low advisory (text only, not an alarm): sustain duration | index < 40 (GA band lower bound, row 28) for ≥ 300 s (was 120 s in 05k; lengthened in 05l to limit alert fatigue) during GA maintenance after incision with the airway secured (`TIMING_CONFIG.DEPTH_LOW_ADVISORY_SUSTAIN_SEC`; ends at ≥ 42, `DEPTH_LOW_ADVISORY_CLEAR`) — added November 2026 (owner-approved, instead of recalibrating the illustrative depth model) | None for this use; the band is from B-Unaware [S52] / BAG-RECALL [S53] (row 28), the duration and hysteresis are not. No new search was made. | no published timing | simulator convention | none |
+| 66 | Repeat phenylephrine IV bolus | ≥ 60 s after the previous one (`TIMING_CONFIG.PHENYLEPHRINE_REPEAT_MIN_SEC`; a planned repeat waits, a manual one is warned and recorded) — added November 2026 (emergency-rescue stress matrix) | Biorphen label [S18] as recorded in the source registry: additional boluses every 1–2 min as needed (same statement as the advisory interval, row 56). No new search was made. | agrees (lower bound) | label-stated | none |
+| 67 | Repeat glycopyrrolate IV bolus (intraoperative) | ≥ 120 s after the previous one outside emergence (`GLYCOPYRROLATE_RESCUE_REPEAT_MIN_SEC`) — added November 2026 | Glycopyrrolate label [S8] as recorded in the source registry: intraoperative 0.1 mg IV, repeated as needed at 2–3 min intervals. No new search was made. | agrees (lower bound) | label-stated | none |
+| 68 | Repeat IM/SC epinephrine injection | ≥ 300 s after the previous IM/SC injection (`EPINEPHRINE_IM_REPEAT_MIN_SEC`; IV boluses not gated) — added November 2026 | Epinephrine label [S40] as recorded in the source registry: anaphylaxis 0.3–0.5 mg IM/SC, repeated every 5 to 10 minutes as necessary. IV: UK perioperative guidance [S44, S45] gives "titrated to effect", no interval. No new search was made. | agrees (lower bound) | label-stated | none |
 
 ## Sources verified in this check, and what could not be accessed
 
@@ -214,3 +217,6 @@ Reviewer: ______________________  Credential: ________  Date: __________
 | 63 | Full demonstration pauses 300 s after the last sedation step if below target | [ ] | [ ] | |
 | 64 | Depth-high alarm: index > 60 for ≥ 60 s (convention) | [ ] | [ ] | |
 | 65 | Depth-low advisory: index < 40 for ≥ 300 s, ends at ≥ 42 (convention; text only) | [ ] | [ ] | |
+| 66 | Repeat phenylephrine bolus ≥ 60 s (label lower bound) | [ ] | [ ] | |
+| 67 | Repeat glycopyrrolate bolus ≥ 120 s outside emergence (label lower bound) | [ ] | [ ] | |
+| 68 | Repeat IM/SC epinephrine ≥ 5 min (label lower bound) | [ ] | [ ] | |

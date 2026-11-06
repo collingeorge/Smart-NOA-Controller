@@ -347,7 +347,7 @@ class Simulation {
       const rtw = this._runtimeWarnings(drug, { amount: amt });
       warnings.push(...rtw);
       // State-gated repeat bolus (timing.js): a planned step never gets here while held; a manual dose is warned and recorded.
-      const hold = meta.source === 'plan' ? null : repeatBolusHold(this, drug.id);
+      const hold = meta.source === 'plan' ? null : repeatBolusHold(this, drug.id, route);
       if (hold) { warnings.push(`Repeat-bolus condition not met: ${hold.reason} [${hold.sources.join(', ')}]`); this.timingHolds.push({ tSec: this.state.tSec, drugId: drug.id, manual: true, reason: hold.reason, sources: hold.sources }); }
       if (drug.id === 'sugammadex' && rtw.some((x) => /tier for the current block/.test(x))) this.alarmMgr.pulse(this.state.tSec, 'sugammadex_dose', 'medium', `Sugammadex dose below the label tier for the current block depth (see log)`);
       const rc = this._rangeCheck(drug, 'bolus', amt, drug.amountUnit);
@@ -359,7 +359,7 @@ class Simulation {
       else if (overSec) this.timed.push({ drugId: drug.id, perMin: amt / (overSec / 60), remaining: amt });
       else { model.model.bolus(amt); ds.cumulative += amt; }
       if (drug.id === 'rocuronium') this.lastRocBolus = { tSec: this.state.tSec, perKg: amt / this.patient.weightKg };
-      this._doseLog(drug, { kind: 'bolus', regimenKey: cmd.regimenKey || null, amount: amt, overSec, tierWarning: rtw.find((x) => /tier for the current block/.test(x)) || null }, meta);
+      this._doseLog(drug, { kind: 'bolus', regimenKey: cmd.regimenKey || null, amount: amt, route, overSec, tierWarning: rtw.find((x) => /tier for the current block/.test(x)) || null }, meta);
       if (drug.id === 'lidocaine') { const w = this._lidocaineOverlap(cmd.regimenKey === LIDOCAINE_RULES.PRETREATMENT_REGIMEN ? 'pretreatment' : 'analgesic', amt); if (w) warnings.push(w); }
       this._onDrugGiven(drug);
       this._log('dose', `${drug.name} ${roundSig(amt)} ${drug.amountUnit} ${route === 'IV' ? 'bolus' : `${route} injection (illustrative absorption)`}${overSec ? ` over ${Math.round(overSec / 60)} min` : ''}${meta.source === 'plan' ? ' (plan)' : ''}${warnings.length ? ` — warnings: ${warnings.join('; ')}` : ''}`);
@@ -753,7 +753,8 @@ class Simulation {
         continue;
       }
       if (s.kind === 'bolus') {
-        const hold = repeatBolusHold(this, s.drugId);
+        const d0 = getDrug(lib, s.drugId);
+        const hold = repeatBolusHold(this, s.drugId, s.route || (d0 && Array.isArray(d0.bolusRoutes) && d0.bolusRoutes[0]) || 'IV');
         if (hold) {
           if (!this.waiting.has(s.id)) { this.waiting.set(s.id, hold.reason); this.timingHolds.push({ tSec: t, drugId: s.drugId, manual: false, reason: hold.reason, sources: hold.sources }); this._log('dose', `Plan step held: ${getDrug(lib, s.drugId) ? getDrug(lib, s.drugId).name : s.drugId} — ${hold.reason} [${hold.sources.join(', ')}]`); }
           else this.waiting.set(s.id, hold.reason);
