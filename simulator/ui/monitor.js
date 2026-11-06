@@ -1,5 +1,5 @@
 // Step 4 — Run: HMI monitor dashboard driving sim.step() from requestAnimationFrame.
-import { h, clear, setText, fmtClock, fmtNum, isNum, announce } from './dom.js';
+import { h, clear, setText, fmtClock, fmtNum, isNum, announce, reconcileKeyed, setChildrenIf } from './dom.js';
 import { recommend, regimenKeyForPhase } from '../engine/dosing.js';
 import { SCENARIOS } from '../data/scenarios.js';
 import { drawChart, SERIES_COLORS, WINDOW_SEC } from './charts.js';
@@ -12,7 +12,7 @@ import { createAutoRunner, BANNERS, MODE_LABELS } from '../engine/autorun.js';
 import { FLUID_MODEL } from '../engine/sim.js';
 import { selectProphylaxis } from '../engine/prophylaxis.js';
 import { TIMING_CONFIG, PREMED_TO_INDUCTION_MIN_SEC, premedStatus } from '../engine/timing.js';
-import { timingCheckItems } from './timing-view.js';
+import { timingCheckItem, updateTimingCheckItem } from './timing-view.js';
 import { createRescueAdvisor } from '../engine/rescue.js';
 import { advisoryCard, depthAdvisoryCard } from './advisory.js';
 import { createDepthAdvisor } from '../engine/depth-advisory.js';
@@ -515,8 +515,9 @@ export function renderMonitor(ctx, main) {
       const isig = items.map((x) => `${x.id}${x.met}${x.detail}`).join('|');
       if (autoCkList.dataset.sig !== isig) {
         autoCkList.dataset.sig = isig;
-        clear(autoCkList).append(...items.map((x) => h('li', { class: x.met ? 'ready--met' : 'ready--no', dataset: { item: x.id, met: String(x.met) } }, h('span', { class: 'ready__mark', 'aria-hidden': 'true' }, x.met ? '✓' : '✗'),
-          h('span', {}, h('span', { class: 'sr-only' }, x.met ? 'Met: ' : 'Not met: '), x.label, ` — ${x.detail} `, x.sources.length ? srcTags(x.sources) : h('span', { class: 'badge badge--illustrative' }, 'convention')))));
+        // Keyed (audit 05l): the live detail (e.g. the depth index) changes every render; the source-tag
+        // buttons and items persist, only texts change.
+        reconcileKeyed(autoCkList, items, { key: (x) => x.id, create: checkItem, update: updateCheckItem });
       }
       const need = (id) => items.some((x) => x.id === id && !x.met && (x.clinician || id === 'antibiotic'));
       autoTimeOut.hidden = !items.some((x) => x.id === 'time_out' && !x.met); autoDepthAck.hidden = !need('depth'); autoAbxGive.hidden = !need('antibiotic');
@@ -532,7 +533,8 @@ export function renderMonitor(ctx, main) {
     }
     if (active && run.auto) {
       const tc = run.auto.timingChecks(); const tsig = tc.map((x) => `${x.id}${x.status}${x.message}`).join('|');
-      if (autoTiming.dataset.sig !== tsig) { autoTiming.dataset.sig = tsig; clear(autoTiming).append(...(tc.length ? timingCheckItems(tc) : [h('li', { class: 'hint' }, 'No timing events yet.')])); }
+      if (autoTiming.dataset.sig !== tsig) { autoTiming.dataset.sig = tsig; const seen = {}; const keyed = tc.map((x) => ({ x, k: `${x.id}#${seen[x.id] = (seen[x.id] || 0) + 1}` })); // ids repeat (repeat_bolus, stop_before_end)
+        reconcileKeyed(autoTiming, keyed, { key: (y) => y.k, create: timingCheckItem, update: (it, y) => updateTimingCheckItem(it, y.x), empty: () => h('li', { class: 'hint' }, 'No timing events yet.') }); }
     }
     autoTimingBox.hidden = !active;
     const unmet = st.state === 'stopped' ? st.unmetAtStop : active && c && !c.conditionsMet ? c.unmet : [];
@@ -710,7 +712,7 @@ export function renderMonitor(ctx, main) {
       setText(readyHead, r.ready ? '✓ All criteria met' : `✗ Not ready — ${r.criteria.filter((c) => !c.met).length} criterion/criteria not met`);
       readyHead.className = `ready-head ${r.ready ? 'ready-head--ok' : 'ready-head--no'}`;
       const sig = r.criteria.map((c) => `${c.id}${c.met}${JSON.stringify(c.value)}`).join('|');
-      if (sig !== readyList.dataset.sig) { readyList.dataset.sig = sig; clear(readyList).append(...r.criteria.map((c) => readinessItem(c))); }
+      if (sig !== readyList.dataset.sig) { readyList.dataset.sig = sig; reconcileKeyed(readyList, r.criteria, { key: (c) => c.id, create: readinessItem, update: updateReadinessItem }); }
     }
     renderAuto();
     const av = advisor.view(); const dv = depthAdvisor.view();
@@ -748,6 +750,33 @@ export function renderMonitor(ctx, main) {
     setText(abxState, `${ck.indicated ? 'Indicated for this plan.' : 'Not marked as indicated for this plan.'} ${last ? `Last dose: ${(getDrugById(lib, last.drugId) || {}).name} ${last.amount} ${last.unit} at ${fmtClock(last.tSec)}.` : 'No dose given.'}${red.length ? ` Next redose: ${red.map((x) => `${x.name} at ${fmtClock(x.dueAtSec)}`).join('; ')}.` : ''}${P.window ? ` At incision: ${P.window.ok ? 'in window' : 'NOT in window'} (${P.window.message}).` : ''}`);
   }
 
+  // Keyed reconciliation (audit 05l, finding 2; dom.js reconcileKeyed): one persistent <li> per alarm id.
+  // Texts are updated in place and items are added/removed only when the set of ids changes, so the
+  // Acknowledge button element survives every render while its alarm exists (only its disabled state and
+  // labels change), a click that straddles a render is never lost, and focus stays on the button.
+  function alarmItem(a) {
+    const id = a.id;
+    const prio = h('span', {}); const text = h('span', { class: 'alarm__text' }); const meta = h('span', { class: 'alarm__meta' });
+    const btn = h('button', { type: 'button', class: 'btn btn--hmi btn--small', dataset: { ack: id }, 'data-auto-safe': 'acknowledge' });
+    btn.addEventListener('click', () => {
+      if (btn.disabled) return;
+      sim.action(`acknowledge:${id}`); render(true);
+      const nb = alarmList.querySelector('button:not([disabled])'); (nb || alarmPanel.querySelector('h3')).focus?.();
+    });
+    return { el: h('li', { dataset: { alarm: id } }, prio, h('span', { class: 'alarm__msg' }, text, meta), btn), prio, text, meta, btn };
+  }
+  function updateAlarmItem(it, a) {
+    const cls = `alarm alarm--${a.priority}${a.active ? '' : ' alarm--latched'}`;
+    if (it.el.className !== cls) it.el.className = cls;
+    const pcls = `prio prio--${a.priority}`; if (it.prio.className !== pcls) it.prio.className = pcls;
+    setText(it.prio, `${PRIORITY_SHAPES[a.priority]} ${PRIORITY_LABELS[a.priority]}`);
+    setText(it.text, a.message);
+    setText(it.meta, ` since ${fmtClock(a.sinceSec)} · ${a.active ? 'active' : 'condition cleared (latched)'}${a.acknowledged ? ' · acknowledged' : ''}`);
+    if (it.btn.disabled !== !!a.acknowledged) it.btn.disabled = !!a.acknowledged;
+    setText(it.btn, a.acknowledged ? 'Acknowledged' : 'Acknowledge');
+    const label = `Acknowledge ${PRIORITY_LABELS[a.priority]} alarm: ${a.message}`;
+    if (it.btn.getAttribute('aria-label') !== label) it.btn.setAttribute('aria-label', label);
+  }
   function renderAlarms() {
     const list = sim.state.alarms;
     const sig = list.map((a) => `${a.id}:${a.active}:${a.acknowledged}:${a.message}`).join('|');
@@ -756,17 +785,7 @@ export function renderMonitor(ctx, main) {
     run.seenAlarms = activeNow;
     if (sig === alarmSig) return;
     alarmSig = sig;
-    const focusedId = document.activeElement && document.activeElement.dataset ? document.activeElement.dataset.ack : null;
-    clear(alarmList);
-    if (!list.length) { alarmList.append(h('li', { class: 'alarm alarm--none' }, 'No alarms.')); }
-    for (const a of list) {
-      const b = h('button', { type: 'button', class: 'btn btn--hmi btn--small', dataset: { ack: a.id }, 'data-auto-safe': 'acknowledge', disabled: a.acknowledged, 'aria-label': `Acknowledge ${PRIORITY_LABELS[a.priority]} alarm: ${a.message}` }, a.acknowledged ? 'Acknowledged' : 'Acknowledge');
-      b.addEventListener('click', () => { sim.action(`acknowledge:${a.id}`); render(true); const nb = alarmList.querySelector('button:not([disabled])'); (nb || alarmPanel.querySelector('h3')).focus?.(); });
-      alarmList.append(h('li', { class: `alarm alarm--${a.priority}${a.active ? '' : ' alarm--latched'}` },
-        h('span', { class: `prio prio--${a.priority}` }, `${PRIORITY_SHAPES[a.priority]} ${PRIORITY_LABELS[a.priority]}`),
-        h('span', { class: 'alarm__msg' }, a.message, h('span', { class: 'alarm__meta' }, ` since ${fmtClock(a.sinceSec)} · ${a.active ? 'active' : 'condition cleared (latched)'}${a.acknowledged ? ' · acknowledged' : ''}`)), b));
-    }
-    if (focusedId) { const fbtn = alarmList.querySelector(`[data-ack="${focusedId}"]`); if (fbtn && !fbtn.disabled) fbtn.focus(); }
+    reconcileKeyed(alarmList, list, { key: (a) => a.id, create: alarmItem, update: updateAlarmItem, empty: () => h('li', { class: 'alarm alarm--none' }, 'No alarms.') });
   }
 
   function renderDrugs() {
@@ -847,10 +866,28 @@ export function renderMonitor(ctx, main) {
   };
 }
 
-function readinessItem(c) {
+/** Persistent met/not-met row (readiness criteria, pre-incision checklist): mark, sr text, label text, source holder. */
+function statusRow() {
+  const mark = h('span', { class: 'ready__mark', 'aria-hidden': 'true' }); const sr = h('span', { class: 'sr-only' });
+  const text = h('span', {}); const src = h('span', {});
+  return { el: h('li', {}, mark, h('span', {}, sr, text, src)), mark, sr, text, src };
+}
+function updateStatusRow(it, met, text) {
+  const cls = met ? 'ready--met' : 'ready--no'; if (it.el.className !== cls) it.el.className = cls;
+  setText(it.mark, met ? '✓' : '✗'); setText(it.sr, met ? 'Met: ' : 'Not met: '); setText(it.text, text);
+}
+function readinessItem() { return statusRow(); }
+function updateReadinessItem(it, c) {
   const v = c.value && typeof c.value === 'object' ? Object.entries(c.value).map(([k, x]) => `${k.toUpperCase()} ${isNum(x) ? x : 'FAULT'}`).join(', ') : isNum(c.value) ? String(c.value) : 'FAULT';
-  return h('li', { class: c.met ? 'ready--met' : 'ready--no' }, h('span', { class: 'ready__mark', 'aria-hidden': 'true' }, c.met ? '✓' : '✗'),
-    h('span', {}, h('span', { class: 'sr-only' }, c.met ? 'Met: ' : 'Not met: '), c.label, ` — ${v} `, c.source && c.source !== 'illustrative' ? srcTags([c.source]) : h('span', { class: 'badge badge--illustrative' }, 'illustrative')));
+  updateStatusRow(it, c.met, `${c.label} — ${v} `);
+  const real = c.source && c.source !== 'illustrative';
+  setChildrenIf(it.src, real ? `src:${c.source}` : 'illustrative', () => (real ? srcTags([c.source]) : h('span', { class: 'badge badge--illustrative' }, 'illustrative')));
+}
+function checkItem() { return statusRow(); }
+function updateCheckItem(it, x) {
+  it.el.dataset.item = x.id; it.el.dataset.met = String(x.met);
+  updateStatusRow(it, x.met, `${x.label} — ${x.detail} `);
+  setChildrenIf(it.src, x.sources.join(','), () => (x.sources.length ? srcTags(x.sources) : h('span', { class: 'badge badge--illustrative' }, 'convention')));
 }
 export { readinessItem };
 

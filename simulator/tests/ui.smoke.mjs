@@ -838,6 +838,94 @@ test('simulator UI smoke', { skip, timeout: 900000 }, async (t) => {
       assert.ok(!/\.\./.test(head), `no double period: ${head}`);
     });
 
+    await t.test('alarm list is reconciled by id (audit 05l): the Acknowledge button of a HIGH alarm survives renders while its text changes; focus kept; a click acknowledges at 20x', async () => {
+      await loadCase(page, 'elderly_cad_ckd'); await toRun(page);
+      await page.evaluate(() => { window.__smartNoa.inject('hemorrhage'); window.__smartNoa.inject('anaphylaxis_hypotension'); });
+      const crit = (x) => x.alarms && x.alarms.some((a) => a.id === 'map_critical' && a.active && !a.acknowledged);
+      let x = await simState(page);
+      for (let i = 0; i < 400 && !crit(x); i++) { await adv(page, 5); x = await simState(page); }
+      assert.ok(crit(x), 'HIGH map_critical alarm active and unacknowledged');
+      const sel = '#mon-alarms button[data-ack="map_critical"]';
+      const btn = await page.$(sel);
+      assert.ok(btn && await btn.isEnabled());
+      const same = () => btn.evaluate((el, q) => el.isConnected && document.querySelector(q) === el, sel);
+      const msgOf = (q) => { const el = document.querySelector(q); return el ? el.closest('li').querySelector('.alarm__msg').firstChild.textContent : null; };
+      const msg = () => page.evaluate(msgOf, sel);
+      // Other live lists with controls are keyed too: a source-tag button in the extubation readiness list
+      // (its values change every render) is the same element across renders.
+      const rtag = await page.$('#mon-ready .src-tag');
+      const readyText = () => page.textContent('#mon-ready');
+      const r0 = await readyText();
+      await btn.focus();
+      // Step-driven: several renders, the message text changes, the element (and focus) stays.
+      const texts = new Set([await msg()]);
+      for (let i = 0; i < 60 && texts.size < 4; i++) { await adv(page, 1); assert.ok(await same(), `same element after render ${i + 1}`); texts.add(await msg()); }
+      assert.ok(texts.size >= 3, `message text changed across renders (${[...texts].join(' | ')})`);
+      assert.ok(rtag, 'readiness list has a source-tag button'); assert.ok(await rtag.evaluate((el) => el.isConnected), 'readiness source-tag button kept'); assert.notEqual(await readyText(), r0, 'readiness values changed meanwhile');
+      assert.ok(await btn.evaluate((el) => document.activeElement === el), 'focus kept on the Acknowledge button');
+      // Real time at 20x (150 ms renders): the handle survives while the reading changes, then a click acknowledges.
+      await page.click('[data-speed="20"]');
+      await page.evaluate(() => window.__smartNoa.testClock(false));
+      if (!(await lite(page)).playing) await page.click('#mon-play');
+      const live = new Set([await msg()]);
+      for (let i = 0; i < 40 && live.size < 4; i++) {
+        await page.waitForFunction(([q, prev]) => { const el = document.querySelector(q); return !el || el.closest('li').querySelector('.alarm__msg').firstChild.textContent !== prev; }, [sel, await msg()], { timeout: 10000 });
+        assert.ok(await same(), `same element while playing at 20x (text ${live.size})`);
+        live.add(await msg());
+      }
+      assert.ok(live.size >= 3, `text changed while playing (${[...live].join(' | ')})`);
+      assert.ok((await lite(page)).playing, 'clock still running');
+      await btn.click();
+      assert.ok(await same(), 'still the same element after the click');
+      await page.waitForFunction((q) => document.querySelector(q).disabled, sel, { timeout: 5000 });
+      x = await simState(page);
+      assert.ok(x.alarms.some((a) => a.id === 'map_critical' && a.acknowledged), 'map_critical acknowledged by the click');
+      assert.equal(await btn.textContent(), 'Acknowledged');
+      if ((await lite(page)).playing) await page.click('#mon-play');
+      await page.evaluate(() => window.__smartNoa.testClock(true));
+      const log = (await simLog(page)).map((e) => e.message);
+      assert.equal(log.filter((m) => m === 'Alarm acknowledged: map_critical').length, 1, 'acknowledged once, by the click');
+    });
+
+    await t.test('palliative alarm list is reconciled by id (audit 05l): the Acknowledge button survives refreshes (step-driven and on the 250 ms timer); focus kept; a click acknowledges', async () => {
+      const palSnap = () => page.evaluate(() => window.__smartNoa.pal());
+      const palAdv = (min) => page.evaluate((n) => window.__smartNoa.palAdvance(n), min);
+      await page.evaluate(() => window.__smartNoa.palTestClock(true));
+      await page.click('#mod-pain'); await page.waitForSelector('#pal-example');
+      await page.click('#pal-stepper-1'); await page.selectOption('#pal-example', 'naive_ckd_inpatient'); await page.click('#pal-load');
+      await page.click('#pal-continue'); await page.waitForSelector('#pal-approve');
+      if (await page.isChecked('#pal-bowel')) await page.uncheck('#pal-bowel'); // scheduled opioid without a bowel regimen → LOW alarm (no pause)
+      if (await page.locator('#pal-red').count()) { await page.fill('#pal-red', '25'); await page.click('#pal-convert'); }
+      if (await page.locator('#pal-warn-ack').count()) await page.check('#pal-warn-ack');
+      await page.click('#pal-approve'); await page.waitForSelector('#pal-play');
+      let s = await palAdv(5);
+      for (let i = 0; i < 60 && !s.sim.alarms.some((a) => !a.acknowledged); i++) s = await palAdv(5);
+      const al = s.sim.alarms.find((a) => !a.acknowledged);
+      assert.ok(al, `an unacknowledged palliative alarm (${JSON.stringify(s.sim.alarms.map((a) => a.id))})`);
+      assert.equal(s.sim.paused, null, 'not paused (non-HIGH alarm), so the timer keeps refreshing the list');
+      const sel = `#pal-alarms button[data-ack="${al.id}"]`;
+      const btn = await page.$(sel);
+      const same = () => btn.evaluate((el, q) => el.isConnected && document.querySelector(q) === el, sel);
+      await btn.focus();
+      for (let i = 0; i < 5; i++) { await palAdv(1); assert.ok(await same(), `same element after refresh ${i + 1}`); }
+      assert.ok(await btn.evaluate((el) => document.activeElement === el), 'focus kept on the Acknowledge button');
+      // Real 250 ms timer: several refreshes (the clock text changes), the element and focus stay.
+      await page.evaluate(() => window.__smartNoa.palTestClock(false));
+      const t0 = (await palSnap()).sim.tMin;
+      await page.click('#pal-play'); await btn.focus(); // the click moved focus to Play; put it back on the button
+      const t1 = (await palSnap()).sim.tMin;
+      await page.waitForFunction((m) => window.__smartNoa.pal().sim.tMin > m + 3, Math.max(t0, t1), { timeout: 10000 });
+      assert.ok(await same(), 'same element after timer refreshes');
+      assert.ok(await btn.evaluate((el) => document.activeElement === el), 'focus kept while playing');
+      await btn.click();
+      await page.waitForFunction((q) => { const el = document.querySelector(q); return !el || el.disabled; }, sel, { timeout: 5000 });
+      s = await palSnap();
+      assert.ok(!s.sim.alarms.some((a) => a.id === al.id && !a.acknowledged), `${al.id} acknowledged by the click`);
+      if ((await page.textContent('#pal-play')).trim() === 'Pause') await page.click('#pal-play');
+      await page.evaluate(() => window.__smartNoa.palTestClock(true));
+      await page.click('#mod-periop'); await page.waitForSelector('#stepper-1');
+    });
+
     await t.test('panels open', async () => {
       for (const id of ['open-sources', 'open-model', 'open-about']) {
         await page.click(`#${id}`);

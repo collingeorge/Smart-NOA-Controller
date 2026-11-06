@@ -1,7 +1,7 @@
 // Palliative pain management and end-of-life care modules — UI. Educational simulation with
 // fictional patients. CSP: no inline scripts/handlers/styles; listeners via addEventListener (h()).
 // Free text (family notes, documentation) is only ever set as input values or textContent — never HTML.
-import { h, clear, announce } from './dom.js';
+import { h, clear, announce, setText, reconcileKeyed, setChildrenIf } from './dom.js';
 import { srcTags } from './sources.js';
 import { PALLIATIVE_CASES, PALLIATIVE_OPIOIDS, PALLIATIVE_RULES as R, SEDATION_MIDAZOLAM as SM, ETHICS_PANEL, GOC_PROMPTS, TREATMENTS_TRIED, EXCLUSIONS_TEXT, OPTIONS, PALLIATIVE_BANNER } from '../data/palliative.js';
 import { validatePalliative, derivePalliative, recommendStart, breakthroughDose, convertOpioid, createPalliativeSim, mmePerDay, fmtDay } from '../engine/palliative.js';
@@ -231,6 +231,10 @@ function stepRun(box, main) {
   const cRr = h('canvas', { class: 'pal-chart', id: 'pal-chart-rr', role: 'img', 'aria-label': 'Respiratory rate, last 24 simulated hours' });
   const alarms = h('div', { id: 'pal-alarms' }); const review = h('div', { id: 'pal-review' }); const mar = h('div', { id: 'pal-mar' }); const fb = h('p', { class: 'feedback', id: 'pal-feedback', role: 'status' });
   const say = (t, bad = false) => { fb.textContent = t; fb.className = `feedback ${bad ? 'feedback--warn' : 'feedback--ok'}`; announce(t, bad); };
+  // Persistent pause message + Resume button (audit 05l): updated in place, never rebuilt on a refresh.
+  const pausedMsg = h('p', { class: 'notice notice--warn', id: 'pal-paused-msg' });
+  const resumeBtn = h('button', { type: 'button', class: 'btn btn--primary', id: 'pal-resume' }, 'Resume');
+  resumeBtn.addEventListener('click', () => { const r = sim.resume(); if (!r.ok) say(r.reason, true); refresh(); });
   const act = (id, label, fn, cls = 'btn') => { const b = h('button', { type: 'button', class: cls, id }, label); b.addEventListener('click', () => { const r = fn(); if (r && r.ok === false) say(r.reason || (r.reasons || []).join(' '), true); else if (r && r.note) say(r.note, true); else if (r && r.ok) say(`${label}: done.`); refresh(); }); return b; };
   const actions = h('section', { class: 'card' }, h('h3', {}, 'Clinician actions'),
     h('div', { class: 'btn-row' }, act('pal-prn-now', 'Give PRN dose now', () => sim.givePrnNow()),
@@ -257,17 +261,30 @@ function stepRun(box, main) {
     h('section', { class: 'card' }, h('label', { for: 'pal-family', class: 'label' }, 'Family communication notes (free text; kept as text, never rendered as HTML)'), family),
     h('div', { class: 'actions' }, deb));
 
+  const alarmUl = h('ul', { class: 'pal-alarms' }); const alarmNone = h('p', { class: 'hint' }, 'No alarms.');
+  alarms.append(alarmUl, alarmNone);
+  function palAlarmItem(a) {
+    const id = a.id;
+    const prio = h('strong', {}); const text = h('span', {}); const src = h('span', {}); const cleared = h('span', {});
+    const btn = h('button', { type: 'button', class: 'btn btn--small', dataset: { ack: id } });
+    btn.addEventListener('click', () => { if (btn.disabled) return; sim.acknowledge(id); refresh(); });
+    return { el: h('li', { dataset: { alarm: id } }, prio, text, ' ', src, cleared, ' ', btn), prio, text, src, cleared, btn };
+  }
+  function updatePalAlarmItem(it, a) {
+    const cls = `pal-alarm pal-alarm--${a.priority}`; if (it.el.className !== cls) it.el.className = cls;
+    setText(it.prio, `${a.priority.toUpperCase()}: `); setText(it.text, a.message);
+    setChildrenIf(it.src, (a.sources || []).join(','), () => srcTags(a.sources));
+    setText(it.cleared, a.active ? '' : ' (condition cleared)');
+    if (it.btn.disabled !== !!a.acknowledged) it.btn.disabled = !!a.acknowledged;
+    setText(it.btn, a.acknowledged ? 'Acknowledged' : 'Acknowledge');
+  }
   function refresh() {
     const s = sim.state;
     clock.textContent = fmtDay(s.tMin);
     play.textContent = pal.playing ? 'Pause' : 'Play'; play.setAttribute('aria-pressed', pal.playing ? 'true' : 'false');
     for (const b of speeds) b.setAttribute('aria-pressed', String(Number(b.dataset.speed) === pal.speed));
-    clear(pausedBox);
-    if (s.paused) {
-      const res = h('button', { type: 'button', class: 'btn btn--primary', id: 'pal-resume' }, 'Resume');
-      res.addEventListener('click', () => { const r = sim.resume(); if (!r.ok) say(r.reason, true); refresh(); });
-      pausedBox.append(h('p', { class: 'notice notice--warn', id: 'pal-paused-msg' }, s.paused.message, ' '), res);
-    }
+    if (s.paused) { setText(pausedMsg, `${s.paused.message} `); if (!pausedMsg.isConnected) pausedBox.append(pausedMsg, resumeBtn); }
+    else if (pausedMsg.isConnected) clear(pausedBox);
     const sy = s.symptoms;
     clear(tiles).append(tile('pal-t-pain', 'Pain (NRS)', fmt(sy.pain), '0–10'), tile('pal-t-dys', 'Dyspnoea', fmt(sy.dyspnoea), '0–10'), tile('pal-t-agi', 'Agitation', fmt(sy.agitation), '0–10'),
       tile('pal-t-rass', 'RASS', String(s.rass), s.sedation.targetRass !== null ? `target ${s.sedation.targetRass}` : 'no sedation target', s.rass <= -3 ? 'pal-tile--alert' : ''),
@@ -275,9 +292,10 @@ function stepRun(box, main) {
       tile('pal-t-sec', 'Secretions', fmt(sy.secretions), '0–10'), tile('pal-t-nau', 'Nausea', fmt(sy.nausea), '0–10'), tile('pal-t-con', 'Constipation', fmt(sy.constipation), '0–10'),
       tile('pal-t-del', 'Delirium risk', s.deliriumRisk.level, 'illustrative'));
     drawTrend(cSym, s.trend, SYM_SERIES, { min: 0, max: 10 }); drawTrend(cRass, s.trend, RASS_SERIES, { min: -5, max: 4, thresholds: [{ v: -3, label: '−3' }] }); drawTrend(cRr, s.trend, RR_SERIES, { min: 0, max: 30, thresholds: [{ v: 8, label: '8' }] });
-    clear(alarms).append(s.alarms.length ? h('ul', { class: 'pal-alarms' }, s.alarms.map((a) => { const b = h('button', { type: 'button', class: 'btn btn--small', dataset: { ack: a.id }, disabled: a.acknowledged }, a.acknowledged ? 'Acknowledged' : 'Acknowledge');
-      b.addEventListener('click', () => { sim.acknowledge(a.id); refresh(); });
-      return h('li', { class: `pal-alarm pal-alarm--${a.priority}`, dataset: { alarm: a.id } }, h('strong', {}, `${a.priority.toUpperCase()}: `), a.message, ' ', srcTags(a.sources), a.active ? '' : ' (condition cleared)', ' ', b); })) : h('p', { class: 'hint' }, 'No alarms.'));
+    // Keyed (audit 05l): one persistent <li> per alarm id; texts updated in place; the Acknowledge button
+    // persists while the alarm exists (the 250 ms timer refreshes this list while non-HIGH alarms show).
+    alarmUl.hidden = !s.alarms.length; alarmNone.hidden = s.alarms.length > 0;
+    reconcileKeyed(alarmUl, s.alarms, { key: (a) => a.id, create: palAlarmItem, update: updatePalAlarmItem });
     renderReview(review, sim, refresh, say);
     const w = sim.windowStats(Math.max(0, s.tMin - 1440)); const mme = mmePerDay(s.regimen);
     clear(mar).append(kv([['Regimen', `${s.regimen.scheduled ? 'Scheduled' : 'As needed'} ${s.regimen.drugId} ${s.regimen.dose} mg ${s.regimen.route.toUpperCase()} every ${s.regimen.intervalH} h; PRN ${s.regimen.prn ? `${s.regimen.prn.dose} mg` : 'none'}; bowel regimen ${s.bowelRegimen ? 'yes' : 'no'}`],
@@ -293,30 +311,39 @@ function stepRun(box, main) {
   refresh();
 }
 
+// Keyed (audit 05l): the review box keeps one row per suggestion (key: review, suggestion, status). A row is
+// rebuilt only when its own status changes, so the other rows' checkboxes, selects and buttons persist.
 function renderReview(box, sim, refresh, say) {
-  const r = sim.state.pendingReview; clear(box);
-  if (!r) { box.append(h('p', { class: 'hint' }, `Next review at the next ${R.REVIEW_INTERVAL_H.value}-h mark. Completed reviews: ${sim.state.reviews.length}.`)); return; }
-  box.append(h('p', {}, `Review at ${fmtDay(r.tMin)} — mean pain ${r.stats.meanPain}, max ${fmt(r.stats.maxPain)}, PRN doses ${r.stats.prnCount}, total ${r.stats.total24h} mg/24 h.`));
-  for (const s of r.suggestions) {
-    const row = h('div', { class: `pal-sugg pal-sugg--${s.status}`, dataset: { sugg: s.id, kind: s.kind } }, h('p', {}, s.text, ' ', srcTags(s.sources)));
-    if (s.status !== 'pending') { row.append(h('p', { class: 'hint' }, `Decision: ${s.status}`)); box.append(row); continue; }
-    let ack = null; let rot = null;
-    if (s.needsAck) { ack = h('input', { type: 'checkbox', id: `ack-${s.id}` }); row.append(h('label', { class: 'check check--block' }, ack, ' ', s.needsAck)); }
-    if (s.kind === 'rotation') {
-      const to = h('select', { id: `rot-${s.id}`, class: 'input' }, [['oxycodone:oral', 'Oral oxycodone'], ['hydromorphone:oral', 'Oral hydromorphone'], ['morphine:oral', 'Oral morphine'], ['morphine:iv', 'IV morphine']].map(([v, t]) => h('option', { value: v }, t)));
-      const red = h('input', { id: `rotred-${s.id}`, class: 'input input--num', type: 'number', min: '0', max: '50', step: '5' });
-      rot = { to, red }; row.append(h('div', { class: 'grid grid--2' }, h('div', { class: 'field' }, h('label', { for: `rot-${s.id}`, class: 'label' }, 'Rotate to'), to), h('div', { class: 'field' }, h('label', { for: `rotred-${s.id}`, class: 'label' }, 'Cross-tolerance reduction % (you choose)'), red)));
-    }
-    const yes = h('button', { type: 'button', class: 'btn btn--primary btn--small', dataset: { decide: 'approve' } }, s.kind === 'info' ? 'Acknowledge' : 'Approve');
-    const no = s.kind === 'info' ? null : h('button', { type: 'button', class: 'btn btn--small', dataset: { decide: 'decline' } }, 'Decline');
-    yes.addEventListener('click', () => {
-      const opts = { ack: ack ? ack.checked : undefined };
-      if (rot) { const [d, rt] = rot.to.value.split(':'); opts.toDrug = d; opts.toRoute = rt; opts.reductionPct = rot.red.value.trim() === '' ? null : Number(rot.red.value); }
-      const res = sim.decide(s.id, 'approve', opts); if (!res.ok) say(res.reason, true); refresh();
-    });
-    if (no) no.addEventListener('click', () => { sim.decide(s.id, 'decline'); refresh(); });
-    row.append(h('div', { class: 'btn-row' }, yes, no)); box.append(row);
+  const r = sim.state.pendingReview;
+  if (!box.palParts) { const line = h('p', {}); const list = h('div', {}); box.append(line, list); box.palParts = { line, list }; }
+  const { line: headP, list: rows } = box.palParts;
+  if (!r) {
+    headP.className = 'hint'; setText(headP, `Next review at the next ${R.REVIEW_INTERVAL_H.value}-h mark. Completed reviews: ${sim.state.reviews.length}.`);
+    reconcileKeyed(rows, [], { key: () => '', create: () => ({ el: h('div') }), update: () => {} }); return;
   }
+  headP.className = ''; setText(headP, `Review at ${fmtDay(r.tMin)} — mean pain ${r.stats.meanPain}, max ${fmt(r.stats.maxPain)}, PRN doses ${r.stats.prnCount}, total ${r.stats.total24h} mg/24 h.`);
+  reconcileKeyed(rows, r.suggestions, { key: (s) => `${r.id}|${s.id}|${s.status}`, create: (s) => ({ el: reviewRow(s, sim, refresh, say) }), update: () => {} });
+}
+
+function reviewRow(s, sim, refresh, say) {
+  const row = h('div', { class: `pal-sugg pal-sugg--${s.status}`, dataset: { sugg: s.id, kind: s.kind } }, h('p', {}, s.text, ' ', srcTags(s.sources)));
+  if (s.status !== 'pending') { row.append(h('p', { class: 'hint' }, `Decision: ${s.status}`)); return row; }
+  let ack = null; let rot = null;
+  if (s.needsAck) { ack = h('input', { type: 'checkbox', id: `ack-${s.id}` }); row.append(h('label', { class: 'check check--block' }, ack, ' ', s.needsAck)); }
+  if (s.kind === 'rotation') {
+    const to = h('select', { id: `rot-${s.id}`, class: 'input' }, [['oxycodone:oral', 'Oral oxycodone'], ['hydromorphone:oral', 'Oral hydromorphone'], ['morphine:oral', 'Oral morphine'], ['morphine:iv', 'IV morphine']].map(([v, t]) => h('option', { value: v }, t)));
+    const red = h('input', { id: `rotred-${s.id}`, class: 'input input--num', type: 'number', min: '0', max: '50', step: '5' });
+    rot = { to, red }; row.append(h('div', { class: 'grid grid--2' }, h('div', { class: 'field' }, h('label', { for: `rot-${s.id}`, class: 'label' }, 'Rotate to'), to), h('div', { class: 'field' }, h('label', { for: `rotred-${s.id}`, class: 'label' }, 'Cross-tolerance reduction % (you choose)'), red)));
+  }
+  const yes = h('button', { type: 'button', class: 'btn btn--primary btn--small', dataset: { decide: 'approve' } }, s.kind === 'info' ? 'Acknowledge' : 'Approve');
+  const no = s.kind === 'info' ? null : h('button', { type: 'button', class: 'btn btn--small', dataset: { decide: 'decline' } }, 'Decline');
+  yes.addEventListener('click', () => {
+    const opts = { ack: ack ? ack.checked : undefined };
+    if (rot) { const [d, rt] = rot.to.value.split(':'); opts.toDrug = d; opts.toRoute = rt; opts.reductionPct = rot.red.value.trim() === '' ? null : Number(rot.red.value); }
+    const res = sim.decide(s.id, 'approve', opts); if (!res.ok) say(res.reason, true); refresh();
+  });
+  if (no) no.addEventListener('click', () => { sim.decide(s.id, 'decline'); refresh(); });
+  row.append(h('div', { class: 'btn-row' }, yes, no)); return row;
 }
 
 // EOL panels: non-pharmacological measures, monitoring toggle, documentation gate, sedation, hydration.

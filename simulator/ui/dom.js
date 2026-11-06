@@ -30,6 +30,41 @@ export function clear(el) { while (el.firstChild) el.removeChild(el.firstChild);
 
 export function setText(el, text) { const s = String(text); if (el.textContent !== s) el.textContent = s; }
 
+const KEYED = new WeakMap();
+/**
+ * Keyed list reconciliation (audit 05l, finding 2). Keeps ONE persistent element per key in `container`:
+ * `create(item)` builds it once ({ el, ...parts }), `update(parts, item)` changes text/attributes in place on
+ * every call. Elements are added/removed only when the set of keys changes and moved only when the order
+ * changes, so buttons and inputs inside an item survive re-renders (a click straddling a render is not lost)
+ * and focus is kept. `empty()` (optional) builds the placeholder shown when there are no items.
+ * The container must not be cleared by other code.
+ */
+export function reconcileKeyed(container, items, { key, create, update, empty = null }) {
+  let st = KEYED.get(container);
+  if (!st) { st = { map: new Map(), empty: null }; KEYED.set(container, st); }
+  const focused = document.activeElement && container.contains(document.activeElement) ? document.activeElement : null;
+  const keys = new Set(items.map(key));
+  for (const [k, it] of st.map) if (!keys.has(k)) { it.el.remove(); st.map.delete(k); }
+  const want = items.map((x) => {
+    const k = key(x); let it = st.map.get(k);
+    if (!it) { it = create(x); st.map.set(k, it); }
+    update(it, x);
+    return it.el;
+  });
+  if (!items.length && empty) { if (!st.empty) st.empty = empty(); if (!st.empty.isConnected) container.append(st.empty); }
+  else if (st.empty) st.empty.remove();
+  const have = [...container.children].filter((el) => el !== st.empty);
+  if (want.length !== have.length || want.some((el, i) => el !== have[i])) for (const el of want) container.append(el);
+  if (focused && focused.isConnected && document.activeElement !== focused && !focused.disabled) focused.focus();
+}
+
+/** Replaces `holder`'s children with build() only when `sig` changed (e.g. a source-tag group). */
+export function setChildrenIf(holder, sig, build) {
+  if (holder.dataset.sig === sig) return;
+  holder.dataset.sig = sig; clear(holder);
+  for (const c of [build()].flat(Infinity)) if (c !== null && c !== undefined && c !== false) holder.append(c instanceof Node ? c : document.createTextNode(String(c)));
+}
+
 let uid = 0;
 export function nextId(prefix = 'id') { uid += 1; return `${prefix}-${uid}`; }
 

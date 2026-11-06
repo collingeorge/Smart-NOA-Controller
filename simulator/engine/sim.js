@@ -508,9 +508,12 @@ class Simulation {
   /**
    * Re-evaluates the text-only depth-low advisor immediately after a phase change, action or drug change,
    * so it disarms on the same simulated second (e.g. "Begin emergence") rather than on the next step.
-   * Zero elapsed time: it cannot start or lengthen an episode; it records only and never doses.
+   * Zero elapsed time: it uses the advisor's refresh-only path (update({ refreshOnly: true })), which never
+   * accumulates time, never moves the advisor's clock and never starts an episode; it can only END an active
+   * episode (disarmed or recovered). It records only and never doses. Called by the public action(),
+   * administer() and setPhase() only — never from inside _substep (the plan scheduler uses the *Impl paths).
    */
-  _refreshDepthAdvisor() { if (this.depthAdvisor && typeof this.depthAdvisor.update === 'function') this.depthAdvisor.update(); }
+  _refreshDepthAdvisor() { if (this.depthAdvisor && typeof this.depthAdvisor.update === 'function') this.depthAdvisor.update({ refreshOnly: true }); }
 
   play() { this.state.running = true; }
   pause() { this.state.running = false; }
@@ -760,11 +763,13 @@ class Simulation {
       }
       let r;
       if (s.kind === 'fluid' || s.kind === 'fluid_bolus') {
-        const a = this.action(s.kind === 'fluid' ? `fluid_maintenance:${s.fluidId || s.drugId}:${s.rate}` : `fluid_bolus:${s.amount}:${s.fluidId || s.drugId}`);
+        // Internal paths (05l): the scheduler runs mid-substep (tSec already advanced, vitals not yet),
+        // so it must not trigger the public action()/administer() depth-advisor refresh.
+        const a = this._actionImpl(s.kind === 'fluid' ? `fluid_maintenance:${s.fluidId || s.drugId}:${s.rate}` : `fluid_bolus:${s.amount}:${s.fluidId || s.drugId}`);
         if (!a.ok) this._log('dose', `BLOCKED plan fluid step ${s.id}: ${a.message}`);
         r = { ok: a.ok, blocked: !a.ok, reasons: a.ok ? [] : [a.message], warnings: [] };
       } else {
-        r = this.administer({ drugId: s.drugId, kind: s.kind, amount: s.amount, amountUnit: s.amountUnit, rate: s.rate, rateUnit: s.rateUnit, overSec: s.overSec, route: s.route, regimenKey: s.regimenKey }, { source: 'plan' });
+        r = this._administerImpl({ drugId: s.drugId, kind: s.kind, amount: s.amount, amountUnit: s.amountUnit, rate: s.rate, rateUnit: s.rateUnit, overSec: s.overSec, route: s.route, regimenKey: s.regimenKey }, { source: 'plan' });
       }
       this.executed.set(s.id, { tSec: t, ...r });
     }
@@ -826,7 +831,12 @@ class Simulation {
       }
     }
 
-    // 4. Python-derived interlocks (1 Hz control iteration), readings = displayed monitor values
+    // 4. Python-derived interlocks (1 Hz control iteration), readings = displayed monitor values.
+    //    KNOWN, ACCEPTED ORDERING (audit 05l, finding 5): interlocks evaluate BEFORE physiology (step 9), i.e.
+    //    on the vitals displayed at the end of the previous second, so a hold latches one simulated second
+    //    after the reading crosses the threshold. This mirrors the Python controller loop and the parity tests
+    //    (tests/parity.test.mjs) and is deliberately not reordered. No extra drug is delivered during the lag:
+    //    the infusions for this second are zeroed here, before PK (step 6) consumes them (AUDIT_2026-11.md).
     if (S.interlocks.enabled) {
       const inf = {};
       for (const py of CONTROLLED) {
@@ -977,6 +987,10 @@ class Simulation {
     if (isFiniteNumber(V.hr)) { this.stats.maxHr = Math.max(this.stats.maxHr, V.hr); this.stats.minHr = Math.min(this.stats.minHr, V.hr); }
     if (isFiniteNumber(V.map)) { this.stats.maxMap = Math.max(this.stats.maxMap, V.map); this.stats.minMap = Math.min(this.stats.minMap, V.map); } // sensor-fault gaps (NaN) are skipped
 
+    // 10b. depth arming state (LOC marker, "a maintenance hypnotic has run"): updated explicitly, once per
+    //      substep, before anything reads it (depth-high alarm below, depth-low advisory after the step).
+    this._updateDepthArmingState(V);
+
     // 11. alarms
     const ok = (x) => isFiniteNumber(x);
     // Level alarms with hysteresis: once on, they stay on until the value is 2 units past the threshold.
@@ -987,15 +1001,15 @@ class Simulation {
     const conds = [
       { id: 'spo2_low', priority: 'high', message: `SpO2 ${R(V.spo2)}% < ${A.SPO2_LOW}%`, active: hy('spo2_low', ok(V.spo2) && V.spo2 < A.SPO2_LOW, ok(V.spo2) && V.spo2 < A.SPO2_LOW_CLEAR) },
       { id: 'apnea', priority: 'high', message: `Apnoea > ${A.APNOEA_SEC} s without ventilation (${Math.round(out._true.apnoeaSec)} s)`, active: out._true.apnoeaSec > A.APNOEA_SEC },
-      { id: 'map_critical', priority: 'high', message: `MAP ${R(V.map)} < 60 mmHg (interlock threshold)`, active: hy('map_critical', ok(V.map) && V.map < NOA_CONFIG.hemodynamic_thresholds.map_critical_low, ok(V.map) && V.map < A.MAP_CRITICAL_CLEAR) },
-      { id: 'hr_critical', priority: 'high', message: `HR ${R(V.hr)} < 48 /min (interlock threshold)`, active: hy('hr_critical', ok(V.hr) && V.hr < NOA_CONFIG.hemodynamic_thresholds.hr_critical_low, ok(V.hr) && V.hr < A.HR_CRITICAL_CLEAR) },
+      { id: 'map_critical', priority: 'high', message: `MAP ${R(V.map)} < ${NOA_CONFIG.hemodynamic_thresholds.map_critical_low} mmHg (interlock threshold)`, active: hy('map_critical', ok(V.map) && V.map < NOA_CONFIG.hemodynamic_thresholds.map_critical_low, ok(V.map) && V.map < A.MAP_CRITICAL_CLEAR) },
+      { id: 'hr_critical', priority: 'high', message: `HR ${R(V.hr)} < ${NOA_CONFIG.hemodynamic_thresholds.hr_critical_low} /min (interlock threshold)`, active: hy('hr_critical', ok(V.hr) && V.hr < NOA_CONFIG.hemodynamic_thresholds.hr_critical_low, ok(V.hr) && V.hr < A.HR_CRITICAL_CLEAR) },
       { id: 'map_low', priority: 'medium', message: `MAP ${R(V.map)} < 65 mmHg`, active: hy('map_low', ok(V.map) && V.map < A.MAP_LOW, ok(V.map) && V.map < A.MAP_LOW_CLEAR) },
       { id: 'map_high', priority: 'medium', message: `MAP ${R(V.map)} > 120 mmHg`, active: hy('map_high', ok(V.map) && V.map > A.MAP_HIGH, ok(V.map) && V.map > A.MAP_HIGH_CLEAR) },
       { id: 'hr_high', priority: 'medium', message: `HR ${R(V.hr)} > 120 /min`, active: hy('hr_high', ok(V.hr) && V.hr > A.HR_HIGH, ok(V.hr) && V.hr > A.HR_HIGH_CLEAR) },
       { id: 'sensor_fault_hr', priority: 'high', message: 'HR sensor fault (unusable reading)', active: S.sensors.hr === 'fault' },
       { id: 'sensor_fault_map', priority: 'high', message: 'MAP sensor fault (unusable reading)', active: S.sensors.map === 'fault' },
       { id: 'sensor_fault_spo2', priority: 'high', message: 'SpO2 probe off / sensor fault', active: S.sensors.spo2 === 'fault' },
-      this._depthHighAlarm(V, h, hy),
+      this._depthHighAlarm(V, h, hy), // reads the arming state updated once above (_updateDepthArmingState)
       { id: 'depth_over_target', priority: 'medium', message: `Sedation deeper than ${target} target (${V.sedationLevel}): airway/ventilation risk`, active: !!target && SEDATION_RANK[V.sedationLevel] > SEDATION_RANK[target] },
       ...this._prophylaxisAlarm(t),
       { id: 'interlock_hold', priority: 'medium', message: `Interlock hold latched (${S.interlocks.heldDrugs.join(', ') || 'no infusions running'}); resume_hold required`, active: S.interlocks.enabled && S.interlocks.holdLatched },
@@ -1048,15 +1062,31 @@ class Simulation {
    * fault in this simulator; a faulted depth reading (sensors.depth === 'fault') would disarm it.
    */
   _depthHighArmed(V) {
-    const S = this.state; const hi = TIMING_CONFIG.GA_DEPTH_BAND.value[1];
+    if (!this._depthArmingPreconditions(V) || this._locAt === null || this._locAt === undefined) return false;
+    if (this.stim.surgeryEndAt !== null && this._hypnoticSeenRunning && !this._maintenanceHypnoticRunning()) return false; // agents off after surgery
+    return true;
+  }
+
+  /** Shared preconditions of the depth-high arming (pure read): GA, airway secured, induction/maintenance, usable index, induction started. */
+  _depthArmingPreconditions(V) {
+    const S = this.state;
     if (this.plan.mode === 'MAC' || !S.airway.secured || !['induction', 'maintenance'].includes(S.phase)) return false;
     if (S.sensors.depth === 'fault' || !isFiniteNumber(V.depthIndex)) return false;
-    if (this.phaseStart.induction === undefined) return false;
-    if (this._locAt === null || this._locAt === undefined) { if (V.depthIndex <= hi) this._locAt = S.tSec; else return false; }
-    const running = this._maintenanceHypnoticRunning();
-    if (running) this._hypnoticSeenRunning = true;
-    if (this.stim.surgeryEndAt !== null && this._hypnoticSeenRunning && !running) return false; // agents off after surgery
-    return true;
+    return this.phaseStart.induction !== undefined;
+  }
+
+  /**
+   * The ONLY writer of the depth arming state (audit 05l, finding 3): the loss-of-consciousness marker
+   * `_locAt` (first index ≤ GA band upper bound while the preconditions hold) and `_hypnoticSeenRunning`
+   * (a maintenance hypnotic ran while the preconditions held and LOC had been reached). Called once per
+   * substep before the alarms, so the depth-high alarm (_depthHighArmed) and the depth-low advisory
+   * (engine/depth-advisory.js depthLowArmed) read the same state whatever order they are evaluated in.
+   * Same gating as before (it used to be a side effect of _depthHighArmed), so behaviour is unchanged.
+   */
+  _updateDepthArmingState(V) {
+    if (!this._depthArmingPreconditions(V)) return;
+    if (this._locAt === null || this._locAt === undefined) { if (V.depthIndex <= TIMING_CONFIG.GA_DEPTH_BAND.value[1]) this._locAt = this.state.tSec; else return; }
+    if (this._maintenanceHypnoticRunning()) this._hypnoticSeenRunning = true;
   }
 
   /** Depth-high alarm condition (HIGH): index > GA band upper bound for ≥ DEPTH_HIGH_ALARM_SUSTAIN_SEC while armed; clears at ≤ DEPTH_HIGH_ALARM_CLEAR. */

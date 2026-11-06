@@ -13,7 +13,7 @@
 // It applies during maintenance AFTER incision; before incision the pre-incision item ("acknowledge an
 // index below the GA band", engine/timing.js preIncisionItems) remains the gate and is not touched here.
 // createDepthAdvisor(sim) records what was shown / dismissed (debrief, session JSON); sim.step() calls
-// update() after every step.
+// update() after every step; sim._refreshDepthAdvisor() calls update({ refreshOnly: true }) after an action.
 
 import { TIMING_CONFIG } from './timing.js';
 import { isFiniteNumber } from './units.js';
@@ -83,8 +83,21 @@ class DepthLowAdvisor {
     this.open = null; this.active = false; this.dismissed = false; this.runSec = 0; this.episodeSec = 0;
   }
 
-  /** Re-evaluates after a step. Records only: never doses, never touches alarms, holds or the runner. */
-  update() {
+  /**
+   * Re-evaluates after a step. Records only: never doses, never touches alarms, holds or the runner.
+   * `{ refreshOnly: true }` (sim._refreshDepthAdvisor, after an action / drug change / phase change, audit
+   * 05l): zero elapsed time — it never accumulates time, never moves lastT, never starts an episode; it only
+   * ends an active episode that is now disarmed or recovered. Time is counted only by the post-step update().
+   */
+  update({ refreshOnly = false } = {}) {
+    if (refreshOnly) {
+      if (this.active) {
+        const { armed, reason } = depthLowArmed(this.sim); const idx = this.sim.state.vitals.depthIndex;
+        if (!armed) this._end(`advisory disarmed (${reason})`);
+        else if (idx >= cfg('DEPTH_LOW_ADVISORY_CLEAR')) this._end(`index recovered to ${idx} (≥ ${cfg('DEPTH_LOW_ADVISORY_CLEAR')})`);
+      }
+      return this.view();
+    }
     const t = this._t(); const dt = this.lastT === null ? 0 : Math.max(0, t - this.lastT); this.lastT = t;
     const [lo, hi] = cfg('GA_DEPTH_BAND');
     const N = cfg('DEPTH_LOW_ADVISORY_SUSTAIN_SEC'); const clr = cfg('DEPTH_LOW_ADVISORY_CLEAR');
