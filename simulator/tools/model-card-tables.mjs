@@ -13,6 +13,7 @@ import * as LIB from '../data/drugs.js';
 import { derivePatient } from '../engine/patient.js';
 import { createSimulation, ALARM_THRESHOLDS } from '../engine/sim.js';
 import { RESCUE_CONFIG, ADVISORY_DISCLAIMER, HYPOTENSION_CHECKLIST } from '../engine/rescue-config.js';
+import { DEPTH_LOW_CHECKLIST, depthLowFootnote, DEPTH_BAND_SOURCES } from '../engine/depth-advisory.js';
 import { EXAMPLE_PATIENTS } from '../data/scenarios.js';
 import { AUTORUN_CONFIG, CONVENTION } from '../engine/autorun-config.js';
 import { buildSequence } from '../engine/autorun.js';
@@ -106,6 +107,19 @@ const rescueSection = [
   '',
 ].join('\n');
 
+const DEPTH_KEYS = ['GA_DEPTH_BAND', 'DEPTH_LOW_ADVISORY_SUSTAIN_SEC', 'DEPTH_LOW_ADVISORY_CLEAR'];
+const depthSection = [
+  '## Advisory: depth index below the GA band',
+  `Generated from \`engine/depth-advisory.js\` (card \`ui/advisory.js\` \`depthAdvisoryCard\`; settings in \`engine/timing.js\` \`TIMING_CONFIG\`). Owner-approved feature (November 2026), chosen instead of recalibrating the illustrative depth model, which reads about 34–39 at label-default maintenance doses. **Text only:** no drug, dose, rate or percentage is suggested; it is **not an alarm** (nothing is added to the alarm list, guided and automatic modes never pause for it, it never acknowledges anything and never changes a dose). Shown on the Run screen and in the guided/automatic panel when the simulated index stays below the GA band lower bound for the sustain time during GA maintenance **after incision** with the airway secured, after loss of consciousness, and not after every maintenance hypnotic is stopped once surgery has ended; never in MAC/sedation, before loss of consciousness or in emergence. Before incision the pre-incision item (acknowledge an index below the GA band) remains the gate. The only control is "Dismiss" (logged). If the MAP < 65 haemodynamic advisory is shown at the same time, each card names the other. Checklist: ${DEPTH_LOW_CHECKLIST.map((x) => `“${x}”`).join(' ')} Footnote: “${depthLowFootnote()} [${DEPTH_BAND_SOURCES.join('][')}].” The debrief and the session JSON (\`summary.depthAdvisories\`) list every card shown and dismissed, with times, and the total time below the band. No outcome effect of deep anaesthesia is claimed. Not validated; not clinical decision support.`,
+  '',
+  '| Entry | Value | Unit | Provenance | Sources |',
+  '|---|---|---|---|---|',
+  ...DEPTH_KEYS.map((k) => { const x = TIMING_CONFIG[k]; return `| ${k} | ${fmt(Array.isArray(x.value) ? x.value.join('–') : x.value)} | ${x.unit} | ${PROVENANCE_TEXT[x.provenance] || x.provenance} | ${x.sourceIds.join(', ')} |`; }),
+  '',
+  'Rationale text for each entry: see the timing-rules table above and the parameter inventory (component `timing`); timing evidence row 65 ([TIMING_EVIDENCE.md](TIMING_EVIDENCE.md)).',
+  '',
+].join('\n');
+
 const md = readFileSync(file, 'utf8');
 const replaceSection = (text, startRe, body) => {
   const parts = text.split(/\n(?=## )/);
@@ -123,5 +137,7 @@ const withPal = replaceSection(out, /^## Palliative and end-of-life modules/, pa
 out = withPal !== null ? withPal : out.replace(/\n## Sources\n/, `\n${palSection}\n## Sources\n`);
 const withRescue = replaceSection(out, /^## Advisory haemodynamic rescue/, rescueSection);
 out = withRescue !== null ? withRescue : out.replace(/\n## Sources\n/, `\n${rescueSection}\n## Sources\n`);
+const withDepth = replaceSection(out, /^## Advisory: depth index below the GA band/, depthSection);
+out = withDepth !== null ? withDepth : out.replace(/\n## Sources\n/, `\n${depthSection}\n## Sources\n`);
 if (process.argv.includes('--check')) { if (out !== md) { console.error('MODEL_CARD.md is out of date: run node simulator/tools/model-card-tables.mjs'); process.exit(1); } console.log('MODEL_CARD.md up to date'); }
 else { writeFileSync(file, out); console.log(`MODEL_CARD.md: ${inv.length} inventory rows, ${Object.keys(AUTORUN_CONFIG).length} autorun entries, ${Object.keys(TIMING_CONFIG).length} timing rules, ${palInv.length} palliative rows, ${Object.keys(RESCUE_CONFIG).length} rescue entries`); }

@@ -14,7 +14,8 @@ import { selectProphylaxis } from '../engine/prophylaxis.js';
 import { TIMING_CONFIG, PREMED_TO_INDUCTION_MIN_SEC, premedStatus } from '../engine/timing.js';
 import { timingCheckItems } from './timing-view.js';
 import { createRescueAdvisor } from '../engine/rescue.js';
-import { advisoryCard } from './advisory.js';
+import { advisoryCard, depthAdvisoryCard } from './advisory.js';
+import { createDepthAdvisor } from '../engine/depth-advisory.js';
 
 const GA_BAND = TIMING_CONFIG.GA_DEPTH_BAND.value;
 const DEPTH_LABEL = 'Processed-EEG depth index (BIS-style, simulated)';
@@ -356,6 +357,12 @@ export function renderMonitor(ctx, main) {
   const advDismiss = (id) => { const r = advisor.dismiss(id); feedback(r.message, !r.ok); announce(r.message); render(true); };
   const advRun = advisoryCard({ prefix: 'adv', live: true, onAccept: advAccept, onDismiss: advDismiss });
   const advAuto = advisoryCard({ prefix: 'auto-adv', live: false, onAccept: advAccept, onDismiss: advDismiss });
+  // Depth-low advisory (engine/depth-advisory.js): TEXT ONLY — no drug/dose/rate, not an alarm, never pauses
+  // guided/automatic mode. Only "Dismiss" (logged). Before incision the pre-incision item applies instead.
+  const depthAdvisor = createDepthAdvisor(sim);
+  const depthDismiss = (id) => { const r = depthAdvisor.dismiss(id); feedback(r.message, !r.ok); announce(r.message); render(true); };
+  const depthRun = depthAdvisoryCard({ prefix: 'dadv', live: true, onDismiss: depthDismiss });
+  const depthAuto = depthAdvisoryCard({ prefix: 'auto-dadv', live: false, onDismiss: depthDismiss });
 
   // ---------------- guided / automatic modes (engine/autorun.js; conditions in engine/autorun-config.js)
   const autoStatus = h('p', { class: 'auto-status', id: 'auto-status' });
@@ -419,7 +426,7 @@ export function renderMonitor(ctx, main) {
   const autoPanel = h('section', { class: 'hmi-panel auto-panel', id: 'auto-panel', 'aria-labelledby': 'auto-h', 'data-auto-safe': 'auto-panel' },
     h('h3', { id: 'auto-h' }, 'Guided & automatic modes'), autoBanner,
     h('p', { class: 'hint hint--hmi', id: 'auto-intro' }, `Use the patient and plan already entered (doses are not changed) and start the case from 00:00. Guided mode runs each phase from your plan and waits for you at every transition; the full demonstration walks the same sequence on fixed timings. Both pause for an interlock hold or a HIGH-priority alarm (never clearing or acknowledging it), never extubate unless the readiness checklist is met, and end as soon as you use any manual control. Every step is logged (log kind "auto").`),
-    autoStartRow, autoStatus, autoPaused, autoCtlRow, autoCountdown, autoGate, autoCk, autoUnmet, advAuto.el, autoTimingBox, autoSeq);
+    autoStartRow, autoStatus, autoPaused, autoCtlRow, autoCountdown, autoGate, autoCk, autoUnmet, advAuto.el, depthAuto.el, autoTimingBox, autoSeq);
   const startAuto = (mode) => {
     if (sim.state.tSec > 0 || sim.state.phase !== 'premed') { ctx.restartSim(); store.run.autoStart = mode; ctx.rerender(); return; }
     beginAuto(mode);
@@ -564,7 +571,7 @@ export function renderMonitor(ctx, main) {
         h('div', { class: 'hmi-toolbar__group', role: 'group', 'aria-label': 'Playback' }, playBtn, stepBtns),
         h('div', { class: 'hmi-toolbar__group', role: 'group', 'aria-label': 'Speed' }, h('span', { class: 'label' }, 'Speed'), speedBtns),
         h('div', { class: 'hmi-toolbar__group' }, ilBadge, restartBtn)),
-      fb, autoPanel, advRun.el,
+      fb, autoPanel, advRun.el, depthRun.el,
       h('div', { class: 'hmi-grid' },
         h('div', { class: 'hmi-main' }, tileGrid, chartGrid, drugPanel),
         h('div', { class: 'hmi-side' }, alarmPanel, ilPanel, abxPanel, phasePanel, readyPanel, airwayPanel, fluidPanel, intPanel)),
@@ -706,8 +713,14 @@ export function renderMonitor(ctx, main) {
       if (sig !== readyList.dataset.sig) { readyList.dataset.sig = sig; clear(readyList).append(...r.criteria.map((c) => readinessItem(c))); }
     }
     renderAuto();
-    const av = advisor.view();
-    advRun.update(av); advAuto.update(run.auto && run.auto.active ? av : null);
+    const av = advisor.view(); const dv = depthAdvisor.view();
+    // Both cards can show at once: each names the other so the two are read together.
+    const hypo = av.visible && (av.kind === 'hypotension' || av.kind === 'hypotension_recovering');
+    const advCross = hypo && dv.visible ? 'The depth-index advisory is also shown (below): the index is below the GA band, so anaesthetic depth may be contributing to the hypotension.' : '';
+    const depthCross = hypo && dv.visible ? 'The haemodynamic rescue advisory is also shown (above): MAP is low — review both cards together.' : '';
+    const autoOn = run.auto && run.auto.active;
+    advRun.update(av, advCross); advAuto.update(autoOn ? av : null, advCross);
+    depthRun.update(dv, depthCross); depthAuto.update(autoOn ? dv : null, depthCross);
     renderLog();
     drawCharts();
   }
