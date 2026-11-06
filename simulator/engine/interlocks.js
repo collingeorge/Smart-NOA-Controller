@@ -45,6 +45,8 @@ export const PY_RATE_UNITS = Object.freeze({ Dexmedetomidine: 'mcg/kg/h', Ketami
 
 /** Python _is_valid_reading: a finite, non-boolean number. */
 export function isValidReading(v) { return typeof v === 'number' && Number.isFinite(v); }
+/** Display text of a reading in log/alarm messages: an unusable value (NaN, missing, non-finite, non-number) reads "unusable", never "NaN" (final-check fixes; display only — the decision is unchanged and the Python message is not compared by the parity tests). */
+export function readingText(v) { return isValidReading(v) ? String(v) : 'unusable'; }
 
 /** Python _matches: case-insensitive substring of any trigger in any entry. */
 export function matchesFreeText(entries, triggers) {
@@ -99,7 +101,7 @@ export class InterlockCore {
     if (!(isValidReading(hr) && isValidReading(map))) {
       this.latchHold(Object.keys(this.infusions));
       this.status = 'RED';
-      events.push({ code: 'sensor_fault', drugs: Object.keys(this.infusions), message: `Invalid sensor reading (HR=${String(hr)}, MAP=${String(map)}): all controlled infusions set to zero; hold latched.` });
+      events.push({ code: 'sensor_fault', drugs: Object.keys(this.infusions), message: `Invalid sensor reading (HR=${readingText(hr)}, MAP=${readingText(map)}): all controlled infusions set to zero; hold latched.` });
       return { status: this.status, invalid: true, rateFaults: [], events };
     }
     const faults = this.rateFaults();

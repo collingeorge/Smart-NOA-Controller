@@ -88,6 +88,8 @@ export const AUTORUN_CONFIG = Object.freeze({
   INTERLOCK_HR_CRITICAL_LOW: e(NOA_CONFIG.hemodynamic_thresholds.hr_critical_low, '/min', 'both',
     'Reused, not redefined: the engine latches the hold when HR < 48 (config.yaml).',
     'project_config', ['S35']),
+  CONTINUE_WITH_HOLD_OPTION: e(true, 'boolean', 'both',
+    'Owner-approved (final-check fixes, 2026-11): while paused for a latched interlock hold, the clinician may press "Continue with hold latched (this hold only)". It is explicit and logged ("Clinician chose to continue with hold latched: <drugs> (<MAP/HR reason>)"), never a default and never chosen by the runner. It covers only the hold episode latched at that moment (held drugs + trigger + latch time, engine sim.state.interlocks.holdEpisode): a new latch — another trigger, another held drug, or the trigger firing again after it had cleared (MAP back to ≥ 62 mmHg / HR ≥ 50 /min, the alarm clearing hysteresis reused from sim.js ALARM_THRESHOLDS, so noise at the threshold is not a new latch) — pauses again, and so does any new HIGH alarm. It does not release the hold (held infusions stay at zero) and does not acknowledge any alarm. It ends when the hold is released ("Resume hold") or a new episode starts, so it never carries to the next episode.'),
   PAUSE_ALARM_PRIORITIES: e(Object.freeze(['high']), 'alarm priority', 'both',
     'Automatic mode pauses for an unacknowledged HIGH-priority alarm that is active or was raised since the last check. It never acknowledges alarms. Medium and low alarms (e.g. MAP < 65, depth over the sedation target, dose-range notices) do not pause: they are shown and announced as usual, and the user can pause or take over at any time.'),
 });

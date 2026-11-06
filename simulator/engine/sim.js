@@ -10,12 +10,13 @@ import { createPkModel, isInhaled, isNitrous, referenceRegimen, ROUTE_KA_ILLUSTR
 import { combineEffects, patientModifiers, tofFromTwitches, SEDATION_RANK, PROFILES, PATIENT_MODS } from './pd.js';
 import { Physiology } from './physiology.js';
 import { buildParameterInventory } from './inventory.js';
-import { InterlockCore, pythonLockouts, CONTROLLED, PY_TO_SIM_ID, SIM_TO_PY_ID, PY_RATE_UNITS, NOA_CONFIG, aboveCeiling } from './interlocks.js';
+import { InterlockCore, CONTROLLED, PY_TO_SIM_ID, SIM_TO_PY_ID, PY_RATE_UNITS, NOA_CONFIG, aboveCeiling } from './interlocks.js';
 import { AlarmManager } from './alarms.js';
 import { convertAmount, rateToAmountPerMin, isFiniteNumber, roundSig } from './units.js';
 import { getScenario } from '../data/scenarios.js';
 import { createRng as createRngLocal } from './rng.js';
 import { repeatBolusHold, TIMING_CONFIG, liveTimingChecks } from './timing.js';
+import { computeLockouts, MAINTENANCE_HYPNOTIC_CLASSES, maintenanceHypnoticGap } from './plan-safety.js';
 
 export const PHASES = ['premed', 'sedation', 'induction', 'maintenance', 'emergence'];
 export const MIN_FIO2_WITH_N2O = 0.30;
@@ -102,7 +103,10 @@ function normalizePlan(plan) {
   });
   // Antibiotic prophylaxis is "indicated" when the plan says so; without the flag, only when the plan has an antibiotic step.
   const prophylaxisIndicated = typeof p.prophylaxisIndicated === 'boolean' ? p.prophylaxisIndicated : steps.some((s) => s.kind === 'antibiotic');
-  return { mode: p.mode === 'MAC' ? 'MAC' : 'GA', sedationTarget: typeof p.sedationTarget === 'string' ? p.sedationTarget : null, steps, prophylaxisIndicated };
+  // lockoutRemoved: plan steps the plan builder dropped because the drug is locked (data/scenarios.js buildPlan);
+  // kept for the plan-safety check (engine/plan-safety.js maintenanceHypnoticGap). Never run.
+  const lockoutRemoved = Array.isArray(p.lockoutRemoved) ? p.lockoutRemoved.filter((x) => x && typeof x === 'object').map((x) => ({ ...x })) : [];
+  return { mode: p.mode === 'MAC' ? 'MAC' : 'GA', sedationTarget: typeof p.sedationTarget === 'string' ? p.sedationTarget : null, steps, prophylaxisIndicated, ...(lockoutRemoved.length ? { lockoutRemoved } : {}) };
 }
 
 class Simulation {
@@ -131,7 +135,7 @@ class Simulation {
     this.executed = new Map();
     this.autoRun = null; // set by engine/autorun.js while/after an automatic or guided run
     this.rescueAdvisor = null; // set by engine/rescue.js createRescueAdvisor(); advisory only, never doses
-    this.stats = { depthOutOfBandSec: 0, timeMapBelow65Sec: 0, minSpo2: Infinity, maxHr: -Infinity, minHr: Infinity, interlockEvents: [], extubation: null };
+    this.stats = { depthOutOfBandSec: 0, timeMapBelow65Sec: 0, minSpo2: Infinity, maxHr: -Infinity, minHr: Infinity, maxMap: -Infinity, minMap: Infinity, interlockEvents: [], extubation: null };
     this.maskVentSec = 0;
     this.depots = [];
     this.fluid = { retainedMl: 0, pendingMl: 0, sepsisNoteLogged: false, cautionsLogged: new Set() };
@@ -145,25 +149,16 @@ class Simulation {
     this.recCache = new Map();
     this.ceilings = {};
     this.rateWeight = {};
+    this._holdEp = null; this._locAt = null; this._hypnoticSeenRunning = false; this._depthHighSec = 0;
     this._ilLast = {}; this._ilLoggedStatus = null; this._ilStatusT = -Infinity; this._alarmOn = new Set();
 
-    // Lockouts: library lock rules + Python free-text lockouts (config.yaml) on condition/allergy ids and labels.
-    const lockouts = {};
+    // Lockouts: library lock rules + Python free-text lockouts (config.yaml) on condition/allergy ids and labels
+    // (engine/plan-safety.js computeLockouts — the same set the plan-level maintenance-hypnotic check uses).
     for (const d of listDrugs(this.lib)) {
-      const locks = evaluateContraindications(p, d.id, this.lib).filter((c) => c.severity === 'lock').map((c) => c.message);
-      if (locks.length) lockouts[d.id] = locks;
       this.ceilings[d.id] = interpretCeilings(d, p);
       this.rateWeight[d.id] = rateWeightFor(d, p);
     }
-    const labelOf = (list, id) => { const x = (this.lib[list] || []).find((e) => e.id === id); return x ? x.label : ''; };
-    const freeText = (ids, list) => ids.flatMap((id) => [id.replace(/_/g, ' '), labelOf(list, id)]).filter(Boolean);
-    const pyLocks = pythonLockouts({ egfr: p.egfr, allergies: freeText(p.allergies, 'ALLERGIES'), comorbidities: freeText(p.conditions, 'CONDITIONS') });
-    const pySrc = (this.lib.SOURCE_IDS_ENGINE && this.lib.SOURCE_IDS_ENGINE.pythonConfig) || null;
-    for (const py of pyLocks) {
-      const id = PY_TO_SIM_ID[py];
-      if (!getDrug(this.lib, id)) continue;
-      (lockouts[id] = lockouts[id] || []).push(`Python controller configured lockout (config.yaml${pySrc ? ` [${pySrc}]` : ''}; case-insensitive free-text match)`);
-    }
+    const { lockouts, pyLocks } = computeLockouts(p, this.lib);
     this.core = new InterlockCore({ hardLockouts: pyLocks });
     if (!interlocksEnabled) this.core.status = 'DISABLED';
 
@@ -187,12 +182,14 @@ class Simulation {
       // (clinician only), clinician acknowledgement of an index below the GA band, planned end of surgery.
       periop: { transferAt: null, timeOut: null, depthAck: null, sedationAck: null, plannedSurgeryEndSec: null },
       alarms: [],
-      interlocks: { enabled: !!interlocksEnabled, status: interlocksEnabled ? 'INITIALIZING' : 'DISABLED', holdLatched: false, heldDrugs: [], lockouts },
+      interlocks: { enabled: !!interlocksEnabled, status: interlocksEnabled ? 'INITIALIZING' : 'DISABLED', holdLatched: false, heldDrugs: [], lockouts, holdEpisode: null },
       log: [],
     };
     this._log('phase', 'Simulation created (premed). Educational simulation — fictional patient.');
     for (const st of this.plan.steps) if (st.invalid) this._log('dose', `Plan step ${st.id} (${String(st.drugId)}) is invalid and will not run: ${st.invalid}`);
     for (const [id, r] of Object.entries(lockouts)) this._log('interlock', `Lockout: ${getDrug(this.lib, id).name} — ${r.join('; ')}`);
+    for (const st of this.plan.steps) if (st.addedBy === 'clinician_tiva') this._log('action', `Plan step ${st.id}: ${getDrug(this.lib, st.drugId) ? getDrug(this.lib, st.drugId).name : st.drugId} ${st.kind} (${st.phase}) was added by the clinician with "Add propofol TIVA maintenance" (dose from the propofol ${st.regimenKey || 'maintenance'} regimen; not added automatically).`);
+    if (this.plan.mode !== 'MAC') { const g = this.maintenanceHypnoticGap(); if (g.blocking) this._log('interlock', g.message); }
   }
 
   _log(kind, message) { this.state.log.push({ tSec: Math.round(this.state.tSec * 10) / 10, kind, message }); }
@@ -847,6 +844,7 @@ class Simulation {
       S.interlocks.status = this.core.status;
       S.interlocks.holdLatched = this.core.holdLatched;
       S.interlocks.heldDrugs = [...this.core.heldDrugs].map((x) => PY_TO_SIM_ID[x]);
+      this._trackHoldEpisode(t, r.events, prevHeld);
     } else {
       for (const d of listDrugs(lib)) { const ds = S.drugs[d.id]; if (!(isFiniteNumber(ds.infusionRate) && ds.infusionRate >= 0)) this._setRate(d, 0, ds.rateUnit); }
     }
@@ -962,6 +960,7 @@ class Simulation {
     { const [lo, hi] = TIMING_CONFIG.GA_DEPTH_BAND.value; if (this.plan.mode !== 'MAC' && S.phase === 'maintenance' && S.airway.secured && this.stim.surgeryStartAt !== null && (V.depthIndex < lo || V.depthIndex > hi)) this.stats.depthOutOfBandSec += h; }
     if (isFiniteNumber(V.spo2)) this.stats.minSpo2 = Math.min(this.stats.minSpo2, V.spo2);
     if (isFiniteNumber(V.hr)) { this.stats.maxHr = Math.max(this.stats.maxHr, V.hr); this.stats.minHr = Math.min(this.stats.minHr, V.hr); }
+    if (isFiniteNumber(V.map)) { this.stats.maxMap = Math.max(this.stats.maxMap, V.map); this.stats.minMap = Math.min(this.stats.minMap, V.map); } // sensor-fault gaps (NaN) are skipped
 
     // 11. alarms
     const ok = (x) => isFiniteNumber(x);
@@ -969,17 +968,19 @@ class Simulation {
     const hy = (id, on, stayOn) => { const a = on || (this._alarmOn.has(id) && stayOn); if (a) this._alarmOn.add(id); else this._alarmOn.delete(id); return a; };
     const target = this.plan.mode === 'MAC' ? this.plan.sedationTarget : null;
     const A = ALARM_THRESHOLDS;
+    const R = (x) => (ok(x) ? x : 'unusable'); // display text: an unusable reading never prints as NaN
     const conds = [
-      { id: 'spo2_low', priority: 'high', message: `SpO2 ${V.spo2}% < ${A.SPO2_LOW}%`, active: hy('spo2_low', ok(V.spo2) && V.spo2 < A.SPO2_LOW, ok(V.spo2) && V.spo2 < A.SPO2_LOW_CLEAR) },
+      { id: 'spo2_low', priority: 'high', message: `SpO2 ${R(V.spo2)}% < ${A.SPO2_LOW}%`, active: hy('spo2_low', ok(V.spo2) && V.spo2 < A.SPO2_LOW, ok(V.spo2) && V.spo2 < A.SPO2_LOW_CLEAR) },
       { id: 'apnea', priority: 'high', message: `Apnoea > ${A.APNOEA_SEC} s without ventilation (${Math.round(out._true.apnoeaSec)} s)`, active: out._true.apnoeaSec > A.APNOEA_SEC },
-      { id: 'map_critical', priority: 'high', message: `MAP ${V.map} < 60 mmHg (interlock threshold)`, active: hy('map_critical', ok(V.map) && V.map < NOA_CONFIG.hemodynamic_thresholds.map_critical_low, ok(V.map) && V.map < A.MAP_CRITICAL_CLEAR) },
-      { id: 'hr_critical', priority: 'high', message: `HR ${V.hr} < 48 /min (interlock threshold)`, active: hy('hr_critical', ok(V.hr) && V.hr < NOA_CONFIG.hemodynamic_thresholds.hr_critical_low, ok(V.hr) && V.hr < A.HR_CRITICAL_CLEAR) },
-      { id: 'map_low', priority: 'medium', message: `MAP ${V.map} < 65 mmHg`, active: hy('map_low', ok(V.map) && V.map < A.MAP_LOW, ok(V.map) && V.map < A.MAP_LOW_CLEAR) },
-      { id: 'map_high', priority: 'medium', message: `MAP ${V.map} > 120 mmHg`, active: hy('map_high', ok(V.map) && V.map > A.MAP_HIGH, ok(V.map) && V.map > A.MAP_HIGH_CLEAR) },
-      { id: 'hr_high', priority: 'medium', message: `HR ${V.hr} > 120 /min`, active: hy('hr_high', ok(V.hr) && V.hr > A.HR_HIGH, ok(V.hr) && V.hr > A.HR_HIGH_CLEAR) },
+      { id: 'map_critical', priority: 'high', message: `MAP ${R(V.map)} < 60 mmHg (interlock threshold)`, active: hy('map_critical', ok(V.map) && V.map < NOA_CONFIG.hemodynamic_thresholds.map_critical_low, ok(V.map) && V.map < A.MAP_CRITICAL_CLEAR) },
+      { id: 'hr_critical', priority: 'high', message: `HR ${R(V.hr)} < 48 /min (interlock threshold)`, active: hy('hr_critical', ok(V.hr) && V.hr < NOA_CONFIG.hemodynamic_thresholds.hr_critical_low, ok(V.hr) && V.hr < A.HR_CRITICAL_CLEAR) },
+      { id: 'map_low', priority: 'medium', message: `MAP ${R(V.map)} < 65 mmHg`, active: hy('map_low', ok(V.map) && V.map < A.MAP_LOW, ok(V.map) && V.map < A.MAP_LOW_CLEAR) },
+      { id: 'map_high', priority: 'medium', message: `MAP ${R(V.map)} > 120 mmHg`, active: hy('map_high', ok(V.map) && V.map > A.MAP_HIGH, ok(V.map) && V.map > A.MAP_HIGH_CLEAR) },
+      { id: 'hr_high', priority: 'medium', message: `HR ${R(V.hr)} > 120 /min`, active: hy('hr_high', ok(V.hr) && V.hr > A.HR_HIGH, ok(V.hr) && V.hr > A.HR_HIGH_CLEAR) },
       { id: 'sensor_fault_hr', priority: 'high', message: 'HR sensor fault (unusable reading)', active: S.sensors.hr === 'fault' },
       { id: 'sensor_fault_map', priority: 'high', message: 'MAP sensor fault (unusable reading)', active: S.sensors.map === 'fault' },
       { id: 'sensor_fault_spo2', priority: 'high', message: 'SpO2 probe off / sensor fault', active: S.sensors.spo2 === 'fault' },
+      this._depthHighAlarm(V, h, hy),
       { id: 'depth_over_target', priority: 'medium', message: `Sedation deeper than ${target} target (${V.sedationLevel}): airway/ventilation risk`, active: !!target && SEDATION_RANK[V.sedationLevel] > SEDATION_RANK[target] },
       ...this._prophylaxisAlarm(t),
       { id: 'interlock_hold', priority: 'medium', message: `Interlock hold latched (${S.interlocks.heldDrugs.join(', ') || 'no infusions running'}); resume_hold required`, active: S.interlocks.enabled && S.interlocks.holdLatched },
@@ -987,6 +988,75 @@ class Simulation {
     this.alarmMgr.update(t, conds);
     S.alarms = this.alarmMgr.list();
   }
+
+  /**
+   * Hold episode identity (final-check fixes, item A: "Continue with hold latched (this hold only)").
+   * A new episode starts when the hold latches, when a further drug is held, when a trigger code not seen
+   * in this episode fires, or when a trigger fires again after its condition had cleared (re-latch after
+   * recovery; MAP/HR count as recovered only past the alarm clearing hysteresis, MAP ≥ 62 / HR ≥ 50). The episode ends when the hold is released (resume_hold). Read-only for the runner.
+   */
+  _trackHoldEpisode(t, events, prevHeld) {
+    const S = this.state; const codes = events.map((e) => e.code);
+    if (!this.core.holdLatched) { this._holdEp = null; S.interlocks.holdEpisode = null; return; }
+    const ep = this._holdEp;
+    const newDrug = [...this.core.heldDrugs].some((d) => !prevHeld.has(d));
+    const newCode = !!ep && codes.some((c) => !ep.triggers.includes(c));
+    const relatch = !!ep && !ep.triggerActive && codes.length > 0;
+    // A trigger has "recovered" only past the alarm clearing hysteresis (MAP ≥ MAP_CRITICAL_CLEAR, HR ≥
+    // HR_CRITICAL_CLEAR, reused), so seeded noise around the threshold does not count as a new latch.
+    const V = S.vitals; const A = ALARM_THRESHOLDS;
+    const recovered = (c) => (c === 'map_low' ? isFiniteNumber(V.map) && V.map >= A.MAP_CRITICAL_CLEAR : c === 'hr_low' ? isFiniteNumber(V.hr) && V.hr >= A.HR_CRITICAL_CLEAR : !codes.includes(c));
+    const triggers = !ep || relatch ? [...codes] : [...new Set([...ep.triggers, ...codes])];
+    const active = codes.length > 0 || triggers.some((c) => !recovered(c));
+    if (!ep || newDrug || newCode || relatch) {
+      this._holdSeq = (this._holdSeq || 0) + 1;
+      this._holdEp = { id: this._holdSeq, latchedAtSec: t, triggers, triggerActive: active };
+    } else this._holdEp = { ...ep, triggerActive: active };
+    S.interlocks.holdEpisode = { ...this._holdEp, triggers: [...this._holdEp.triggers], heldDrugs: [...S.interlocks.heldDrugs] };
+  }
+
+  /** Is a GA maintenance hypnotic (volatile dial or hypnotic infusion) running now? */
+  _maintenanceHypnoticRunning() {
+    for (const d of listDrugs(this.lib)) {
+      if (!MAINTENANCE_HYPNOTIC_CLASSES.includes(d.cls)) continue;
+      const ds = this.state.drugs[d.id];
+      if (ds && isFiniteNumber(ds.infusionRate) && ds.infusionRate > 0) return true;
+    }
+    return false;
+  }
+
+  /**
+   * Arming of the depth-high (awareness-risk) alarm: GA plan, airway secured, loss of consciousness reached
+   * (index at or below the GA band upper bound since induction started), phase induction or maintenance
+   * (not emergence), and not "agents off" after the end of surgery (every maintenance hypnotic stopped once
+   * surgery has ended). Stopping every hypnotic DURING surgery leaves it armed. There is no depth-sensor
+   * fault in this simulator; a faulted depth reading (sensors.depth === 'fault') would disarm it.
+   */
+  _depthHighArmed(V) {
+    const S = this.state; const hi = TIMING_CONFIG.GA_DEPTH_BAND.value[1];
+    if (this.plan.mode === 'MAC' || !S.airway.secured || !['induction', 'maintenance'].includes(S.phase)) return false;
+    if (S.sensors.depth === 'fault' || !isFiniteNumber(V.depthIndex)) return false;
+    if (this.phaseStart.induction === undefined) return false;
+    if (this._locAt === null || this._locAt === undefined) { if (V.depthIndex <= hi) this._locAt = S.tSec; else return false; }
+    const running = this._maintenanceHypnoticRunning();
+    if (running) this._hypnoticSeenRunning = true;
+    if (this.stim.surgeryEndAt !== null && this._hypnoticSeenRunning && !running) return false; // agents off after surgery
+    return true;
+  }
+
+  /** Depth-high alarm condition (HIGH): index > GA band upper bound for ≥ DEPTH_HIGH_ALARM_SUSTAIN_SEC while armed; clears at ≤ DEPTH_HIGH_ALARM_CLEAR. */
+  _depthHighAlarm(V, h, hy) {
+    const hi = TIMING_CONFIG.GA_DEPTH_BAND.value[1];
+    const N = TIMING_CONFIG.DEPTH_HIGH_ALARM_SUSTAIN_SEC.value; const clr = TIMING_CONFIG.DEPTH_HIGH_ALARM_CLEAR.value;
+    const armed = this._depthHighArmed(V);
+    this._depthHighSec = armed && V.depthIndex > hi ? (this._depthHighSec || 0) + h : 0;
+    const active = hy('depth_high', armed && this._depthHighSec >= N - 1e-9, armed && V.depthIndex > clr);
+    return { id: 'depth_high', priority: TIMING_CONFIG.DEPTH_HIGH_ALARM_PRIORITY.value, active,
+      message: `Processed-EEG index ${V.depthIndex} > ${hi} for ≥ ${N} s during general anaesthesia — risk of awareness; check hypnotic delivery (simulated index, illustrative)` };
+  }
+
+  /** Plan-level maintenance-hypnotic check for this case (engine/plan-safety.js), with the case's lockouts. */
+  maintenanceHypnoticGap() { return maintenanceHypnoticGap(this.plan, this.patient, { library: this.lib, lockouts: this.state.interlocks.lockouts }); }
 
   _prophylaxisAlarm(t) {
     const P = this.state.prophylaxis;
@@ -1048,6 +1118,8 @@ class Simulation {
       minSpo2: isFiniteNumber(this.stats.minSpo2) ? this.stats.minSpo2 : null,
       maxHr: isFiniteNumber(this.stats.maxHr) ? this.stats.maxHr : null,
       minHr: isFiniteNumber(this.stats.minHr) ? this.stats.minHr : null,
+      maxMap: isFiniteNumber(this.stats.maxMap) ? this.stats.maxMap : null,
+      minMap: isFiniteNumber(this.stats.minMap) ? this.stats.minMap : null,
       alarms: this.alarmMgr.history.map((a) => ({ ...a })),
       extubation: this.stats.extubation || { tSec: null, ...this.extubationReadiness(), note: 'not extubated; current readiness' },
       interlockEvents: this.stats.interlockEvents.slice(),

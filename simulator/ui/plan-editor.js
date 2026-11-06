@@ -11,7 +11,7 @@ import { FLUID_MODEL } from '../engine/sim.js';
 import { NOA_CONFIG } from '../engine/interlocks.js';
 import { validatePlanTiming } from '../engine/timing.js';
 import { timingCheckItems, rationaleLine, rationaleText } from './timing-view.js';
-import { exportPlan } from './plan-model.js';
+import { exportPlan, setLockoutRemoved, noteLockedDeletion, addTivaMaintenance } from './plan-model.js';
 
 export const SEDATION_TARGETS = [
   { id: 'minimal', label: 'Minimal sedation', def: 'Normal response to verbal stimulation.' },
@@ -100,6 +100,7 @@ export function renderPlan(ctx, main) {
     const { plan: built, skipped } = buildPlan(t, patient, lib);
     setMode(plan, t.mode); plan.sedationTarget = t.sedationTarget || plan.sedationTarget;
     plan.steps.splice(0, plan.steps.length, ...stepsFromBuiltPlan(c(), built));
+    setLockoutRemoved(plan, built.lockoutRemoved || []);
     store.planNotice = skipped.length ? `Skipped for this patient: ${skipped.map((s) => `${getDrugById(lib, s.drugId)?.name || s.drugId} (${s.reason})`).join('; ')}` : null;
     ctx.planChanged(); renderAll();
     announce(`Example plan loaded with ${plan.steps.length} steps.${skipped.length ? ` ${skipped.length} skipped.` : ''}`);
@@ -136,6 +137,7 @@ export function renderPlan(ctx, main) {
     const r = buildTemplatePlan(t.id, patient, { library: lib, interlocks: store.interlocks, prefillCeilings: false, sedationTarget: t.mode === 'MAC' && plan.mode === 'MAC' ? plan.sedationTarget : null, include });
     setMode(plan, t.mode); if (t.mode === 'MAC') plan.sedationTarget = r.plan.sedationTarget;
     plan.steps.splice(0, plan.steps.length, ...stepsFromBuiltPlan(c(), r.plan));
+    setLockoutRemoved(plan, r.plan.lockoutRemoved || []);
     plan.template = { id: t.id, label: t.label, mode: t.mode }; plan.templateNotes = r.notes;
     if (r.plan.steps.some((x) => x.kind === 'antibiotic')) setProphylaxisIndicated(plan, true);
     const bits = [];
@@ -188,6 +190,7 @@ export function renderPlan(ctx, main) {
   function deleteStep(uid) {
     const i = plan.steps.findIndex((x) => x.uid === uid); const s = plan.steps[i];
     const ph = s.phase;
+    noteLockedDeletion(c(), plan, s);
     plan.steps.splice(i, 1);
     ctx.planChanged(); renderPhases(); renderTimeline(); renderSummary();
     const next = document.querySelector(`#pl-phase-${ph} .step-card [data-del]`) || document.getElementById(`pl-add-${ph}`);
@@ -458,7 +461,8 @@ export function renderPlan(ctx, main) {
   contBtn.addEventListener('click', () => {
     const iss = planIssues(c(), plan);
     if (iss.errors) {
-      announce(`${iss.errors} blocking issue(s) — fix them before running.`, true);
+      announce(`${iss.errors} blocking issue(s) — fix them before running.${iss.hypnoticGap ? ` ${iss.hypnoticGap.message}` : ''}`, true);
+      if (!iss.firstError && iss.hypnoticGap) { const g = document.getElementById('pl-hypnotic-gap'); if (g) { g.scrollIntoView({ block: 'center' }); const b = g.querySelector('button'); (b || g).focus(); } return; }
       const card = document.getElementById(`card-${iss.firstError}`);
       if (card) { card.scrollIntoView({ block: 'center' }); const i = card.querySelector('input'); if (i) i.focus(); }
       return;
@@ -483,6 +487,23 @@ export function renderPlan(ctx, main) {
       notice.append(h('p', { class: 'notice notice--warn' }, 'The patient changed after some doses were auto-filled. ', b));
     }
     if (store.planNotice) notice.append(h('p', { class: 'notice' }, store.planNotice));
+    // Lockout removed the only maintenance hypnotic (engine/plan-safety.js): blocking; never fixed automatically.
+    const gap = iss.hypnoticGap;
+    if (gap) {
+      const box = h('div', { class: 'notice notice--block', id: 'pl-hypnotic-gap', role: 'alert', tabindex: '-1' },
+        h('p', {}, h('span', { class: 'badge badge--lock' }, 'Blocked'), ' ', gap.message, ' ', srcTags(sourcesInText(gap.message))));
+      if (gap.tivaAvailable) {
+        const b = h('button', { type: 'button', class: 'btn btn--small btn--primary', id: 'pl-add-tiva' }, 'Add propofol TIVA maintenance');
+        b.addEventListener('click', () => {
+          const r = addTivaMaintenance(c(), plan);
+          store.planNotice = r.message;
+          ctx.planChanged(); renderAll(); announce(r.message, !r.ok);
+          const card = r.added[0] && document.getElementById(`card-${r.added[0].uid}`); if (card) card.scrollIntoView({ block: 'center' });
+        });
+        box.append(h('p', { class: 'hint' }, 'Adds the propofol maintenance infusion from the drug library (label regimen, auto-filled like any step) at maintenance +0:00 and its stop at emergence. Nothing is changed until you press it; review the step afterwards.'), b);
+      }
+      notice.append(box);
+    }
   }
 
   function renderAll() {

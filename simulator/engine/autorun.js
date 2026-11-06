@@ -10,7 +10,11 @@
 //    current level"; the full demonstration pauses there and never chooses for the clinician;
 //  * it never extubates unless sim.extubationReadiness() is met, and never uses the override;
 //  * it pauses on a latched interlock hold or an unacknowledged HIGH-priority alarm and never
-//    releases holds or acknowledges alarms itself;
+//    releases holds or acknowledges alarms itself; the clinician may choose "Continue with hold latched
+//    (this hold only)" — explicit, logged, never a default, limited to the hold episode latched now
+//    (sim.state.interlocks.holdEpisode); a new latch or a new HIGH alarm pauses again;
+//  * a GA plan whose only maintenance hypnotic is locked out (engine/plan-safety.js) blocks the
+//    "Approve & start induction" gate (guided) and the full demonstration refuses to start;
 //  * any manual control ends it (takeOver), and every step it takes is logged (kind 'auto').
 // Modes:
 //  'guided' — the clinician approves every transition (gate buttons); work inside a phase
@@ -37,13 +41,15 @@ const ACTIVE = new Set(['running', 'paused']);
 const T = (k) => TIMING_CONFIG[k].value;
 // Clinician-only actions the runner performs ONLY when the clinician presses the matching button
 // (runner.clinicianAction); the runner never calls them on its own.
-export const CLINICIAN_ACTIONS = Object.freeze(['confirm_time_out', 'acknowledge_depth_below_band', 'give_prophylaxis', 'acknowledge_sedation_below_target', 'titrate_sedation']);
+export const CLINICIAN_ACTIONS = Object.freeze(['confirm_time_out', 'acknowledge_depth_below_band', 'give_prophylaxis', 'acknowledge_sedation_below_target', 'titrate_sedation', 'continue_with_hold']);
+const TRIGGER_TEXT = Object.freeze({ map_low: 'MAP < 60', hr_low: 'HR < 48', sensor_fault: 'unusable sensor reading', rate_fault: 'rate above the simulation ceiling' });
+const triggerText = (codes) => (codes || []).map((c) => TRIGGER_TEXT[c] || c).join(', ') || 'no active trigger';
 const fmtT = (sec) => { const x = Math.max(0, Math.round(sec)); return `${String(Math.floor(x / 60)).padStart(2, '0')}:${String(x % 60).padStart(2, '0')}`; };
 
 /** What the clinician must do for each kind of pause reason (shown in the paused banner). */
 export function pauseAction(r) {
   if (!r) return '';
-  if (r.kind === 'interlock_hold') return 'Review the cause; if appropriate press "Resume hold" (Interlocks panel), then press Resume.';
+  if (r.kind === 'interlock_hold') return 'Review the cause; if appropriate press "Resume hold" (Interlocks panel), then press Resume — or press "Continue with hold latched (this hold only)" to go on with the held infusions at zero.';
   if (r.kind === 'alarm') return 'Review the patient, acknowledge the alarm (Alarms panel), then press Resume.';
   if (r.kind === 'checklist') return 'Give guideline prophylaxis (button in this panel), then press Resume.';
   if (r.kind === 'clinician_confirm') {
@@ -143,6 +149,7 @@ class AutoRunner {
     this.lastCheckT = 0; this.timeoutWarned = false;
     this.message = ''; this.pauseReasons = []; this.stopReason = null; this.unmetAtStop = [];
     this.history = []; this.pauses = []; this.startedAtSec = null; this.endedAtSec = null; this.manualControl = null;
+    this.holdContinue = null; // clinician's "Continue with hold latched (this hold only)" choice, or null
   }
 
   get active() { return ACTIVE.has(this.state); }
@@ -157,6 +164,8 @@ class AutoRunner {
     if (this.state !== 'idle') return { ok: false, message: 'Already started' };
     const prior = this.sim.autoRun && this.sim.autoRun !== this;
     if (S.phase !== 'premed' || S.airway.secured || prior || (S.periop && S.periop.transferAt !== null)) return { ok: false, message: 'Automatic and guided modes start from the beginning of a case; restart the case first.' };
+    const gap = this._hypnoticGap();
+    if (this.mode === 'full' && gap.blocking) { this._log(`Automatic demonstration refused to start: ${gap.message}`); return { ok: false, refused: 'maintenance_hypnotic', message: gap.message }; }
     this.state = 'running'; this.startedAtSec = this._t(); this.enteredAt = this._t(); this.lastCheckT = this._t();
     this.sim.autoRun = this;
     this.message = `${MODE_LABELS[this.mode]} started (${this.planMode}${this.planMode === 'MAC' ? `, target ${this.sedationTarget}` : ''}). ${this.mode === 'guided' ? 'You confirm every transition.' : 'Scripted sequence; gates pass on fixed timings.'}`;
@@ -166,6 +175,12 @@ class AutoRunner {
   }
 
   // ---------------------------------------------------------------- conditions
+  /** Plan-level maintenance-hypnotic check (engine/plan-safety.js); GA only. */
+  _hypnoticGap() {
+    if (this.planMode !== 'GA' || typeof this.sim.maintenanceHypnoticGap !== 'function') return { blocking: false };
+    return this.sim.maintenanceHypnoticGap();
+  }
+
   _planPhaseDone(phases) {
     return this.sim.planStatus().filter((s) => phases.includes(s.phase)).every((s) => s.status !== 'pending');
   }
@@ -196,6 +211,8 @@ class AutoRunner {
         const pre = this.history.find((h) => h.id === 'preoxygenate');
         const pm = premedStatus(sim);
         const readyAt = Math.max(pre ? pre.tSec + T('PREOXYGENATION_SEC') : Infinity, pm.lastEndSec !== null ? pm.lastEndSec + PREMED_TO_INDUCTION_MIN_SEC : -Infinity);
+        const gap = this._hypnoticGap();
+        if (gap.blocking) unmet.push(gap.message);
         if (!pre) { unmet.push('Preoxygenation not started'); break; }
         countdownSec = this._remain(readyAt);
         if (countdownSec > 0) unmet.push(`Preoxygenation ${T('PREOXYGENATION_SEC') / 60} min${pm.lastEndSec !== null ? ` and ≥ ${PREMED_TO_INDUCTION_MIN_SEC / 60} min after the premedication ended` : ''} — ${countdownSec} s to go (no overlap of premedication with induction)`);
@@ -275,8 +292,16 @@ class AutoRunner {
     // The engine core is read directly so a hold the user has just released (resume_hold) is not
     // reported as latched until the next step refreshes sim.state.interlocks.
     const latched = this.sim.core && typeof this.sim.core.holdLatched === 'boolean' ? this.sim.core.holdLatched : S.interlocks.holdLatched;
-    if (this._v('PAUSE_ON_INTERLOCK_HOLD') && S.interlocks.enabled && latched) {
-      out.push({ kind: 'interlock_hold', headline: 'Interlock hold latched', message: `Interlock hold latched (held: ${S.interlocks.heldDrugs.join(', ') || 'no infusions running'}). Automatic mode does not release holds — use "Resume hold" if appropriate, then Resume.` });
+    const ep = S.interlocks.holdEpisode || null;
+    // "Continue with hold latched" covers only the episode it was chosen for; it resets as soon as the hold is
+    // released or a new episode begins (new trigger, newly held drug, or re-latch after recovery).
+    if (this.holdContinue && (!latched || !ep || ep.id !== this.holdContinue.episodeId)) {
+      this._log(`"Continue with hold latched" choice ended — ${!latched || !ep ? 'hold released' : `new hold episode (${triggerText(ep.triggers)} at ${fmtT(ep.latchedAtSec)})`}.`);
+      this.holdContinue = null;
+    }
+    const continuing = !!(latched && ep && this.holdContinue && ep.id === this.holdContinue.episodeId);
+    if (this._v('PAUSE_ON_INTERLOCK_HOLD') && S.interlocks.enabled && latched && !continuing) {
+      out.push({ kind: 'interlock_hold', episodeId: ep ? ep.id : null, headline: 'Interlock hold latched', message: `Interlock hold latched (held: ${S.interlocks.heldDrugs.join(', ') || 'no infusions running'}${ep ? `; ${triggerText(ep.triggers)}` : ''}). Automatic mode does not release holds — use "Resume hold" if appropriate, then Resume, or choose "Continue with hold latched (this hold only)".` });
     }
     const pr = this._v('PAUSE_ALARM_PRIORITIES');
     for (const a of S.alarms) {
@@ -335,6 +360,7 @@ class AutoRunner {
   clinicianAction(id) {
     if (!CLINICIAN_ACTIONS.includes(id)) return { ok: false, message: `Unknown clinician action ${id}` };
     let r;
+    if (id === 'continue_with_hold') return this._continueWithHold();
     if (id === 'titrate_sedation') {
       const sug = sedationTitration(this.sim, this.config);
       if (sug.none) r = { ok: false, message: sug.none };
@@ -356,6 +382,24 @@ class AutoRunner {
     this._log(`clinician: ${r.message}`);
     this._emit('clinician', { action: id });
     return r;
+  }
+
+  /**
+   * "Continue with hold latched (this hold only)" — pressed by the clinician while paused for an interlock hold.
+   * Records the hold episode (held drugs + trigger codes + latch time) and resumes if nothing else blocks.
+   * It does NOT release the hold (infusions stay held at zero) and does NOT acknowledge any alarm.
+   */
+  _continueWithHold() {
+    const S = this.sim.state; const ep = S.interlocks.holdEpisode;
+    const latched = this.sim.core ? this.sim.core.holdLatched : S.interlocks.holdLatched;
+    if (this.state !== 'paused' || !this.pauseReasons.some((r) => r.kind === 'interlock_hold')) return { ok: false, message: 'Continue with hold latched is offered only while paused for an interlock hold.' };
+    if (!latched || !ep) return { ok: false, message: 'No latched hold.' };
+    this.holdContinue = { episodeId: ep.id, heldDrugs: [...ep.heldDrugs], triggers: [...ep.triggers], latchedAtSec: ep.latchedAtSec, chosenAtSec: this._t() };
+    const message = `Clinician chose to continue with hold latched: ${ep.heldDrugs.join(', ') || 'no infusions'} held (${triggerText(ep.triggers)}; latched at ${fmtT(ep.latchedAtSec)}). This hold only — the hold is not released, held infusions stay at zero, alarms are not acknowledged.`;
+    this._log(`clinician: ${message}`);
+    this._emit('clinician', { action: 'continue_with_hold' });
+    const res = this.resume();
+    return { ok: true, message: res.ok ? message : `${message} ${res.message}`, resumed: res.ok };
   }
 
   /** Live timing checks (engine/timing.js) for the panel and the debrief. */
@@ -464,6 +508,8 @@ class AutoRunner {
       pauseDetails: this.state === 'paused' ? this.pauseReasons.map((r) => ({ kind: r.kind, item: r.item || null, alarmId: r.alarmId || null, headline: r.headline || r.message, message: r.message, action: pauseAction(r) })) : [],
       titration: cur && cur.items && cur.items.some((x) => x.id === 'sedation' && !x.met && x.clinician) ? sedationTitration(this.sim, this.config) : null,
       stopReason: this.stopReason, unmetAtStop: this.unmetAtStop.slice(), current: cur,
+      canContinueWithHold: this.state === 'paused' && this.pauseReasons.some((r) => r.kind === 'interlock_hold'),
+      holdContinue: this.holdContinue ? { ...this.holdContinue, heldDrugs: [...this.holdContinue.heldDrugs], triggers: [...this.holdContinue.triggers] } : null,
       sequence: this.seq.map((s, i) => ({ id: s.id, label: s.label, gate: !!s.gate, gateLabel: s.gateLabel || null, describe: s.describe, done: i < this.idx, current: i === this.idx && this.active })) };
   }
 

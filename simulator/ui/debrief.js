@@ -53,6 +53,7 @@ export function renderDebrief(ctx, main) {
       stat('Time MAP < 65 mmHg', fmtClock(s.timeMapBelow65Sec)),
       stat('Minimum SpO2', isNum(s.minSpo2) ? `${s.minSpo2} %` : '—'),
       stat('HR range', isNum(s.minHr) ? `${s.minHr}–${s.maxHr} /min` : '—'),
+      stat('MAP range', isNum(s.minMap) ? `${s.minMap}–${s.maxMap} mmHg` : '—'),
       stat('Alarms raised', String(s.alarms.length)),
       fl !== null ? stat('Crystalloid given', `${fmtNum(fl, 0)} mL`) : null),
     fluidsCard(s.fluids, p),

@@ -11,7 +11,7 @@ import { renderAssessment } from './assessment.js';
 import { renderPlan, setMode, interlockExplanation } from './plan-editor.js';
 import { renderMonitor, newRunState, readinessItem } from './monitor.js';
 import { renderDebrief } from './debrief.js';
-import { exportPlan, planIssues, stepsFromBuiltPlan } from './plan-model.js';
+import { exportPlan, planIssues, stepsFromBuiltPlan, setLockoutRemoved } from './plan-model.js';
 import { notModeled } from './labels.js';
 import { renderModelCard, loadModelAssumptions, assumptionsList, AI_DISCLOSURE, TOOL_DESCRIPTION } from './model-card.js';
 import { pal, renderPalliative, setPalModule, stop as stopPalliative, renderEthics, palSnapshot } from './palliative.js';
@@ -149,6 +149,7 @@ function loadExample(id) {
     setMode(store.plan, t.mode);
     store.plan.sedationTarget = t.sedationTarget || store.plan.sedationTarget;
     store.plan.steps.splice(0, store.plan.steps.length, ...stepsFromBuiltPlan(planCtx(), plan));
+    setLockoutRemoved(store.plan, plan.lockoutRemoved || []);
     store.planNotice = `Example plan “${t.label}” loaded.${skipped.length ? ` Skipped: ${skipped.map((s) => `${s.drugId} (${s.reason})`).join('; ')}` : ''}`;
   }
   store.planVersion += 1;
@@ -265,6 +266,7 @@ function testSnapshot() {
       fluids: sim.state.fluids, prophylaxis: sim.state.prophylaxis, checklist: sim.prophylaxisChecklist(), alarms: sim.state.alarms, drugs: { lidocaine: sim.state.drugs.lidocaine } } : null,
     plan: { mode: store.plan.mode, sedationTarget: store.plan.sedationTarget, template: store.plan.template || null, steps: store.plan.steps.map((x) => ({ drugId: x.drugId, kind: x.kind, phase: x.phase, regimenKey: x.regimenKey, amount: x.amount, rate: x.rate, atSec: x.atSec })) },
     auto: a ? { ...a.status(), idx: a.idx, history: a.history } : null,
+    hist: store.run && store.run.hist ? { hr: store.run.hist.hr.slice(-3), map: store.run.hist.map.slice(-3), spo2: store.run.hist.spo2.slice(-3) } : null, // trend-chart samples (NaN gap → null)
     periop: sim ? sim.state.periop : null, planStatus: sim ? sim.planStatus().map((x) => ({ id: x.id, phase: x.phase, drugId: x.drugId, kind: x.kind, status: x.status, waiting: x.waiting || null })) : null,
   });
 }

@@ -241,19 +241,63 @@ test('simulator UI smoke', { skip, timeout: 900000 }, async (t) => {
       assert.ok(['awake', 'minimal', 'moderate', 'deep', 'general'].includes(s.v.sedationLevel));
     });
 
-    await t.test('sensor fault shows FAULT and RED/HOLD', async () => {
+    await t.test('sensor fault: tiles show "—" (accessible label), RED/HOLD, charts gap, restored when the fault clears', async () => {
       await loadCase(page, 'healthy_adult'); await toRun(page);
       await page.click('#ph-induction'); await page.click('[data-step="10"]');
       await page.click('#sf-hr_sensor_fault');
       await page.click('[data-step="1"]'); await page.click('[data-step="1"]');
-      assert.equal((await page.textContent('#tile-hr .tile__value')).trim(), 'FAULT');
+      assert.equal((await page.textContent('#tile-hr .tile__value')).trim(), '—');
+      assert.equal(await page.getAttribute('#tile-hr .tile__value', 'aria-label'), 'no valid reading (sensor fault)');
+      assert.match(await page.textContent('#tile-hr .tile__sub'), /SENSOR FAULT/);
       assert.match(await page.textContent('#mon-il-badge'), /RED|HOLD/);
       assert.match(await page.textContent('#mon-alarms'), /HR sensor fault/);
+      assert.doesNotMatch(await page.textContent('#mon-log'), /NaN/);
+      assert.match(await page.textContent('#mon-log'), /HR=unusable/);
+      const gap = await snap(page);
+      assert.equal(gap.hist.hr[gap.hist.hr.length - 1], null, 'the trend chart holds a gap (NaN sample), not the stale value');
       await shot(page, '4-run-alarm.png');
+      // MAP and SpO2 faults: BP tile shows "—" (no stale systolic/diastolic), advisory reads "MAP reading unusable"
+      await page.click('#sf-map_sensor_fault'); await page.click('#sf-spo2_probe_off');
+      await page.click('[data-step="1"]'); await page.click('[data-step="1"]');
+      for (const k of ['bp', 'spo2']) {
+        assert.equal((await page.textContent(`#tile-${k} .tile__value`)).trim(), '—', k);
+        assert.equal(await page.getAttribute(`#tile-${k} .tile__value`, 'aria-label'), 'no valid reading (sensor fault)', k);
+      }
+      assert.doesNotMatch(await page.textContent('#tile-bp'), /\d+\/\d+|MAP \d/);
+      assert.match(await page.textContent('#adv-headline'), /MAP reading unusable/);
       await page.click('[data-step="60"]'); await page.click('[data-step="60"]');
       assert.match(await page.textContent('#mon-il-badge'), /HOLD/);
+      for (const k of ['hr', 'bp', 'spo2']) {
+        const v = (await page.textContent(`#tile-${k} .tile__value`)).trim();
+        assert.match(v, /^\d+(\/\d+)?$/, `${k} restored after the fault clears: ${v}`);
+        assert.equal(await page.getAttribute(`#tile-${k} .tile__value`, 'aria-label'), null, k);
+      }
       await page.click('#mon-resume');
       assert.match(await page.textContent('#mon-log'), /Hold released by explicit user action/);
+    });
+
+    await t.test('MH patient + sevoflurane example plan: blocking "no maintenance hypnotic" warning; clinician adds propofol TIVA; then Run', async () => {
+      await loadCase(page, 'mh_susceptible');
+      await page.click('#pf-continue'); await page.waitForSelector('#as-continue'); await page.click('#as-continue'); await page.waitForSelector('#pl-continue');
+      await page.selectOption('#pl-example', 'ga_healthy'); await page.click('text=Load example plan');
+      await page.waitForSelector('#pl-hypnotic-gap');
+      const msg = await page.textContent('#pl-hypnotic-gap');
+      assert.match(msg, /No maintenance hypnotic after lockout: Sevoflurane is contraindicated \(.*malignant hyperthermia.*\)\. Add an alternative \(e\.g\. propofol infusion — TIVA\) before approving\./);
+      assert.equal(await page.getAttribute('#pl-continue', 'aria-disabled'), 'true');
+      const before = await page.locator('#pl-phases .step-card').count();
+      await page.click('#pl-continue', { force: true }); // aria-disabled: the click is refused and focuses the warning
+      assert.equal(await page.locator('#mon-play').count(), 0, 'Run is not reachable while blocked');
+      assert.equal(await page.evaluate(() => document.activeElement && document.activeElement.id), 'pl-add-tiva');
+      assert.equal(await page.locator('#pl-phases .step-card').count(), before, 'nothing added automatically');
+      await page.click('#pl-add-tiva');
+      assert.equal(await page.locator('#pl-hypnotic-gap').count(), 0);
+      assert.equal(await page.locator('#pl-phases .step-card').count(), before + 2);
+      assert.match(await page.textContent('#pl-notice'), /Clinician added propofol TIVA maintenance/);
+      assert.match(await page.textContent('#pl-phase-maintenance'), /Propofol/);
+      assert.match(await page.textContent('body'), /Propofol TIVA maintenance added by the clinician/); // "Why this time"
+      assert.equal(await page.getAttribute('#pl-continue', 'aria-disabled'), 'false');
+      await page.click('#pl-continue'); await page.waitForSelector('#mon-play');
+      assert.match(await page.textContent('#mon-log'), /added by the clinician with "Add propofol TIVA maintenance"/);
     });
 
     await t.test('guided mode, GA (elderly example): gates in order, countdowns, pre-incision verification, intubate/extubate only when conditions met', async () => {
@@ -690,6 +734,32 @@ test('simulator UI smoke', { skip, timeout: 900000 }, async (t) => {
         await page.evaluate(() => window.__smartNoa.testClock(true));
         await page.click('[data-speed="20"]');
       }
+    });
+
+    await t.test('interlock hold pause offers "Continue with hold latched (this hold only)"; explicit, logged, alarms not acknowledged', async () => {
+      await loadCase(page, 'healthy_adult'); await toRun(page);
+      await page.click('#auto-full');
+      await adv(page, 5);
+      await page.evaluate(() => window.__smartNoa.inject('map_sensor_fault'));
+      // first pause: the HIGH sensor-fault alarm (the interlock reads the unusable value on the next second)
+      await advanceUntil(page, (x) => x.auto && x.auto.state === 'paused', { maxSec: 30, chunk: 1, label: 'alarm pause' });
+      assert.ok(await page.isHidden('#auto-hold-continue'), 'not offered for an alarm-only pause');
+      for (const b of await page.locator('#mon-alarms button[data-ack]:not([disabled])').all()) await b.click();
+      await page.click('#auto-resume');
+      await advanceUntil(page, (x) => x.auto && x.auto.state === 'paused', { maxSec: 30, chunk: 1, label: 'hold pause' });
+      await page.waitForSelector('#auto-hold-continue:not([hidden])');
+      assert.match(await page.textContent('#auto-paused-head'), /Interlock hold latched/);
+      await page.click('#auto-hold-continue');
+      const log = await simLog(page);
+      assert.ok(log.some((l) => /Clinician chose to continue with hold latched/.test(l.message)));
+      const st = await snap(page);
+      assert.ok(st.sim.interlocks.holdLatched, 'hold not released');
+      const iChoice = log.findIndex((l) => /Clinician chose to continue with hold latched/.test(l.message));
+      assert.ok(!log.slice(iChoice).some((l) => /Alarm acknowledged/.test(l.message)), 'the choice acknowledges no alarm');
+      if (st.auto.state === 'paused') { for (const b of await page.locator('#mon-alarms button[data-ack]:not([disabled])').all()) await b.click(); await page.click('#auto-resume'); }
+      const after = await adv(page, 20);
+      assert.equal(after.auto.state, 'running', 'the same hold does not pause again');
+      await page.click('#auto-takeover');
     });
 
     await t.test('user pause banner reads cleanly (no double period)', async () => {

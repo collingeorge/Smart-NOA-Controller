@@ -862,6 +862,8 @@ The advisory (`engine/rescue-config.js`, `engine/rescue.js`) reuses existing reg
 - Isoflurane and desflurane also use the Mapleson equation (MAC40 1.17% and 6.6%, the same slope). The isoflurane label table (1.28/1.15/1.05% at mean ages 26/44/64 y) is stored for display.
 - **N2O and FiO2:** the maximum FiO2 is 1 − FiN2O (70% N2O leaves at most 0.30). This is simple arithmetic, so no source is cited.
 - **N2O cannot work alone:** its MAC40 is 104% (Mapleson), so it cannot provide anaesthesia alone at 1 atm and is modelled only as an adjunct.
+- **Depth-high (awareness-risk) alarm** (final-check fixes, 2026-11; `engine/timing.js` `DEPTH_HIGH_ALARM_*`): HIGH when the simulated processed-EEG index stays above the GA band upper bound 60 (B-Unaware [S52] / BAG-RECALL [S53] protocol band, reused) for ≥ 60 s during GA with the airway secured; clears at ≤ 58. The 60-s sustain, the 58 hysteresis and the HIGH priority are **simulator conventions** (no source gives an alarm duration); the index itself is an illustrative model output.
+- **Maintenance-hypnotic classes** (final-check fixes, `engine/plan-safety.js` `MAINTENANCE_HYPNOTIC_CLASSES`): only volatile agents and hypnotic infusions (propofol) count as a GA maintenance hypnotic for the lockout check; N2O, dexmedetomidine and ketamine do not. A teaching rule of the simulator, not a sourced statement.
 - Sevoflurane carries two MAC references: Mapleson MAC40 = 1.80% and the US label table (2.1% at 40 y in O2). They differ. The engine's effect model uses Mapleson, and the UI may show both.
 
 ## Verification and validation status
