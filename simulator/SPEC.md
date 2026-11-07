@@ -79,7 +79,7 @@ export const DRUGS = [{
     …
   },
   ceiling: { value, unit, basis:'label maximum'|'guideline maximum', sources:['S…'] },   // hard stop in simulator (cumulative or rate as stated)
-  contraindications: [{ when:'condition:mh_susceptible' | 'allergy:nsaid' | 'egfr<30' | 'medication:maoi' | 'condition:heart_block', severity:'lock'|'warn', message:'…', sources:['S…'] }],
+  contraindications: [{ when:'condition:mh_susceptible' | 'allergy:nsaid' | 'egfr<30' | 'egfr<=30' | 'medication:maoi' | 'condition:heart_block', severity:'lock'|'warn', message:'…', sources:['S…'] }],
   timing: { onsetMin, peakMin, durationMin, basis:'label statement or published model', sources:['S…'] },   // used by engine to calibrate illustrative PK
   pkModel: 'marsh'|'calibrated',                          // 'marsh' only for propofol if published parameters are verified
 }];
