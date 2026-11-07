@@ -183,7 +183,7 @@ flowchart TB
 **Text alternative.** The browser UI drives a single simulation engine with an illustrative patient, PK/PD and physiology model. Every dose passes the dose rules — label ceilings, contraindication lockouts and warnings, label repeat intervals (phenylephrine 60 s, glycopyrrolate 120 s, IM/SC epinephrine 300 s) and the teaching ceilings (epinephrine IV boluses 0.5 mg, glycopyrrolate 1 mg, crystalloid 30 mL/kg TBW) — fed by the drug library and its source registry. Each simulated second the engine calls the shared interlock core, which implements the same rules and messages as the Python reference controller (checked by parity tests): the sensor fail-safe, rate ceilings, HR < 48 and MAP < 60 holds, the two-step release and the suspension of up to 300 s. Guided and automatic modes use the same actions as the on-screen buttons and pause under fixed rules; advisories only suggest, and the clinician accepts or dismisses them. Everything is written to a time-stamped event log that feeds the debrief and the downloadable session JSON. There is no monitor, pump or record-system interface.
 <!-- safety-diagrams:architecture:end -->
 
-![Earlier Smart NOA architecture figure](smartnoa_architecture.jpg)
+<img src="smartnoa_architecture.jpg" alt="Earlier Smart NOA architecture figure" width="935" height="1210">
 
 *Architecture figure from 29 October 2026 (the date of commit aa522ab, which added it to this repository); predates the November 2026 interlock hardening; see the current diagram in SAFETY_DESIGN.md (above). The image is kept unchanged for the record.*
 
