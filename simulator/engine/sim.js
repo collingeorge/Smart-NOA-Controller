@@ -656,7 +656,19 @@ class Simulation {
       const hold = this.core.hold ? { ...this.core.hold, reasons: this.core.hold.reasons.map((r) => ({ ...r })) } : null;
       const r = this._interlockAction(t, () => this.core.resumeHold(INTERLOCK_ACTOR), (e) => `Hold released by explicit user action (resume_hold): ${e.message}. Infusions do not restart automatically.`);
       if (r.ok && hold) this._holdHistory.push(this._holdView({ ...hold, releasedBy: INTERLOCK_ACTOR, releasedAtSec: t }));
-      if (r.ok) r.released = held.map((x) => PY_TO_SIM_ID[x] || x);
+      if (r.ok) {
+        r.released = held.map((x) => PY_TO_SIM_ID[x] || x);
+        // Held infusions stay at zero after release. A direct write to state.drugs[x].infusionRate made
+        // while held (refused by the API, not yet re-validated by step()) is discarded here, so it cannot
+        // take effect after the release (05t audit, finding 2). A new rate must be set deliberately.
+        for (const sid of r.released) {
+          const drug = getDrug(this.lib, sid);
+          const ds = drug && this.state.drugs[sid];
+          if (!ds) continue;
+          if (ds.infusionRate !== 0) this._log('interlock', `Pending direct write discarded on release: ${drug.name} rate ${String(ds.infusionRate)} ${ds.rateUnit} → stays at zero`);
+          this._setRate(drug, 0, ds.rateUnit);
+        }
+      }
       return r;
     }
     if (id.startsWith('suspend_interlocks:')) {
