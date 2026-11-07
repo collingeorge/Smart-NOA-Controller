@@ -330,6 +330,11 @@ class Simulation {
       this._log('dose', `${drug.name} stopped${meta.source === 'plan' ? ' (plan)' : ''}`);
       return res(true, false, [], []);
     }
+    // A drug × kind with no sourced regimen is refused cleanly before any model call (05r: a bolus on an
+    // inhaled agent used to throw "model.model.bolus is not a function"). Kind mismatches with an inhaled
+    // agent keep their specific refusal below; unknown kinds are refused at the end.
+    const noRegimen = noRegimenReason(drug, kind);
+    if (noRegimen) return res(false, true, [noRegimen], []);
     if (this.state.interlocks.lockouts[drug.id]) return res(false, true, this.state.interlocks.lockouts[drug.id], []);
     for (const c of evaluateContraindications(this.patient, drug.id, this.lib)) if (c.severity === 'warn') warnings.push(c.message);
     const limits = this.ceilings[drug.id];
@@ -1330,6 +1335,21 @@ function makeRng(seed) {
 function defaultRateUnit(drug) {
   const regs = drug.regimens || {};
   for (const k of ['maintenance', 'sedation_moderate', 'sedation_deep', 'sedation_minimal', ...Object.keys(regs)]) if (regs[k] && regs[k].rate && regs[k].rate.unit) return regs[k].rate.unit;
+  return null;
+}
+
+/**
+ * Refusal text when `drug` has no sourced regimen for `kind` (null otherwise). A bolus needs a bolus regimen or a
+ * loading dose (dexmedetomidine, lidocaine); an infusion needs an infusion regimen. 'inhaled' and an infusion of an
+ * inhaled agent are handled by the inhaled-agent check in _administerImpl; other kinds by the unknown-kind refusal.
+ */
+export function noRegimenReason(drug, kind) {
+  const regs = Object.values(drug.regimens || {}).filter(Boolean);
+  if (kind === 'bolus') {
+    if (isInhaled(drug)) return `${drug.name}: no sourced bolus for an inhaled agent`;
+    if (!regs.some((r) => r.kind === 'bolus' || r.loading)) return `no sourced bolus regimen for ${drug.name}`;
+  }
+  if (kind === 'infusion' && !isInhaled(drug) && !regs.some((r) => r.kind === 'infusion')) return `no sourced infusion regimen for ${drug.name}`;
   return null;
 }
 

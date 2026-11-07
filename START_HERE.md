@@ -2,13 +2,14 @@
 
 > **Educational work by a pre-medical student — not medical advice.** Not a clinical protocol, prescription, or patient handout, and not for patient care. See [DISCLAIMER](DISCLAIMER.md).
 
-Updated 29 October 2026. A Python rule-checking simulation with fictional profiles, reproducible traces and documented limits.
+Updated 7 November 2026. A Python rule-checking simulation with fictional profiles, reproducible traces and documented limits.
 
 ## Read in this order
 
 1. [Start with the main work](GUIDELINE_INFORMED_EXAMPLES.md).
 2. [Inspect the supporting review record](DEVELOPMENT.md).
-3. Read the [authorship and review status](AUTHORSHIP_AND_REVIEW.md), then use the [README](README.md) for the full repository contents.
+3. Read [how the safety logic works, and why these design principles reduce risk](SAFETY_DESIGN.md) (educational; no claim that the simulation reduces clinical risk).
+4. Read the [authorship and review status](AUTHORSHIP_AND_REVIEW.md), then use the [README](README.md) for the full repository contents.
 
 ## Reading focus
 

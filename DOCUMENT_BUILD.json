@@ -12,7 +12,7 @@
       "pdf": "Smart-NOA-Controller/smartnoa_architecture.pdf",
       "pdf_sha256": "c36888a320d34bcdaeb6e2aa589565dcff56b1b8b02fb60687bf80f2301851ac",
       "source": "build_release_documents.py architecture definition",
-      "note": "Diagram PDF not regenerated in November 2026; it contains no author credential text."
+      "note": "Diagram PDF not regenerated in November 2026; it contains no author credential text. Architecture figure from 29 October 2026 (commit aa522ab, which added it); predates the November 2026 interlock hardening; see the current diagram in SAFETY_DESIGN.md."
     }
   ]
 }

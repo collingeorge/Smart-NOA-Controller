@@ -17,9 +17,9 @@ The program reads a fictional profile and config.yaml, applies a few exact-strin
 | Drug amounts | Configured dexmedetomidine, ketamine and lidocaine rate values | Selecting an appropriate drug, route, dose, concentration or delivery device |
 | Concentrations | One central compartment plus effect-site state for dexmedetomidine | Validated population PK/PD, measured concentrations, ketamine/lidocaine PK |
 | Observations | Random HR and MAP, or scripted values in this supplement | Pain, nociception, EEG, ventilation, oxygenation, sensor quality, ECG rhythm |
-| Rule actions | Selected rates set to zero, hold latch | Clinical diagnosis, rescue treatment, comprehensive stop policy, restart authorization |
+| Rule actions | Selected rates set to zero, hold latch, simulated two-step release (acknowledge, then release; held rates stay zero), time-limited suspension of the HR/MAP holds, event log | Clinical diagnosis, rescue treatment, comprehensive stop policy, clinical restart authorization |
 
-ASA class is stored but does not alter these rules. eGFR only affects the ketorolac example rule; it does not adjust dexmedetomidine, ketamine or lidocaine. Comorbidity and allergy matching is case-sensitive and incomplete. "No configured lockout" is not clearance.
+ASA class is stored but does not alter these rules. eGFR only affects the ketorolac example rule; it does not adjust dexmedetomidine, ketamine or lidocaine. Comorbidity and allergy matching is case-insensitive substring matching against short lists, and incomplete. "No configured lockout" is not clearance.
 
 ## 2. Literature context and administration concepts
 Clinical publications inform the discussion below; they do not validate config.yaml or the simulator. Different drugs serve different purposes. These are separate source contexts, not instructions to combine all listed agents.
@@ -58,7 +58,7 @@ The harness uses the unchanged monitor_and_control method with scripted random r
 
 Units in the final column remain mcg/kg/hour for dexmedetomidine and mg/kg/hour for the other two agents. GREEN means no configured alert on that step, not a clinically safe state. A low-HR rule uses HR <48; a separate low-MAP rule uses MAP <60. Both execute at step 2, so low HR cannot mask the low-MAP action.
 
-**The hold is incomplete:** ketamine stays at 0.2 in the loop, even after the hold latches. The explicit rate-generation method zeros all three when it sees an existing latch. It is not automatically called by the loop. There is no implemented unlatch/restart policy. This is a limitation to teach, not a comprehensive infusion shutdown or rescue protocol.
+**The hold is incomplete:** ketamine stays at 0.2 in the loop, even after the hold latches. The explicit rate-generation method zeros all three when it sees an existing latch. It is not automatically called by the loop. The hold is released only by the explicit, logged two-step `acknowledge_hold(by, note)` then `resume_hold(by)` (a simulated clinician action), and the release restores no rate; there is no automatic unlatch or restart policy. This is a limitation to teach, not a comprehensive infusion shutdown or rescue protocol.
 
 The model update occurs before each observation's rule action. Step 2 therefore uses the previous nonzero dexmedetomidine rate for that step before zeroing it. An in-memory zero does not remove drug already present or cause instant recovery. At step 3, toy Cp falls slightly while Ce continues rising because it is still below Cp.
 
@@ -76,25 +76,38 @@ Age alone above 65 would select the configured 0.25 dexmedetomidine value if the
 ```mermaid
 flowchart TD
  A[Fictional profile and YAML] --> B[Validate implemented input domains]
- B --> C[Apply selected exact-string and threshold lockouts]
+ B --> C[Apply selected case-insensitive substring and threshold lockouts]
  C --> D[Return configured example rates]
  D --> E[Sample scripted or random HR and MAP]
- E --> F[Update dexmedetomidine toy Cp and Ce using previous rate]
+ E --> P[Re-zero locked and held values; end an expired suspension]
+ P --> S{Reading unusable: missing, non-numeric, outside the plausibility limits or a sudden drop?}
+ S -->|Yes| SF[Set all three values to zero; latch hold; RED]
+ S -->|No| R{Any rate negative, non-finite or above its ceiling?}
+ R -->|Yes| RF[Set that value to zero; latch hold; RED]
+ R -->|No| F[Update dexmedetomidine toy Cp and Ce with the rate set before the HR and MAP rules of this step]
+ RF --> F
  F --> G{HR below 48?}
- G -->|Yes| H[Set dex value to zero and latch hold]
+ G -->|Yes and suspended| GS[Log suppressed breach; no latch]
+ G -->|Yes and not suspended| H[Set dex value to zero and latch hold; RED]
  G -->|No| I{MAP below 60?}
+ GS --> I
  H --> I
- I -->|Yes| J[Set dex and lidocaine to zero; RED]
+ I -->|Yes and suspended| IS[Log suppressed breach; no latch]
+ I -->|Yes and not suspended| J[Set dex and lidocaine to zero; RED]
  I -->|No| K{Hold already latched?}
- K -->|Yes and HR at least 48| L[HOLD; no automatic restart]
- K -->|Yes and HR below 48| M[Keep RED from low-HR rule]
- K -->|No| N[GREEN means no configured alert]
- J --> O[Next loop; ketamine remains unchanged]
+ IS --> K
+ K -->|Yes, no new HR or rate trip| L[HOLD; no automatic restart]
+ K -->|Yes, new HR or rate trip| M[Keep RED]
+ K -->|No and no rate trip| N[GREEN means no configured alert]
+ SF --> O[Next loop; ketamine is not part of the HR and MAP rules]
+ J --> O
  L --> O
  M --> O
  N --> O
  O --> E
 ```
+
+Text alternative: each loop re-zeroes locked and held values and ends an expired suspension; an unusable reading zeroes all three values, latches the hold and sets RED; otherwise a rate fault zeroes that agent, the dexmedetomidine toy model updates, and HR below 48 (dexmedetomidine) and MAP below 60 (dexmedetomidine and lidocaine) each latch the hold and set RED unless an explicit suspension is active, in which case the breach is only logged. A latched hold shows HOLD and never restarts on its own; release is the explicit two-step action described above. The full per-second decision tree, generated from `config.yaml` values, is in [SAFETY_DESIGN.md](SAFETY_DESIGN.md).
 
 ### Guideline-informed educational discussion, outside this software
 Identify procedure and goals → review applicable source population and current local policy → assess contraindications, organ function, interactions, weight metric and monitoring → clinician selects or rejects an intervention → verify units and administration arrangements → observe intended effect and adverse effects → clinician reassesses.
