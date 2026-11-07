@@ -1,5 +1,5 @@
 // Step 2 — Assessment (computed, read-only).
-import { h, clear, fmtNum } from './dom.js';
+import { h, fmtNum, fill } from './dom.js';
 import { evaluateContraindications } from '../engine/dosing.js';
 import { createSimulation } from '../engine/sim.js';
 import { srcTags, sourcesInText } from './sources.js';
@@ -44,7 +44,7 @@ export function renderAssessment(ctx, main) {
   const ap = p.apfel;
   const apItems = Object.entries(ap.factors || {}).filter(([, v]) => v).map(([k]) => ({ female: 'female sex', nonSmoker: 'non-smoker', ponvHistory: 'PONV/motion-sickness history', postopOpioids: 'postoperative opioids' }[k] || k));
 
-  clear(main).append(
+  fill(main, 
     h('div', { class: 'step-head' },
       h('h2', { id: 'step-title', tabindex: '-1' }, '2 · Assessment'),
       h('p', { class: 'muted' }, 'Computed from the patient entries. Read-only — go back to step 1 to change anything.')),

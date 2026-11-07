@@ -34,6 +34,7 @@ import { TECHNIQUE_TEMPLATES } from '../data/templates.js';
 import { AUTORUN_CONFIG, CONVENTION } from './autorun-config.js';
 import { TIMING_CONFIG } from './timing.js';
 import { RESCUE_CONFIG } from './rescue-config.js';
+import { TEACHING_CEILINGS } from './teaching-ceilings.js';
 
 export const PROVENANCE = Object.freeze(['fda_label', 'published_model', 'guideline', 'trial_or_physiology_study', 'project_config', 'author_estimate_unvalidated', 'simulator_convention', 'clinical_practice_convention_owner']);
 const AUTHOR = 'author_estimate_unvalidated';
@@ -210,5 +211,8 @@ export function buildParameterInventory({ lib, models = {}, fluidModel, mw, minF
     const v = x.ref ? (alarmThresholds ? alarmThresholds[x.ref] : null) : x.value;
     add('rescue', k, Array.isArray(v) ? v.join(', ') : v, x.unit, x.provenance, [...x.sourceIds], `${x.ref ? `[reuses ALARM_THRESHOLDS.${x.ref}] ` : ''}${x.rationale}`, x.drugId ? { drugId: x.drugId } : {});
   }
+  // ---------------------------------------------------------------- simulator teaching ceilings (engine/teaching-ceilings.js)
+  // Cumulative teaching guards where no label/guideline states a maximum: exceeding one needs the clinician's confirmation.
+  for (const [k, x] of Object.entries(TEACHING_CEILINGS)) add('teaching_ceiling', k, x.value, x.unit, x.provenance, [...x.sourceIds], x.rationale, x.drugId ? { drugId: x.drugId } : {});
   return out;
 }

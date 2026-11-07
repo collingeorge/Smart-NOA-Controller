@@ -15,7 +15,8 @@ import { AlarmManager } from './alarms.js';
 import { convertAmount, rateToAmountPerMin, isFiniteNumber, roundSig } from './units.js';
 import { getScenario } from '../data/scenarios.js';
 import { createRng as createRngLocal } from './rng.js';
-import { repeatBolusHold, TIMING_CONFIG, liveTimingChecks } from './timing.js';
+import { repeatBolusHold, labelRepeatHold, TIMING_CONFIG, liveTimingChecks } from './timing.js';
+import { TEACHING_CEILINGS, TEACHING_GUARDS, teachingGuard } from './teaching-ceilings.js';
 import { computeLockouts, MAINTENANCE_HYPNOTIC_CLASSES, maintenanceHypnoticGap } from './plan-safety.js';
 
 export const PHASES = ['premed', 'sedation', 'induction', 'maintenance', 'emergence'];
@@ -141,6 +142,8 @@ class Simulation {
     this.depots = [];
     this.fluid = { retainedMl: 0, pendingMl: 0, sepsisNoteLogged: false, cautionsLogged: new Set() };
     this.lido = { pretreatAt: [], analgesicAt: [], warned: false };
+    // Simulator teaching ceilings (engine/teaching-ceilings.js): running totals, one-shot clinician confirmations, refusals.
+    this.teaching = { given: Object.fromEntries(TEACHING_GUARDS.filter((g) => g.drugId).map((g) => [g.key, 0])), confirm: {}, confirmations: [], refusals: Object.fromEntries(TEACHING_GUARDS.map((g) => [g.key, 0])) };
     this.checklist = { antibiotic: null };
     // Timing review (engine/timing.js): every administered dose (for the live timing checks), planned
     // steps held by a state condition, and time outside the GA processed-EEG band during surgery.
@@ -296,9 +299,11 @@ class Simulation {
   }
 
   // ------------------------------------------------------------------ administration
-  administer(cmd, meta = {}) {
-    const res = (ok, blocked, reasons, warnings) => {
-      const r = { ok, blocked, reasons, warnings };
+  /** Gives/stops/sets a drug; then re-evaluates the depth-low advisor at once (no lag of one step). */
+  administer(cmd, meta = {}) { const r = this._administerImpl(cmd, meta); this._refreshDepthAdvisor(); return r; }
+  _administerImpl(cmd, meta = {}) {
+    const res = (ok, blocked, reasons, warnings, extra = null) => {
+      const r = { ok, blocked, reasons, warnings, ...(extra || {}) };
       const drug = getDrug(this.lib, cmd && cmd.drugId);
       const name = drug ? drug.name : String(cmd && cmd.drugId);
       if (blocked) {
@@ -342,10 +347,24 @@ class Simulation {
         if (L.type === 'cumulative' && L.bolusOnly && (this.bolusGiven[drug.id] || 0) + amt > L.absolute + 1e-9) return res(false, true, [`Total bolus dose would exceed ${L.label} (already given ${roundSig(this.bolusGiven[drug.id] || 0)} ${drug.amountUnit})`], warnings);
         if (L.type === 'cumulative' && !L.bolusOnly && ds.cumulative + pendingTimed + amt > L.absolute + 1e-9) return res(false, true, [`Cumulative dose would exceed ${L.label}${L.daily ? ' (daily limit applied to this session)' : ''}`], warnings);
       }
+      // Label repeat interval of a rescue bolus (phenylephrine, glycopyrrolate, IM/SC epinephrine): a clinician-entered
+      // repeat (manual or accepted advisory) sooner than the label interval is REFUSED; a planned repeat waits in the scheduler.
+      const lrh = meta.source === 'plan' ? null : labelRepeatHold(this, drug.id, route);
+      if (lrh) return res(false, true, [`Repeat bolus refused — ${lrh.reason} [${lrh.sources.join(', ')}]; ${lrh.remainingSec} s remaining`], warnings, { repeatRefused: { remainingSec: lrh.remainingSec, minSec: lrh.minSec, key: lrh.key } });
+      // Simulator teaching ceiling (cumulative guard where no source states a maximum): needs a clinician confirmation.
+      const tg = TEACHING_GUARDS.find((g) => g.drugId === drug.id && g.routes.includes(route));
+      let tgUse = null;
+      if (tg) {
+        const after = this.teaching.given[tg.key] + amt;
+        if (after > tg.value + 1e-9) {
+          tgUse = this._teachingConfirmation(tg.key);
+          if (!tgUse) { this.teaching.refusals[tg.key]++; return res(false, true, [`Above the simulator teaching ceiling (not a clinical limit): ${tg.label} ${roundSig(after)} ${tg.unit} > ${tg.value} ${tg.unit} — confirm with "Confirm dose above the simulator teaching ceiling" (action confirm_teaching_ceiling:${tg.key}) to give it`], warnings, { teachingCeiling: tg.key }); }
+        }
+      }
       const rtw = this._runtimeWarnings(drug, { amount: amt });
       warnings.push(...rtw);
       // State-gated repeat bolus (timing.js): a planned step never gets here while held; a manual dose is warned and recorded.
-      const hold = meta.source === 'plan' ? null : repeatBolusHold(this, drug.id);
+      const hold = meta.source === 'plan' ? null : repeatBolusHold(this, drug.id, route);
       if (hold) { warnings.push(`Repeat-bolus condition not met: ${hold.reason} [${hold.sources.join(', ')}]`); this.timingHolds.push({ tSec: this.state.tSec, drugId: drug.id, manual: true, reason: hold.reason, sources: hold.sources }); }
       if (drug.id === 'sugammadex' && rtw.some((x) => /tier for the current block/.test(x))) this.alarmMgr.pulse(this.state.tSec, 'sugammadex_dose', 'medium', `Sugammadex dose below the label tier for the current block depth (see log)`);
       const rc = this._rangeCheck(drug, 'bolus', amt, drug.amountUnit);
@@ -353,11 +372,12 @@ class Simulation {
       const model = this._model(drug.id);
       const overSec = route === 'IV' && isFiniteNumber(cmd.overSec) && cmd.overSec >= 60 ? cmd.overSec : null;
       this.bolusGiven[drug.id] = (this.bolusGiven[drug.id] || 0) + amt;
+      if (tg) { this.teaching.given[tg.key] += amt; if (tgUse) { tgUse.used = { tSec: this.state.tSec, amount: amt, totalAfter: this.teaching.given[tg.key] }; warnings.push(`Given above the simulator teaching ceiling ${tg.value} ${tg.unit} (${tg.label}; total now ${roundSig(this.teaching.given[tg.key])} ${tg.unit}) after the clinician's confirmation`); } }
       if (route !== 'IV') { this.depots.push({ drugId: drug.id, remaining: amt, ka: ROUTE_KA_ILLUSTRATIVE[route] ?? ROUTE_KA_ILLUSTRATIVE.IM, route }); ds.cumulative += amt; }
       else if (overSec) this.timed.push({ drugId: drug.id, perMin: amt / (overSec / 60), remaining: amt });
       else { model.model.bolus(amt); ds.cumulative += amt; }
       if (drug.id === 'rocuronium') this.lastRocBolus = { tSec: this.state.tSec, perKg: amt / this.patient.weightKg };
-      this._doseLog(drug, { kind: 'bolus', regimenKey: cmd.regimenKey || null, amount: amt, overSec, tierWarning: rtw.find((x) => /tier for the current block/.test(x)) || null }, meta);
+      this._doseLog(drug, { kind: 'bolus', regimenKey: cmd.regimenKey || null, amount: amt, route, overSec, tierWarning: rtw.find((x) => /tier for the current block/.test(x)) || null }, meta);
       if (drug.id === 'lidocaine') { const w = this._lidocaineOverlap(cmd.regimenKey === LIDOCAINE_RULES.PRETREATMENT_REGIMEN ? 'pretreatment' : 'analgesic', amt); if (w) warnings.push(w); }
       this._onDrugGiven(drug);
       this._log('dose', `${drug.name} ${roundSig(amt)} ${drug.amountUnit} ${route === 'IV' ? 'bolus' : `${route} injection (illustrative absorption)`}${overSec ? ` over ${Math.round(overSec / 60)} min` : ''}${meta.source === 'plan' ? ' (plan)' : ''}${warnings.length ? ` — warnings: ${warnings.join('; ')}` : ''}`);
@@ -499,13 +519,26 @@ class Simulation {
     this.state.phase = phase;
     if (this.phaseStart[phase] === undefined) this.phaseStart[phase] = this.state.tSec;
     this._log('phase', `Phase: ${phase}`);
+    this._refreshDepthAdvisor();
     return { ok: true, message: `Phase ${phase}` };
   }
+
+  /**
+   * Re-evaluates the text-only depth-low advisor immediately after a phase change, action or drug change,
+   * so it disarms on the same simulated second (e.g. "Begin emergence") rather than on the next step.
+   * Zero elapsed time: it uses the advisor's refresh-only path (update({ refreshOnly: true })), which never
+   * accumulates time, never moves the advisor's clock and never starts an episode; it can only END an active
+   * episode (disarmed or recovered). It records only and never doses. Called by the public action(),
+   * administer() and setPhase() only — never from inside _substep (the plan scheduler uses the *Impl paths).
+   */
+  _refreshDepthAdvisor() { if (this.depthAdvisor && typeof this.depthAdvisor.update === 'function') this.depthAdvisor.update({ refreshOnly: true }); }
 
   play() { this.state.running = true; }
   pause() { this.state.running = false; }
 
-  action(id) {
+  /** Runs a user/runner action; then re-evaluates the depth-low advisor at once (no lag of one step). */
+  action(id) { const r = this._actionImpl(id); this._refreshDepthAdvisor(); return r; }
+  _actionImpl(id) {
     const a = this.state.airway; const t = this.state.tSec;
     const ok = (message) => { this._log('action', message); return { ok: true, message }; };
     const no = (message) => ({ ok: false, message });
@@ -524,11 +557,18 @@ class Simulation {
       const ft = this._fluidType(parts[2]);
       if (ft.error) return no(ft.error);
       const F = this.state.fluids;
+      const cg = teachingGuard('crystalloid'); const cMax = cg.value * this.patient.weightKg;
+      let cUse = null;
+      if (F.crystalloidMl + ml > cMax + 1e-9) {
+        cUse = this._teachingConfirmation('crystalloid');
+        if (!cUse) { this.teaching.refusals.crystalloid++; this._log('dose', `BLOCKED fluid bolus ${ml} mL: above the simulator teaching ceiling (not a clinical limit) ${cg.value} ${cg.unit} = ${Math.round(cMax)} mL (total would be ${Math.round(F.crystalloidMl + ml)} mL)`); return { ok: false, message: `Fluid bolus ${ml} mL refused: total crystalloid would be ${Math.round(F.crystalloidMl + ml)} mL, above the simulator teaching ceiling ${cg.value} ${cg.unit} (${Math.round(cMax)} mL; not a clinical limit) — confirm with "Confirm dose above the simulator teaching ceiling" (action confirm_teaching_ceiling:crystalloid)`, teachingCeiling: 'crystalloid' }; }
+        cUse.used = { tSec: t, amount: ml, totalAfter: F.crystalloidMl + ml };
+      }
       F.crystalloidMl += ml; this.fluid.pendingMl += ml; F.infusingMl = Math.round(this.fluid.pendingMl);
       F.boluses.push({ tSec: t, ml, kind: 'crystalloid', fluidId: ft.id });
       if (ft.id && F.byType[ft.id]) F.byType[ft.id].bolusMl += ml;
       const perKg = F.crystalloidMl / this.patient.weightKg;
-      let msg = `${ft.name} bolus ${ml} mL started (cumulative crystalloid ${roundSig(F.crystalloidMl)} mL, ${roundSig(perKg, 3)} mL/kg TBW; illustrative volume model)${ft.cautions}`;
+      let msg = `${ft.name} bolus ${ml} mL started (cumulative crystalloid ${roundSig(F.crystalloidMl)} mL, ${roundSig(perKg, 3)} mL/kg TBW; illustrative volume model)${ft.cautions}${cUse ? ` — given above the simulator teaching ceiling ${cg.value} ${cg.unit} after the clinician's confirmation` : ''}`;
       if ((this.patient.conditions || []).includes('sepsis') && perKg >= FLUID_MODEL.SEPSIS_CONTEXT_ML_PER_KG && !this.fluid.sepsisNoteLogged) {
         const src = (this.lib.SOURCE_IDS_ENGINE && this.lib.SOURCE_IDS_ENGINE.sepsisFluids) || null;
         this.fluid.sepsisNoteLogged = true;
@@ -549,6 +589,13 @@ class Simulation {
       const prev = M.rateMlH > 0 ? `${this._fluidType(M.fluidId).name} ${M.rateMlH} mL/h` : null;
       M.fluidId = ft.id; M.rateMlH = r; M.sinceSec = t;
       return ok(`Maintenance infusion ${ft.name} ${r} mL/h${prev ? ` (was ${prev})` : ''} — rate is a simulator choice, not a label dose; illustrative volume model${ft.cautions}`);
+    }
+    if (id.startsWith('confirm_teaching_ceiling:')) {
+      const g = teachingGuard(id.slice(25));
+      if (!g) return no(`Unknown teaching ceiling '${id.slice(25)}' (${TEACHING_GUARDS.map((x) => x.key).join(', ')})`);
+      const c = { key: g.key, tSec: t, used: null };
+      this.teaching.confirm[g.key] = c; this.teaching.confirmations.push(c);
+      return ok(`Clinician confirmed ONE dose above the simulator teaching ceiling for ${g.label} (${g.value} ${g.unit}; a teaching guard, not a clinical limit; valid ${TEACHING_CEILINGS.CONFIRMATION_VALID_SEC.value} s)`);
     }
     if (id === 'acknowledge_checklist:antibiotic') {
       const c = this.prophylaxisChecklist();
@@ -637,6 +684,27 @@ class Simulation {
       }
       default: return no(`Unknown action '${id}'`);
     }
+  }
+
+  /** A valid, unused clinician confirmation for a teaching ceiling (consumed by the caller), or null. */
+  _teachingConfirmation(key) {
+    const c = this.teaching.confirm[key];
+    if (!c || c.used || this.state.tSec - c.tSec > TEACHING_CEILINGS.CONFIRMATION_VALID_SEC.value + 1e-9) return null;
+    this.teaching.confirm[key] = null;
+    return c;
+  }
+
+  /** Teaching ceilings for the UI and the debrief: [{ key, label, limit, unit, total, totalUnit, above, confirmations, refusals, pendingConfirmation }]. */
+  teachingCeilingStatus() {
+    return TEACHING_GUARDS.map((g) => {
+      const fluid = g.key === 'crystalloid';
+      const limit = fluid ? Math.round(g.value * this.patient.weightKg) : g.value;
+      const total = fluid ? this.state.fluids.crystalloidMl : this.teaching.given[g.key];
+      const c = this.teaching.confirm[g.key];
+      return { key: g.key, label: g.label, limit, unit: fluid ? 'mL' : g.unit, ruleValue: g.value, ruleUnit: g.unit, total: roundSig(total), above: total > limit + 1e-9,
+        confirmations: this.teaching.confirmations.filter((x) => x.key === g.key).map((x) => ({ ...x, used: x.used ? { ...x.used } : null })), refusals: this.teaching.refusals[g.key],
+        pendingConfirmation: !!(c && !c.used && this.state.tSec - c.tSec <= TEACHING_CEILINGS.CONFIRMATION_VALID_SEC.value + 1e-9), provenance: g.provenance };
+    });
   }
 
   /** Resolve a fluid id (default FLUID_MODEL.DEFAULT_FLUID); libraries without FLUIDS use a generic crystalloid. */
@@ -738,7 +806,8 @@ class Simulation {
         continue;
       }
       if (s.kind === 'bolus') {
-        const hold = repeatBolusHold(this, s.drugId);
+        const d0 = getDrug(lib, s.drugId);
+        const hold = repeatBolusHold(this, s.drugId, s.route || (d0 && Array.isArray(d0.bolusRoutes) && d0.bolusRoutes[0]) || 'IV');
         if (hold) {
           if (!this.waiting.has(s.id)) { this.waiting.set(s.id, hold.reason); this.timingHolds.push({ tSec: t, drugId: s.drugId, manual: false, reason: hold.reason, sources: hold.sources }); this._log('dose', `Plan step held: ${getDrug(lib, s.drugId) ? getDrug(lib, s.drugId).name : s.drugId} — ${hold.reason} [${hold.sources.join(', ')}]`); }
           else this.waiting.set(s.id, hold.reason);
@@ -748,11 +817,13 @@ class Simulation {
       }
       let r;
       if (s.kind === 'fluid' || s.kind === 'fluid_bolus') {
-        const a = this.action(s.kind === 'fluid' ? `fluid_maintenance:${s.fluidId || s.drugId}:${s.rate}` : `fluid_bolus:${s.amount}:${s.fluidId || s.drugId}`);
+        // Internal paths (05l): the scheduler runs mid-substep (tSec already advanced, vitals not yet),
+        // so it must not trigger the public action()/administer() depth-advisor refresh.
+        const a = this._actionImpl(s.kind === 'fluid' ? `fluid_maintenance:${s.fluidId || s.drugId}:${s.rate}` : `fluid_bolus:${s.amount}:${s.fluidId || s.drugId}`);
         if (!a.ok) this._log('dose', `BLOCKED plan fluid step ${s.id}: ${a.message}`);
         r = { ok: a.ok, blocked: !a.ok, reasons: a.ok ? [] : [a.message], warnings: [] };
       } else {
-        r = this.administer({ drugId: s.drugId, kind: s.kind, amount: s.amount, amountUnit: s.amountUnit, rate: s.rate, rateUnit: s.rateUnit, overSec: s.overSec, route: s.route, regimenKey: s.regimenKey }, { source: 'plan' });
+        r = this._administerImpl({ drugId: s.drugId, kind: s.kind, amount: s.amount, amountUnit: s.amountUnit, rate: s.rate, rateUnit: s.rateUnit, overSec: s.overSec, route: s.route, regimenKey: s.regimenKey }, { source: 'plan' });
       }
       this.executed.set(s.id, { tSec: t, ...r });
     }
@@ -814,7 +885,12 @@ class Simulation {
       }
     }
 
-    // 4. Python-derived interlocks (1 Hz control iteration), readings = displayed monitor values
+    // 4. Python-derived interlocks (1 Hz control iteration), readings = displayed monitor values.
+    //    KNOWN, ACCEPTED ORDERING (audit 05l, finding 5): interlocks evaluate BEFORE physiology (step 9), i.e.
+    //    on the vitals displayed at the end of the previous second, so a hold latches one simulated second
+    //    after the reading crosses the threshold. This mirrors the Python controller loop and the parity tests
+    //    (tests/parity.test.mjs) and is deliberately not reordered. No extra drug is delivered during the lag:
+    //    the infusions for this second are zeroed here, before PK (step 6) consumes them (AUDIT_2026-11.md).
     if (S.interlocks.enabled) {
       const inf = {};
       for (const py of CONTROLLED) {
@@ -965,6 +1041,10 @@ class Simulation {
     if (isFiniteNumber(V.hr)) { this.stats.maxHr = Math.max(this.stats.maxHr, V.hr); this.stats.minHr = Math.min(this.stats.minHr, V.hr); }
     if (isFiniteNumber(V.map)) { this.stats.maxMap = Math.max(this.stats.maxMap, V.map); this.stats.minMap = Math.min(this.stats.minMap, V.map); } // sensor-fault gaps (NaN) are skipped
 
+    // 10b. depth arming state (LOC marker, "a maintenance hypnotic has run"): updated explicitly, once per
+    //      substep, before anything reads it (depth-high alarm below, depth-low advisory after the step).
+    this._updateDepthArmingState(V);
+
     // 11. alarms
     const ok = (x) => isFiniteNumber(x);
     // Level alarms with hysteresis: once on, they stay on until the value is 2 units past the threshold.
@@ -975,15 +1055,15 @@ class Simulation {
     const conds = [
       { id: 'spo2_low', priority: 'high', message: `SpO2 ${R(V.spo2)}% < ${A.SPO2_LOW}%`, active: hy('spo2_low', ok(V.spo2) && V.spo2 < A.SPO2_LOW, ok(V.spo2) && V.spo2 < A.SPO2_LOW_CLEAR) },
       { id: 'apnea', priority: 'high', message: `Apnoea > ${A.APNOEA_SEC} s without ventilation (${Math.round(out._true.apnoeaSec)} s)`, active: out._true.apnoeaSec > A.APNOEA_SEC },
-      { id: 'map_critical', priority: 'high', message: `MAP ${R(V.map)} < 60 mmHg (interlock threshold)`, active: hy('map_critical', ok(V.map) && V.map < NOA_CONFIG.hemodynamic_thresholds.map_critical_low, ok(V.map) && V.map < A.MAP_CRITICAL_CLEAR) },
-      { id: 'hr_critical', priority: 'high', message: `HR ${R(V.hr)} < 48 /min (interlock threshold)`, active: hy('hr_critical', ok(V.hr) && V.hr < NOA_CONFIG.hemodynamic_thresholds.hr_critical_low, ok(V.hr) && V.hr < A.HR_CRITICAL_CLEAR) },
+      { id: 'map_critical', priority: 'high', message: `MAP ${R(V.map)} < ${NOA_CONFIG.hemodynamic_thresholds.map_critical_low} mmHg (interlock threshold)`, active: hy('map_critical', ok(V.map) && V.map < NOA_CONFIG.hemodynamic_thresholds.map_critical_low, ok(V.map) && V.map < A.MAP_CRITICAL_CLEAR) },
+      { id: 'hr_critical', priority: 'high', message: `HR ${R(V.hr)} < ${NOA_CONFIG.hemodynamic_thresholds.hr_critical_low} /min (interlock threshold)`, active: hy('hr_critical', ok(V.hr) && V.hr < NOA_CONFIG.hemodynamic_thresholds.hr_critical_low, ok(V.hr) && V.hr < A.HR_CRITICAL_CLEAR) },
       { id: 'map_low', priority: 'medium', message: `MAP ${R(V.map)} < 65 mmHg`, active: hy('map_low', ok(V.map) && V.map < A.MAP_LOW, ok(V.map) && V.map < A.MAP_LOW_CLEAR) },
       { id: 'map_high', priority: 'medium', message: `MAP ${R(V.map)} > 120 mmHg`, active: hy('map_high', ok(V.map) && V.map > A.MAP_HIGH, ok(V.map) && V.map > A.MAP_HIGH_CLEAR) },
       { id: 'hr_high', priority: 'medium', message: `HR ${R(V.hr)} > 120 /min`, active: hy('hr_high', ok(V.hr) && V.hr > A.HR_HIGH, ok(V.hr) && V.hr > A.HR_HIGH_CLEAR) },
       { id: 'sensor_fault_hr', priority: 'high', message: 'HR sensor fault (unusable reading)', active: S.sensors.hr === 'fault' },
       { id: 'sensor_fault_map', priority: 'high', message: 'MAP sensor fault (unusable reading)', active: S.sensors.map === 'fault' },
       { id: 'sensor_fault_spo2', priority: 'high', message: 'SpO2 probe off / sensor fault', active: S.sensors.spo2 === 'fault' },
-      this._depthHighAlarm(V, h, hy),
+      this._depthHighAlarm(V, h, hy), // reads the arming state updated once above (_updateDepthArmingState)
       { id: 'depth_over_target', priority: 'medium', message: `Sedation deeper than ${target} target (${V.sedationLevel}): airway/ventilation risk`, active: !!target && SEDATION_RANK[V.sedationLevel] > SEDATION_RANK[target] },
       ...this._prophylaxisAlarm(t),
       { id: 'interlock_hold', priority: 'medium', message: `Interlock hold latched (${S.interlocks.heldDrugs.join(', ') || 'no infusions running'}); resume_hold required`, active: S.interlocks.enabled && S.interlocks.holdLatched },
@@ -1036,15 +1116,31 @@ class Simulation {
    * fault in this simulator; a faulted depth reading (sensors.depth === 'fault') would disarm it.
    */
   _depthHighArmed(V) {
-    const S = this.state; const hi = TIMING_CONFIG.GA_DEPTH_BAND.value[1];
+    if (!this._depthArmingPreconditions(V) || this._locAt === null || this._locAt === undefined) return false;
+    if (this.stim.surgeryEndAt !== null && this._hypnoticSeenRunning && !this._maintenanceHypnoticRunning()) return false; // agents off after surgery
+    return true;
+  }
+
+  /** Shared preconditions of the depth-high arming (pure read): GA, airway secured, induction/maintenance, usable index, induction started. */
+  _depthArmingPreconditions(V) {
+    const S = this.state;
     if (this.plan.mode === 'MAC' || !S.airway.secured || !['induction', 'maintenance'].includes(S.phase)) return false;
     if (S.sensors.depth === 'fault' || !isFiniteNumber(V.depthIndex)) return false;
-    if (this.phaseStart.induction === undefined) return false;
-    if (this._locAt === null || this._locAt === undefined) { if (V.depthIndex <= hi) this._locAt = S.tSec; else return false; }
-    const running = this._maintenanceHypnoticRunning();
-    if (running) this._hypnoticSeenRunning = true;
-    if (this.stim.surgeryEndAt !== null && this._hypnoticSeenRunning && !running) return false; // agents off after surgery
-    return true;
+    return this.phaseStart.induction !== undefined;
+  }
+
+  /**
+   * The ONLY writer of the depth arming state (audit 05l, finding 3): the loss-of-consciousness marker
+   * `_locAt` (first index ≤ GA band upper bound while the preconditions hold) and `_hypnoticSeenRunning`
+   * (a maintenance hypnotic ran while the preconditions held and LOC had been reached). Called once per
+   * substep before the alarms, so the depth-high alarm (_depthHighArmed) and the depth-low advisory
+   * (engine/depth-advisory.js depthLowArmed) read the same state whatever order they are evaluated in.
+   * Same gating as before (it used to be a side effect of _depthHighArmed), so behaviour is unchanged.
+   */
+  _updateDepthArmingState(V) {
+    if (!this._depthArmingPreconditions(V)) return;
+    if (this._locAt === null || this._locAt === undefined) { if (V.depthIndex <= TIMING_CONFIG.GA_DEPTH_BAND.value[1]) this._locAt = this.state.tSec; else return; }
+    if (this._maintenanceHypnoticRunning()) this._hypnoticSeenRunning = true;
   }
 
   /** Depth-high alarm condition (HIGH): index > GA band upper bound for ≥ DEPTH_HIGH_ALARM_SUSTAIN_SEC while armed; clears at ≤ DEPTH_HIGH_ALARM_CLEAR. */
@@ -1136,6 +1232,7 @@ class Simulation {
         redose: redoseStatus(this.state.prophylaxis.doses, this.state.tSec, this.lib), checklistAcknowledged: this.state.prophylaxis.checklistAcknowledged, note: 'Timing only; antibiotic pharmacology is not modelled.' },
       lidocaine: this.state.drugs.lidocaine ? { totalMg: roundSig(this.state.drugs.lidocaine.cumulative), perKgIbw: roundSig(this.state.drugs.lidocaine.cumulative / scalarWeight(this.patient, 'IBW').weightKg, 3), pretreatmentMg: roundSig(this.lido.pretreatAt.reduce((a, x) => a + (x.amount || 0), 0)), pretreatmentDoses: this.lido.pretreatAt.length, overlapWarning: this.lido.warned } : null,
       automatic: this.autoRun && typeof this.autoRun.record === 'function' ? this.autoRun.record() : { used: false },
+      teachingCeilings: this.teachingCeilingStatus(),
       advisories: this.rescueAdvisor && typeof this.rescueAdvisor.record === 'function' ? this.rescueAdvisor.record() : { used: false, shown: 0, accepted: 0, dismissed: 0, entries: [] },
       depthAdvisories: this.depthAdvisor && typeof this.depthAdvisor.record === 'function' ? this.depthAdvisor.record() : { used: false, shown: 0, dismissed: 0, entries: [] },
       modelNote: 'Illustrative model output — educational simulation, fictional patient; not a medical device.',

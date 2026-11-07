@@ -252,8 +252,11 @@ for (const { name, lib } of LIBS) {
       if (name === 'real') {
         // Conservative reading of the label: 200 mcg is a TOTAL bolus dosage (2026-11 audit, clinical finding 3).
         const ph = sim0();
+        // boluses ≥ 60 s apart: a repeat sooner than the label interval (every 1–2 min [S18]) is refused (owner decision, Nov 2026)
         assert.ok(ph.administer({ drugId: 'phenylephrine', kind: 'bolus', amount: 100, amountUnit: 'mcg' }).ok);
+        runFor(ph, 60);
         assert.ok(ph.administer({ drugId: 'phenylephrine', kind: 'bolus', amount: 100, amountUnit: 'mcg' }).ok);
+        runFor(ph, 60);
         const third = ph.administer({ drugId: 'phenylephrine', kind: 'bolus', amount: 40, amountUnit: 'mcg' });
         assert.equal(third.blocked, true); assert.match(third.reasons[0], /Total bolus dose would exceed 200 mcg/);
         assert.ok(ph.administer({ drugId: 'phenylephrine', kind: 'infusion', rate: 20, rateUnit: 'mcg/min' }).ok, 'infusion not counted against the bolus total');

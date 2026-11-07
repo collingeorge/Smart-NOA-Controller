@@ -1,9 +1,9 @@
 // Step 5 — Debrief: totals, haemodynamic/oxygenation summary, alarms, interlock events, extubation.
-import { h, clear, fmtClock, fmtNum, isNum, announce } from './dom.js';
+import { h, fmtClock, fmtNum, isNum, announce, fill, add } from './dom.js';
 import { srcTags } from './sources.js';
 import { PRIORITY_LABELS, PRIORITY_SHAPES } from './labels.js';
 import { getDrugById } from './plan-model.js';
-import { readinessItem } from './monitor.js';
+import { readinessRow } from './monitor.js';
 import { timingCheckItems } from './timing-view.js';
 import { exportPlan } from './plan-model.js';
 import { loadModelAssumptions, assumptionsList } from './model-card.js';
@@ -39,12 +39,12 @@ export function renderDebrief(ctx, main) {
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = h('a', { href: url, download: `smart-noa-sim-session-seed${sim.seed}.json`, class: 'sr-only' }, 'download');
-    document.body.append(a); a.click(); a.remove();
+    add(document.body, a); a.click(); a.remove();
     setTimeout(() => URL.revokeObjectURL(url), 5000);
     announce('Session JSON downloaded.');
   });
 
-  clear(main).append(
+  fill(main, 
     h('div', { class: 'step-head' }, h('h2', { id: 'step-title', tabindex: '-1' }, '5 · Debrief'),
       h('p', { class: 'muted' }, `Simulated duration ${fmtClock(s.durationSec)} · ${sim.plan.mode === 'GA' ? 'general anaesthesia' : `MAC (${sim.plan.sedationTarget})`} · interlocks ${store.interlocks ? 'on' : 'off'} · seed ${sim.seed}. ${s.modelNote}`)),
     autoCard(s.automatic),
@@ -58,6 +58,7 @@ export function renderDebrief(ctx, main) {
       stat('Alarms raised', String(s.alarms.length)),
       fl !== null ? stat('Crystalloid given', `${fmtNum(fl, 0)} mL`) : null),
     fluidsCard(s.fluids, p),
+    teachingCeilingsCard(s.teachingCeilings),
     prophylaxisCard(s.prophylaxis, lib),
     h('section', { class: 'card', id: 'db-timing' }, h('h3', {}, 'Timing check'),
       h('p', { class: 'hint' }, 'Each check compares when things happened with the timing rule and its source or simulator convention (engine/timing.js). It only compares times; it does not judge the illustrative physiology.'),
@@ -73,7 +74,7 @@ export function renderDebrief(ctx, main) {
       h('section', { class: 'card' }, h('h3', {}, 'Extubation'),
         sim.plan.mode !== 'GA' ? h('p', {}, 'Not applicable (MAC / sedation).') :
           [h('p', {}, ext.tSec === null || ext.tSec === undefined ? 'Not extubated — readiness at the end of the session:' : `Extubated at ${fmtClock(ext.tSec)} — readiness ${ext.ready ? 'met' : 'NOT met'}:`),
-            h('ul', { class: 'ready-list ready-list--light' }, (ext.criteria || []).map((c) => readinessItem(c))),
+            h('ul', { class: 'ready-list ready-list--light' }, (ext.criteria || []).map((c) => readinessRow(c))),
             overrides.length ? h('p', { class: 'error-text' }, `Extubated despite unmet criteria (user confirmed, logged): ${overrides.map((o) => `${fmtClock(o.tSec)} — ${o.unmet.join(', ')}`).join('; ')}`) : null]),
       h('section', { class: 'card' }, h('h3', {}, 'Interlock events'),
         s.interlockEvents.length ? h('ol', { class: 'list list--tight' }, s.interlockEvents.map((e) => h('li', {}, h('span', { class: 'mono' }, fmtClock(e.tSec)), ` ${e.message}`))) : h('p', {}, store.interlocks ? 'No interlock events.' : 'Interlocks were off.'))),
@@ -144,6 +145,18 @@ function depthAdvisoryDebrief(D, outOfBandSec) {
       h('span', { class: 'mono' }, fmtClock(x.shownAtSec)), ` ${x.id} — index ${x.index} below the GA band (text only, no dose changed) — ${DEPTH_STATUS[x.status] || x.status}${x.resolvedAtSec !== null ? ` at ${fmtClock(x.resolvedAtSec)}` : ''}`,
       x.endedAtSec !== null ? `; episode ended at ${fmtClock(x.endedAtSec)}${x.note && x.status === 'expired' ? ` (${x.note})` : ''}` : '',
       x.episodeSec !== null ? `; below the band ${fmtClock(x.episodeSec)} in this episode` : ''))) : h('p', { class: 'hint' }, 'No depth-index advisory was shown in this case.'));
+}
+
+/** Simulator teaching ceilings (engine/teaching-ceilings.js): totals, ceiling, refusals and every clinician confirmation. */
+function teachingCeilingsCard(list) {
+  if (!Array.isArray(list) || !list.length) return null;
+  return h('section', { class: 'card', id: 'db-teaching' }, h('h3', {}, 'Simulator teaching ceilings'),
+    h('p', { class: 'hint' }, 'Teaching guards where no label or guideline states a cumulative maximum (simulator convention, not clinical limits). A dose above one is given only after the clinician presses "Confirm dose above the simulator teaching ceiling"; guided and automatic modes never confirm it.'),
+    h('div', { class: 'table-wrap' }, h('table', { class: 'table', id: 'db-teaching-table' },
+      h('thead', {}, h('tr', {}, h('th', { scope: 'col' }, 'Agent'), h('th', { scope: 'col' }, 'Total given'), h('th', { scope: 'col' }, 'Teaching ceiling'), h('th', { scope: 'col' }, 'Refused (confirmation needed)'), h('th', { scope: 'col' }, 'Clinician confirmations'))),
+      h('tbody', {}, list.map((x) => h('tr', { dataset: { teaching: x.key } }, h('th', { scope: 'row' }, x.label), h('td', { class: 'mono' }, `${fmtNum(x.total, 3)} ${x.unit}`),
+        h('td', { class: 'mono' }, `${fmtNum(x.limit, 3)} ${x.unit}${x.unit !== x.ruleUnit ? ` (${x.ruleValue} ${x.ruleUnit})` : ''}`), h('td', { class: 'mono' }, String(x.refusals)),
+        h('td', {}, x.confirmations.length ? x.confirmations.map((c) => `${fmtClock(c.tSec)}${c.used ? ` → given ${fmtNum(c.used.amount, 3)} ${x.unit} (total ${fmtNum(c.used.totalAfter, 3)})` : ' (not used)'}`).join('; ') : 'none')))))));
 }
 
 function fluidsCard(F, p) {

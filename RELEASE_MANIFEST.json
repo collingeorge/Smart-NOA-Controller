@@ -38,13 +38,13 @@
     },
     {
       "path": "CLINICAL_EXAMPLE_INDEX.md",
-      "bytes": 4728,
-      "sha256": "06c0d37b293f54e7b88dd878cf5c91a7caf995697736e401452cb389adb2b2dd"
+      "bytes": 4687,
+      "sha256": "4726579f741281ef2e3d3b57636757d3e003937b06ff2ca78347a888eacb511f"
     },
     {
       "path": "DEVELOPMENT.md",
-      "bytes": 1354,
-      "sha256": "ed5564d525b13c3f8eac17a22849ac42fb41afef2d5829ed6c1ff269fdf3f93e"
+      "bytes": 1844,
+      "sha256": "cc27c40f1252e62a6bc6d8de2ece9d02fc2d1449d0788063fc5c91b67876787d"
     },
     {
       "path": "DISCLAIMER.md",
@@ -59,7 +59,7 @@
     {
       "path": "EXAMPLES_MANIFEST.json",
       "bytes": 1296,
-      "sha256": "6c8a6769719a6ccabe1bcb69acdaf00f53d9e638b4a2bac8f4e4c4d74934ce98"
+      "sha256": "3844f14cacb96d8df7357880994865472a3d9fa1752efaa45878dc2920c22e4a"
     },
     {
       "path": "EXAMPLE_RESULTS.json",
@@ -98,8 +98,8 @@
     },
     {
       "path": "README.md",
-      "bytes": 5711,
-      "sha256": "ca37f03340b0dbdf48eac5a6e5ed6723ad3e37dffd67cda32d1e2351bf732cf1"
+      "bytes": 6819,
+      "sha256": "3e933a9936be0ad638436b491f9d31cd975d5d2c99386434750e1ff9eced5a92"
     },
     {
       "path": "RELEASE_NOTES.md",
@@ -123,8 +123,8 @@
     },
     {
       "path": "example_walkthrough.py",
-      "bytes": 3795,
-      "sha256": "1fbff6ecb3edfdc007276ae7244745b6d3f3befc1420ed7fc0756aecc281d9e8"
+      "bytes": 4967,
+      "sha256": "93f371d1e00c841bfd3eb93a6a017ad4568b400b0f2b4908a53e6caf3c7d4696"
     },
     {
       "path": "main.tex",
@@ -138,8 +138,8 @@
     },
     {
       "path": "smart_noa_controller.py",
-      "bytes": 27138,
-      "sha256": "0a73046c069d2f8c8e193840442cab9e09923143ff3d6c3cf3f9bb2ef7e551c6"
+      "bytes": 30596,
+      "sha256": "a06cb6834c93969c4e48e5cdb31f782f807b1aa0b5435a5737c03fe0dd71e537"
     },
     {
       "path": "smartnoa_architecture.jpg",
@@ -153,18 +153,18 @@
     },
     {
       "path": "test_revision_regressions.py",
-      "bytes": 5463,
-      "sha256": "f5793669f7a77dd23216cf61f5bad116d41446680484399869762eb40abc70f3"
+      "bytes": 5563,
+      "sha256": "d5edfa0d9646a3069d9522622eee0edd643f43fb044af7cb28bba09acc0e4561"
     },
     {
       "path": "test_safety_hardening.py",
-      "bytes": 5616,
-      "sha256": "827b81f5be48a499b2fea4d34070c1b5681755cc4a4db87455ad2181a53d868d"
+      "bytes": 7314,
+      "sha256": "b26c26ed26b4713b58f8e129abceeec3f2a6a5ee89a3153a60664571bd3f7b05"
     },
     {
       "path": "test_smart_noa_controller.py",
-      "bytes": 12968,
-      "sha256": "5f3e5aff44fe29c03df99268bb6c1cc38d7ff5c0eb87e20396db28adf048449a"
+      "bytes": 12542,
+      "sha256": "ed3706c1e69d299b5fdc7257a9af7c82ce5b886a642d49d37bc8fbb61fdd5bfd"
     }
   ],
   "supplement": "clinical-applied-cases-2026-10-28",

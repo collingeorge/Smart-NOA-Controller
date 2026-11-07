@@ -1,5 +1,5 @@
 // Step 1 — Patient form (fictional adult patients only).
-import { h, clear, announce } from './dom.js';
+import { h, announce, fill } from './dom.js';
 import { validatePatient, LIMITS } from '../engine/patient.js';
 import { CONDITION_GROUPS } from './labels.js';
 import { EXAMPLE_PATIENTS } from '../data/scenarios.js';
@@ -99,7 +99,7 @@ export function renderPatient(ctx, main) {
       if (show) input.setAttribute('aria-invalid', 'true'); else input.removeAttribute('aria-invalid');
     }
     if (showAll && byField.size) {
-      clear(errorSummary).append(h('h3', {}, `Please correct ${byField.size} ${byField.size === 1 ? 'field' : 'fields'}`),
+      fill(errorSummary, h('h3', {}, `Please correct ${byField.size} ${byField.size === 1 ? 'field' : 'fields'}`),
         h('ul', {}, [...byField].map(([f, m]) => h('li', {}, errEls.has(f) ? h('a', { href: `#${fid(f)}`, dataset: { focus: fid(f) } }, `${FIELD_LABELS[f] || f}: ${m}`) : `${FIELD_LABELS[f] || f}: ${m}`))));
       errorSummary.hidden = false;
     } else errorSummary.hidden = true;
@@ -194,7 +194,7 @@ export function renderPatient(ctx, main) {
     ctx.go(2);
   });
 
-  clear(main).append(
+  fill(main, 
     h('div', { class: 'step-head' },
       h('h2', { id: 'step-title', tabindex: '-1' }, '1 · Patient'),
       h('p', { class: 'muted' }, 'Enter a fictional adult patient (18–90 y). Pregnancy, paediatrics, cardiac bypass and neuraxial/regional techniques are not modelled.')),

@@ -5,9 +5,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { REAL, clinicianResolves } from './helpers.mjs';
-import { derivePatient } from '../engine/patient.js';
+import { drive, checkDA7, DONE, P } from './depth-advisory-runs.mjs';
 import { createSimulation } from '../engine/sim.js';
-import { EXAMPLE_PATIENTS, EXAMPLE_PLANS, buildPlan } from '../data/scenarios.js';
+import { EXAMPLE_PLANS, buildPlan } from '../data/scenarios.js';
 import { createAutoRunner } from '../engine/autorun.js';
 import { TIMING_CONFIG } from '../engine/timing.js';
 import { DepthLowAdvisor, createDepthAdvisor, depthLowArmed, DEPTH_LOW_CHECKLIST, DEPTH_LOW_DISCLAIMER, DEPTH_BAND_SOURCES, depthLowFootnote } from '../engine/depth-advisory.js';
@@ -15,8 +15,6 @@ import { DepthLowAdvisor, createDepthAdvisor, depthLowArmed, DEPTH_LOW_CHECKLIST
 const [LO, HI] = TIMING_CONFIG.GA_DEPTH_BAND.value;
 const N = TIMING_CONFIG.DEPTH_LOW_ADVISORY_SUSTAIN_SEC.value;
 const CLR = TIMING_CONFIG.DEPTH_LOW_ADVISORY_CLEAR.value;
-const DONE = ['completed', 'stopped', 'manual'];
-const P = (id) => derivePatient(EXAMPLE_PATIENTS.find((x) => x.id === id).patient, { library: REAL });
 const DOSE_RE = /\d\s*(mg|mcg|µg|g|mL|ml|%|mcg\/kg|mg\/kg|MAC\b|vol)/i;
 
 /** Minimal stand-in for the fields the advisor reads (lets each rule be tested sample by sample). */
@@ -36,8 +34,8 @@ const mk = (sim) => { const a = new DepthLowAdvisor(sim); a.update(); return a; 
 /** Steps the fake sim by 1 s with the given index and updates the advisor. */
 const tick = (sim, adv, idx, n = 1) => { for (let i = 0; i < n; i++) { sim.state.tSec += 1; sim.state.vitals.depthIndex = idx; adv.update(); } return adv.view(); };
 
-test('DA1 config: sustain 120 s and clear 42 are simulator conventions in TIMING_CONFIG and the parameter inventory; the GA band is reused, not redefined', () => {
-  assert.equal(N, 120); assert.equal(CLR, 42);
+test('DA1 config: sustain 300 s and clear 42 are simulator conventions in TIMING_CONFIG and the parameter inventory; the GA band is reused, not redefined', () => {
+  assert.equal(N, 300); assert.equal(CLR, 42);
   for (const k of ['DEPTH_LOW_ADVISORY_SUSTAIN_SEC', 'DEPTH_LOW_ADVISORY_CLEAR']) {
     assert.equal(TIMING_CONFIG[k].provenance, 'simulator_convention', k);
     assert.equal(TIMING_CONFIG[k].sourceIds.length, 0, k);
@@ -46,11 +44,11 @@ test('DA1 config: sustain 120 s and clear 42 are simulator conventions in TIMING
   assert.deepEqual([...DEPTH_BAND_SOURCES], ['S52', 'S53']);
   for (const id of DEPTH_BAND_SOURCES) assert.ok(REAL.SOURCES[id], id);
   const src = readFileSync(new URL('../engine/depth-advisory.js', import.meta.url), 'utf8');
-  assert.ok(!/\[\s*40\s*,\s*60\s*\]|[<>]=?\s*(40|42|60)\b|\b120\b/.test(src.replace(/^\s*\/\/.*$/gm, '')), 'no band / sustain / clear literal in the module code (reads TIMING_CONFIG)');
+  assert.ok(!/\[\s*40\s*,\s*60\s*\]|[<>]=?\s*(40|42|60)\b|\b(120|300)\b/.test(src.replace(/^\s*\/\/.*$/gm, '')), 'no band / sustain / clear literal in the module code (reads TIMING_CONFIG)');
   const inv = createSimulation({ patient: P('healthy_adult'), library: REAL }).parameterInventory();
   for (const k of ['DEPTH_LOW_ADVISORY_SUSTAIN_SEC', 'DEPTH_LOW_ADVISORY_CLEAR']) assert.ok(inv.some((x) => x.component === 'timing' && x.name === k && x.provenance === 'simulator_convention'), k);
   const card = readFileSync(new URL('../MODEL_CARD.md', import.meta.url), 'utf8');
-  assert.match(card, /\| DEPTH_LOW_ADVISORY_SUSTAIN_SEC \| 120 \|/); assert.match(card, /\| DEPTH_LOW_ADVISORY_CLEAR \| 42 \|/);
+  assert.match(card, /\| DEPTH_LOW_ADVISORY_SUSTAIN_SEC \| 300 \|/); assert.match(card, /\| DEPTH_LOW_ADVISORY_CLEAR \| 42 \|/);
   const ev = readFileSync(new URL('../TIMING_EVIDENCE.md', import.meta.url), 'utf8');
   assert.match(ev, /\| 65 \| Depth-low advisory/);
 });
@@ -71,18 +69,18 @@ test('DA2 content is text only: no drug, dose, rate or percentage; footnote name
   assert.match(v.checklist.join(' '), /hypotensive/); assert.match(v.checklist.join(' '), /artefact/);
 });
 
-test('DA3 fires only after the index is below the band for ≥ 120 s; any sample at the lower bound restarts the count', () => {
+test('DA3 fires only after the index is below the band for ≥ 300 s (DEPTH_LOW_ADVISORY_SUSTAIN_SEC); any sample at the lower bound restarts the count', () => {
   const sim = fakeSim(); const adv = mk(sim);
-  assert.equal(tick(sim, adv, LO - 1, N - 1).visible, false, '119 s below: nothing');
+  assert.equal(tick(sim, adv, LO - 1, N - 1).visible, false, `${N - 1} s below: nothing`);
   assert.equal(tick(sim, adv, LO).visible, false, 'index at the bound resets');
   assert.equal(tick(sim, adv, LO - 5, N - 1).visible, false);
   const v = tick(sim, adv, LO - 5);
-  assert.equal(v.visible, true, 'shown at 120 s'); assert.equal(adv.entries.length, 1);
-  assert.match(sim.log.at(-1).msg, /^ADVISORY shown: DEPTH-1 — processed-EEG depth index 35 below the GA target band \(40–60\) for ≥ 120 s/);
+  assert.equal(v.visible, true, `shown at ${N} s`); assert.equal(adv.entries.length, 1);
+  assert.match(sim.log.at(-1).msg, /^ADVISORY shown: DEPTH-1 — processed-EEG depth index 35 below the GA target band \(40–60\) for ≥ 300 s/);
   assert.equal(sim.log.at(-1).kind, 'advisory');
 });
 
-test('DA4 hysteresis: stays shown between the bound and the clearing value; clears at ≥ 42; a new episode needs another 120 s', () => {
+test('DA4 hysteresis: stays shown between the bound and the clearing value; clears at ≥ 42; a new episode needs another 300 s', () => {
   const sim = fakeSim(); const adv = mk(sim);
   tick(sim, adv, 30, N);
   assert.equal(tick(sim, adv, LO).visible, true, 'still shown at 40');
@@ -140,75 +138,12 @@ test('DA6 Dismiss: logged, card hidden for the rest of the episode, shown again 
 });
 
 // ---------------------------------------------------------------- real runs: example plans × guided/full × seeds 1–20
-function drive(tpl, mode, seed, withAdvisor) {
-  const p = P(tpl.patientId); const { plan } = buildPlan(tpl, p, REAL);
-  const sim = createSimulation({ patient: p, plan, library: REAL, seed });
-  const adv = withAdvisor ? createDepthAdvisor(sim) : null;
-  const runner = createAutoRunner({ sim, mode });
-  const started = runner.start();
-  let pauses = 0; let surgeryAt = null; const alarmIds = new Set(); let shownBeforeIncision = 0; let shownOutsideArm = 0;
-  if (started.ok) {
-    for (let i = 0; i < 14000 && !DONE.includes(runner.state); i++) {
-      if (runner.state === 'paused') {
-        pauses++;
-        for (const a of sim.state.alarms) if (a.priority === 'high' && !a.acknowledged) sim.action(`acknowledge:${a.id}`);
-        if (sim.core.holdLatched) sim.action('resume_hold');
-        clinicianResolves(runner);
-        if (runner.status().pauseDetails.some((d) => d.item === 'sedation')) runner.clinicianAction('acknowledge_sedation_below_target');
-        runner.resume(); continue;
-      }
-      if (mode === 'guided') {
-        const st = runner.status();
-        if (st.current && st.current.gate) {
-          clinicianResolves(runner);
-          if (st.current.items && st.current.items.some((x) => x.id === 'sedation' && x.clinician && !x.met)) runner.clinicianAction('acknowledge_sedation_below_target');
-          if (runner.status().current.enabled) runner.approve(st.current.id);
-        }
-      }
-      const before = adv ? adv.entries.length : 0;
-      sim.step(1); runner.tick();
-      if (surgeryAt === null && sim.stim.surgeryStartAt !== null) surgeryAt = sim.stim.surgeryStartAt;
-      for (const a of sim.state.alarms) alarmIds.add(a.id);
-      if (adv && adv.entries.length > before) { if (surgeryAt === null) shownBeforeIncision++; if (!depthLowArmed(sim).armed) shownOutsideArm++; }
-    }
-  }
-  return {
-    sim, adv, runner, started: started.ok, pauses, alarmIds, shownBeforeIncision, shownOutsideArm,
-    outcome: { state: runner.state, stopReason: runner.stopReason || null, t: sim.state.tSec, phase: sim.state.phase, extubated: sim.stats.extubation ? sim.stats.extubation.tSec : null },
-    doses: JSON.stringify(sim.doseLog), alarms: JSON.stringify(sim.alarmMgr.history), history: JSON.stringify(runner.history),
-    rates: JSON.stringify(Object.fromEntries(Object.entries(sim.state.drugs).map(([id, d]) => [id, [d.cumulative, d.infusionRate]]))),
-  };
-}
-
+// The driver and the DA7 body live in tests/depth-advisory-runs.mjs. DA7 is split by mode across two files so
+// that node --test runs them in parallel (audit 05l, finding 4): guided here, full-auto in
+// tests/depth-advisory-full-2026-11.test.mjs (DA7-full and DA-R). Same assertions, same 4 plans × 20 seeds.
 if (REAL) {
-  test('DA7 example plans × guided/full × seeds 1–20: identical completion outcomes, doses, alarms and pauses with the advisor; it appears only after incision in GA', (t) => {
-    const freq = [];
-    for (const tpl of EXAMPLE_PLANS) for (const mode of ['guided', 'full']) {
-      let cases = 0; let shown = 0; let below = 0;
-      for (let seed = 1; seed <= 20; seed++) {
-        const a = drive(tpl, mode, seed, false); const b = drive(tpl, mode, seed, true);
-        const tag = `${tpl.id} ${mode} seed ${seed}`;
-        assert.deepEqual(b.outcome, a.outcome, `${tag}: completion outcome`);
-        assert.equal(b.doses, a.doses, `${tag}: every dose and rate change identical`);
-        assert.equal(b.rates, a.rates, `${tag}: final cumulative amounts and rates identical`);
-        assert.equal(b.alarms, a.alarms, `${tag}: alarm history identical (no alarm added, none acknowledged by it)`);
-        assert.equal(b.pauses, a.pauses, `${tag}: guided/automatic pauses identical`);
-        assert.equal(b.history, a.history, `${tag}: runner history identical`);
-        assert.ok(![...b.alarmIds].some((id) => /depth_low/.test(id)), `${tag}: no depth-low alarm`);
-        assert.equal(b.shownBeforeIncision, 0, `${tag}: never before incision`);
-        assert.equal(b.shownOutsideArm, 0, `${tag}: only while armed`);
-        const rec = b.sim.summary().depthAdvisories;
-        assert.equal(rec.used, true);
-        if (tpl.mode === 'MAC') assert.equal(rec.shown, 0, `${tag}: never in MAC`);
-        if (rec.shown) cases++;
-        shown += rec.shown; below += rec.totalBelowBandSec;
-        for (const x of rec.entries) assert.ok(x.shownAtSec >= b.sim.stim.surgeryStartAt || b.sim.stim.surgeryStartAt === null, tag);
-        assert.equal(rec.dismissed, 0, `${tag}: nothing dismisses it automatically`);
-        assert.ok(!b.sim.state.log.some((e) => /ADVISORY dismissed/.test(e.message) && /DEPTH-/.test(e.message)), tag);
-      }
-      freq.push(`${tpl.id}/${mode}: ${cases}/20 runs, ${shown} cards, mean ${Math.round(below / 20)} s below ${LO}`);
-    }
-    t.diagnostic(`depth-low advisory frequency (seeds 1–20): ${freq.join('; ')}`);
+  test('DA7 example plans × guided × seeds 1–20: identical completion outcomes, doses, alarms and pauses with the advisor; it appears only after incision in GA', (t) => {
+    checkDA7(t, 'guided');
   });
 
   test('DA8 determinism: same seed → identical depth-advisory record and log', () => {
@@ -230,3 +165,51 @@ if (REAL) {
     assert.equal(createDepthAdvisor(r.sim), r.adv, 'one advisor per simulation');
   });
 }
+
+// ---------------------------------------------------------------- 05l: disarm on the same simulated second as "Begin emergence"
+test('DA-L the card disarms on the same simulated second as Begin emergence (no one-step lag); outcomes unchanged', () => {
+  let checked = 0;
+  for (const id of ['ga_healthy', 'ga_elderly_cad_ckd']) {
+    const tpl = EXAMPLE_PLANS.find((x) => x.id === id);
+    for (let seed = 1; seed <= 20; seed++) {
+      const p = P(tpl.patientId); const { plan } = buildPlan(tpl, p, REAL);
+      const sim = createSimulation({ patient: p, plan, library: REAL, seed });
+      const adv = createDepthAdvisor(sim);
+      const runner = createAutoRunner({ sim, mode: 'full' });
+      assert.ok(runner.start().ok);
+      let prevPhase = sim.state.phase;
+      for (let i = 0; i < 14000 && !DONE.includes(runner.state); i++) {
+        if (runner.state === 'paused') {
+          for (const a of sim.state.alarms) if (a.priority === 'high' && !a.acknowledged) sim.action(`acknowledge:${a.id}`);
+          if (sim.core.holdLatched) sim.action('resume_hold');
+          clinicianResolves(runner); runner.resume(); continue;
+        }
+        sim.step(1); runner.tick();
+        if (sim.state.phase === 'emergence' && prevPhase !== 'emergence') {
+          const wasOpen = adv.entries.some((x) => x.endedAtSec === sim.state.tSec && /disarmed \(phase emergence\)/.test(x.note || ''));
+          assert.equal(adv.view().visible, false, `${id} seed ${seed}: card hidden at the emergence second t=${sim.state.tSec}`);
+          if (wasOpen) checked++;
+        }
+        if (sim.state.phase === 'emergence') assert.equal(adv.view().visible, false, `${id} seed ${seed}: never visible in emergence`);
+        prevPhase = sim.state.phase;
+      }
+      for (const x of adv.entries) if (/disarmed \(phase emergence\)/.test(x.note || '')) {
+        const ph = sim.state.log.find((l) => l.kind === 'phase' && /Phase: emergence/.test(l.message));
+        assert.ok(ph, 'emergence logged');
+        assert.equal(x.endedAtSec, ph.tSec, `${id} seed ${seed}: disarmed at the emergence second (${x.endedAtSec} vs ${ph.tSec})`);
+        const dl = sim.state.log.find((l) => l.kind === 'advisory' && /disarmed \(phase emergence\)/.test(l.message));
+        assert.equal(dl.tSec, ph.tSec, `${id} seed ${seed}: log entry on the same second`);
+      }
+    }
+  }
+  assert.ok(checked >= 1, `at least one card was open at Begin emergence (got ${checked})`);
+});
+
+test('DA-L2 a zero-time re-evaluation after an action never starts or lengthens an episode', () => {
+  const sim = fakeSim(); const adv = mk(sim);
+  tick(sim, adv, 30, N - 1);
+  for (let i = 0; i < 50; i++) adv.update(); // same simulated second: dt = 0
+  assert.equal(adv.view().visible, false, 'still not shown before N s of simulated time');
+  tick(sim, adv, 30);
+  assert.equal(adv.view().visible, true); assert.equal(adv.entries.length, 1);
+});

@@ -14,4 +14,10 @@ export default [
       "no-template-curly-in-string": "error", "array-callback-return": "error", "default-case-last": "error",
       "no-fallthrough": "error", "no-param-reassign": "off", "prefer-const": "error", "no-var": "error",
       "no-console": "off"
-    } } ];
+    } },
+  // UI: never use the native el.append()/replaceChildren(): they render null/undefined as text.
+  // Use add()/fill() from ui/dom.js, which skip null children (05l final review).
+  { files: ["ui/**/*.js"], ignores: ["ui/dom.js"],
+    rules: { "no-restricted-syntax": ["error",
+      { selector: "CallExpression[callee.type='MemberExpression'][callee.property.name=/^(append|prepend|replaceChildren)$/]",
+        message: "Use add()/fill() from ui/dom.js: the native method renders null/undefined as text." }] } } ];

@@ -12,7 +12,7 @@
 import { PALLIATIVE_SOURCES } from './palliative.js';
 //
 // ---------------------------------------------------------------------------------------------
-// S-id mapping to /home/user/breast-reconstruction-anesthesia-protocol/DOSING_SOURCES.md
+// S-id mapping to `Breast-Reconstruction-Anesthesia-Protocol/DOSING_SOURCES.md`
 // (citation and verification text copied from that registry; new entries verified 2026-11-05):
 //   S1  <- S1  Foo 2021 lidocaine consensus
 //   S2  <- S7  Gan 2020 Fourth PONV consensus
@@ -322,12 +322,12 @@ export const SOURCES = {
   },
   S30: {
     id: 'S30',
-    citation: 'Dexamethasone sodium phosphate injection, USP. Multiple manufacturers (e.g., Fresenius Kabi; label copies at medthority.com and drugcentral.org).',
-    url: 'https://drugcentral.org/label/9dbb2b90-471a-4de8-b105-6c9ede7d8d7e/view',
+    citation: 'Dexamethasone sodium phosphate injection, USP. Multiple manufacturers (e.g., Fresenius Kabi USA — DailyMed label "Dexamethasone Sodium Phosphate Injection, USP For Intravenous or Intramuscular Use Only", 10 mg/mL; other label copies at medthority.com).',
+    url: 'https://dailymed.nlm.nih.gov/dailymed/fda/fdaDrugXsl.cfm?setid=cca2c160-9188-48e8-9505-49a52388dcb7',
     identifiers: 'none',
     type: 'FDA label',
     supports: 'Contraindications: systemic fungal infections; hypersensitivity to any component of this product (including sulfites in some products).',
-    verifiedVia: 'WebSearch records of drugcentral.org and medthority.com dexamethasone sodium phosphate label copies, 2026-11-05. Dose is taken from S2/S3, not from this label.',
+    verifiedVia: 'WebSearch records of drugcentral.org and medthority.com dexamethasone sodium phosphate label copies, 2026-11-05. 2026-11-06 (live-site audit): the drugcentral.org label link returned 404 and was replaced by the DailyMed label whose setid is in the URL. DailyMed could not be fetched from this environment (DNS blocked); the setid was confirmed in web-search records of DailyMed pages carrying it (titles "DailyMed - DEXAMETHASONE SODIUM PHOSPHATE injection, solution" and "Dexamethasone Sodium Phosphate Injection, USP For Intravenous or Intramuscular Use Only"; labeler Fresenius Kabi USA; 10 mg/mL, preservative-free and preserved versions). The NDC of this setid was not confirmed (search records point to 63323-516) and is not shown. Contraindications re-checked via web-search records of the ndclist.com Fresenius Kabi NDC 63323-516 label copy and a medthority.com Fresenius Kabi copy: systemic fungal infections; hypersensitivity to any component of this product, including sulfites. Full label text not opened. Dose is taken from S2/S3, not from this label.',
   },
   S31: {
     id: 'S31',
@@ -372,7 +372,7 @@ export const SOURCES = {
     identifiers: 'none',
     type: 'project configuration (software ceilings, not clinical maxima)',
     supports: 'Python simulation rate ceilings: dexmedetomidine 0.5 mcg/kg/h, ketamine 0.2 mg/kg/h, lidocaine 1.5 mg/kg/h; ketorolac lockout below eGFR 30; dexmedetomidine lockout for heart block conditions.',
-    verifiedVia: 'Read directly from /home/user/smart-noa-controller/config.yaml, 2026-11-05. This is not clinical evidence; it is cited so the simulator mirrors the Python controller.',
+    verifiedVia: 'Read directly from `Smart-NOA-Controller/config.yaml`, 2026-11-05. This is not clinical evidence; it is cited so the simulator mirrors the Python controller.',
   },
   S36: {
     id: 'S36',
@@ -385,12 +385,12 @@ export const SOURCES = {
   },
   S37: {
     id: 'S37',
-    citation: 'Isoflurane, USP (FORANE). Baxter Healthcare. FDA-approved prescribing information (FDA-hosted August 2006 PI, archived: webarchive.library.unt.edu ... fda.gov/MEDWATCH/safety/2006/Aug_PIs/Forane_PI.pdf).',
+    citation: 'Isoflurane, USP (FORANE). Baxter Healthcare. FDA-approved prescribing information (FDA-hosted August 2006 PI; archived copy (webarchive.library.unt.edu ... fda.gov/MEDWATCH/safety/2006/Aug_PIs/Forane_PI.pdf); not re-opened).',
     url: 'https://webarchive.library.unt.edu/eot2008/20081028114252/http:/www.fda.gov/MEDWATCH/safety/2006/Aug_PIs/Forane_PI.pdf',
     identifiers: 'none confirmed',
     type: 'FDA label',
     supports: 'Induction: start at 0.5%; 1.5–3.0% usually produces surgical anesthesia in 7–10 min. Maintenance: 1.0–2.5% in oxygen/nitrous oxide; an additional 0.5–1.0% may be required with oxygen alone. Average MAC in 100% O2: 1.28% (age 26 ± 4), 1.15% (44 ± 7), 1.05% (64 ± 5); in 70% N2O: 0.56%, 0.50%, 0.37%. Contraindications: known sensitivity to isoflurane or other halogenated agents; known or suspected genetic susceptibility to malignant hyperthermia.',
-    verifiedVia: 'WebSearch records of the archived FDA-hosted 2006 Forane PI, the Baxter Canada Forane monograph and an Irish SmPC (consistent figures), 2026-11-05. US-format contraindication wording from the search record; drugs.com isoflurane page text was garbled and not relied on.',
+    verifiedVia: 'WebSearch records of the archived FDA-hosted 2006 Forane PI, the Baxter Canada Forane monograph and an Irish SmPC (consistent figures), 2026-11-05. US-format contraindication wording from the search record; drugs.com isoflurane page text was garbled and not relied on. 2026-11-06 (live-site audit): the link is an archived copy and was not re-opened. A current DailyMed FORANE label (Baxter; setid 3d30eb8d-a62e-475f-926b-78ba63bee9c8, seen in web-search records) was considered as a replacement but not used: its text could not be opened (DailyMed DNS blocked) and search records of the current-format label did not confirm the 0.5% induction start or the age rows of the MAC table as cited here (the 26 ± 4 / 44 ± 7 / 64 ± 5 rows were seen in an older-format label copy, medex.com.bd; 1.5–3.0% in 7–10 min and 1.0–2.5% maintenance in the EU SmPC).',
   },
   // S38–S39: NON-LABEL sources used for nitrous oxide only (owner request; US labels give no clinical dose).
   S38: {
@@ -508,11 +508,11 @@ export const SOURCES = {
   S50: {
     id: 'S50',
     citation: 'Semler MW, Self WH, Wanderer JP, et al. Balanced crystalloids versus saline in critically ill adults. N Engl J Med. 2018;378(9):829-839.',
-    url: 'https://www.uab.edu/medicine/coere/images/nejmoa1711584.pdf',
-    identifiers: 'doi:10.1056/NEJMoa1711584 (PMID not re-verified)',
+    url: 'https://doi.org/10.1056/NEJMoa1711584',
+    identifiers: 'doi:10.1056/NEJMoa1711584; PMID 29485925',
     type: 'randomized clinical trial (cluster, multiple crossover)',
     supports: 'SMART: 15,802 critically ill adults in five ICUs; major adverse kidney events within 30 days in 14.3% with balanced crystalloids versus 15.4% with 0.9% saline (adjusted OR 0.90, 95% CI 0.82–0.99). Critically ill (ICU) population, not elective surgery; used only as an evidence note on the fluids panel.',
-    verifiedVia: 'WebSearch records (2026-11-05) of the NEJM PDF copy (uab.edu), criticalcarereviews.com, The Bottom Line and EMRA summaries (citation, DOI, 14.3% vs 15.4%, OR 0.90). PMID was not confirmed in a search record and is not shown.',
+    verifiedVia: 'WebSearch records (2026-11-05) of the NEJM PDF copy (uab.edu), criticalcarereviews.com, The Bottom Line and EMRA summaries (citation, DOI, 14.3% vs 15.4%, OR 0.90). 2026-11-06 (live-site audit): the third-party PDF link (uab.edu) was replaced by the DOI; a web search for NEJMoa1711584 returned the PubMed record 29485925 "Balanced Crystalloids versus Saline in Critically Ill Adults" (Semler, Self, et al., 2018), the PMC author manuscript PMC5846085 and The Bottom Line summary (15,802 patients, five ICUs; 14.3% vs 15.4%; conditional OR 0.90, P = 0.04); the 95% CI 0.82–0.99 was seen in a Medicina Intensiva letter record. Full text not opened.',
   },
   S51: {
     id: 'S51',

@@ -281,12 +281,12 @@ Identifiers: none
 - **Verified via:** WebSearch record of pfizermedicalinformation.com/ondansetron/contradictions and Canadian monographs (pdf.hres.ca), 2026-11-05. Dose is taken from S3, not from this label. (date 2026-11-05)
 
 ### S30
-**Dexamethasone sodium phosphate injection, USP. Multiple manufacturers (e.g., Fresenius Kabi; label copies at medthority.com and drugcentral.org).** https://drugcentral.org/label/9dbb2b90-471a-4de8-b105-6c9ede7d8d7e/view  
+**Dexamethasone sodium phosphate injection, USP. Multiple manufacturers (e.g., Fresenius Kabi USA — DailyMed label "Dexamethasone Sodium Phosphate Injection, USP For Intravenous or Intramuscular Use Only", 10 mg/mL; other label copies at medthority.com).** https://dailymed.nlm.nih.gov/dailymed/fda/fdaDrugXsl.cfm?setid=cca2c160-9188-48e8-9505-49a52388dcb7  
 Identifiers: none
 
 - **Supports:** Contraindications: systemic fungal infections; hypersensitivity to any component of this product (including sulfites in some products).
 - **Used by:** dexamethasone
-- **Verified via:** WebSearch records of drugcentral.org and medthority.com dexamethasone sodium phosphate label copies, 2026-11-05. Dose is taken from S2/S3, not from this label. (date 2026-11-05)
+- **Verified via:** WebSearch records of drugcentral.org and medthority.com dexamethasone sodium phosphate label copies, 2026-11-05. 2026-11-06 (live-site audit): the drugcentral.org label link returned 404 and was replaced by the DailyMed label whose setid is in the URL. DailyMed could not be fetched from this environment (DNS blocked); the setid was confirmed in web-search records of DailyMed pages carrying it (titles "DailyMed - DEXAMETHASONE SODIUM PHOSPHATE injection, solution" and "Dexamethasone Sodium Phosphate Injection, USP For Intravenous or Intramuscular Use Only"; labeler Fresenius Kabi USA; 10 mg/mL, preservative-free and preserved versions). The NDC of this setid was not confirmed (search records point to 63323-516) and is not shown. Contraindications re-checked via web-search records of the ndclist.com Fresenius Kabi NDC 63323-516 label copy and a medthority.com Fresenius Kabi copy: systemic fungal infections; hypersensitivity to any component of this product, including sulfites. Full label text not opened. Dose is taken from S2/S3, not from this label. (date 2026-11-05)
 
 ### S31
 **American Society of Anesthesiologists. Statement on Continuum of Depth of Sedation: Definition of General Anesthesia and Levels of Sedation/Analgesia. Original approval October 13, 1999; last amended October 23, 2024.** https://www.asahq.org/standards-and-practice-parameters/statement-on-continuum-of-depth-of-sedation-definition-of-general-anesthesia-and-levels-of-sedation-analgesia  
@@ -326,7 +326,7 @@ Identifiers: none
 
 - **Supports:** Python simulation rate ceilings: dexmedetomidine 0.5 mcg/kg/h, ketamine 0.2 mg/kg/h, lidocaine 1.5 mg/kg/h; ketorolac lockout below eGFR 30; dexmedetomidine lockout for heart block conditions.
 - **Used by:** ketamine, dexmedetomidine, lidocaine, ketorolac
-- **Verified via:** Read directly from /home/user/smart-noa-controller/config.yaml, 2026-11-05. This is not clinical evidence; it is cited so the simulator mirrors the Python controller. (date 2026-11-05)
+- **Verified via:** Read directly from `Smart-NOA-Controller/config.yaml`, 2026-11-05. This is not clinical evidence; it is cited so the simulator mirrors the Python controller. (date 2026-11-05)
 
 
 ### S36
@@ -338,12 +338,12 @@ Identifiers: none confirmed
 - **Verified via:** WebSearch records of drugs.com/pro/suprane (current label, MH and heart-rate wording), medlibrary.org Suprane copies (2.5–8.5% maintenance sentence, older-format version; rapid-increase wording) and the DailyMed desflurane listing, 2026-11-05. The adult mask-induction statement ("not recommended for mask induction of anesthesia in adults") was seen only in the Canadian monograph and is not used as US wording. No US MAC-by-age table was retrieved. 2026-11 audit: halogenated-agent sensitivity and hepatic-dysfunction contraindications confirmed in WebSearch records of drugs.com/pro/suprane, medlibrary.org Suprane copies and the medthority.com (Henry Schein) US label copy; the same items appear in the EU SmPC and Canadian monograph. (date 2026-11-05)
 
 ### S37
-**Isoflurane, USP (FORANE). Baxter Healthcare. FDA-approved prescribing information (FDA-hosted August 2006 PI, archived: webarchive.library.unt.edu ... fda.gov/MEDWATCH/safety/2006/Aug_PIs/Forane_PI.pdf).** https://webarchive.library.unt.edu/eot2008/20081028114252/http:/www.fda.gov/MEDWATCH/safety/2006/Aug_PIs/Forane_PI.pdf  
+**Isoflurane, USP (FORANE). Baxter Healthcare. FDA-approved prescribing information (FDA-hosted August 2006 PI; archived copy (webarchive.library.unt.edu ... fda.gov/MEDWATCH/safety/2006/Aug_PIs/Forane_PI.pdf); not re-opened).** https://webarchive.library.unt.edu/eot2008/20081028114252/http:/www.fda.gov/MEDWATCH/safety/2006/Aug_PIs/Forane_PI.pdf  
 Identifiers: none confirmed
 
 - **Supports:** Induction: start at 0.5%; 1.5–3.0% usually produces surgical anesthesia in 7–10 min. Maintenance: 1.0–2.5% in oxygen/nitrous oxide; an additional 0.5–1.0% may be required with oxygen alone. Average MAC in 100% O2: 1.28% (age 26 ± 4), 1.15% (44 ± 7), 1.05% (64 ± 5); in 70% N2O: 0.56%, 0.50%, 0.37%. Contraindications: known sensitivity to isoflurane or other halogenated agents; known or suspected genetic susceptibility to malignant hyperthermia.
 - **Used by:** isoflurane
-- **Verified via:** WebSearch records of the archived FDA-hosted 2006 Forane PI, the Baxter Canada Forane monograph and an Irish SmPC (consistent figures), 2026-11-05. US-format contraindication wording from the search record; drugs.com isoflurane page text was garbled and not relied on. (date 2026-11-05)
+- **Verified via:** WebSearch records of the archived FDA-hosted 2006 Forane PI, the Baxter Canada Forane monograph and an Irish SmPC (consistent figures), 2026-11-05. US-format contraindication wording from the search record; drugs.com isoflurane page text was garbled and not relied on. 2026-11-06 (live-site audit): the link is an archived copy and was not re-opened. A current DailyMed FORANE label (Baxter; setid 3d30eb8d-a62e-475f-926b-78ba63bee9c8, seen in web-search records) was considered as a replacement but not used: its text could not be opened (DailyMed DNS blocked) and search records of the current-format label did not confirm the 0.5% induction start or the age rows of the MAC table as cited here (the 26 ± 4 / 44 ± 7 / 64 ± 5 rows were seen in an older-format label copy, medex.com.bd; 1.5–3.0% in 7–10 min and 1.0–2.5% maintenance in the EU SmPC). (date 2026-11-05)
 
 ### Non-label sources for nitrous oxide (S38, S39)
 
@@ -460,13 +460,13 @@ Type: randomized clinical trial
 - **Verified via:** WebSearch records (2026-11-05) of the IASP Pain Research Forum abstract record (PMID 33630043; composite 78% vs 67%; hypoxaemia 72% vs 61%; early termination for severe bradycardia; delayed extubation and PACU stay), typeset.io and revistachilenadeanestesia.cl copies, the Anesthesiology podcast page and editorial record (Kharasch & Clark). The PONV direction (less with dexmedetomidine) was seen in search excerpts whose percentages were inconsistently labelled, so no PONV figure is shown. Full text not opened. (date 2026-11-05)
 
 ### S50
-**Semler MW, Self WH, Wanderer JP, et al. Balanced crystalloids versus saline in critically ill adults. N Engl J Med. 2018;378(9):829-839.** https://www.uab.edu/medicine/coere/images/nejmoa1711584.pdf  
-Identifiers: doi:10.1056/NEJMoa1711584 (PMID not re-verified)  
+**Semler MW, Self WH, Wanderer JP, et al. Balanced crystalloids versus saline in critically ill adults. N Engl J Med. 2018;378(9):829-839.** https://doi.org/10.1056/NEJMoa1711584  
+Identifiers: doi:10.1056/NEJMoa1711584; PMID 29485925  
 Type: randomized clinical trial (cluster, multiple crossover)
 
 - **Supports:** SMART: 15,802 critically ill adults in five ICUs; major adverse kidney events within 30 days in 14.3% with balanced crystalloids versus 15.4% with 0.9% saline (adjusted OR 0.90, 95% CI 0.82–0.99). Critically ill (ICU) population, not elective surgery; used only as an evidence note on the fluids panel.
 - **Used by:** fluids evidence note only
-- **Verified via:** WebSearch records (2026-11-05) of the NEJM PDF copy (uab.edu), criticalcarereviews.com, The Bottom Line and EMRA summaries (citation, DOI, 14.3% vs 15.4%, OR 0.90). PMID was not confirmed in a search record and is not shown. (date 2026-11-05)
+- **Verified via:** WebSearch records (2026-11-05) of the NEJM PDF copy (uab.edu), criticalcarereviews.com, The Bottom Line and EMRA summaries (citation, DOI, 14.3% vs 15.4%, OR 0.90). 2026-11-06 (live-site audit): the third-party PDF link (uab.edu) was replaced by the DOI; a web search for NEJMoa1711584 returned the PubMed record 29485925 "Balanced Crystalloids versus Saline in Critically Ill Adults" (Semler, Self, et al., 2018), the PMC author manuscript PMC5846085 and The Bottom Line summary (15,802 patients, five ICUs; 14.3% vs 15.4%; conditional OR 0.90, P = 0.04); the 95% CI 0.82–0.99 was seen in a Medicina Intensiva letter record. Full text not opened. (date 2026-11-05)
 
 ### S51
 **Jalota L, Kalira V, George E, et al. Prevention of pain on injection of propofol: systematic review and meta-analysis. BMJ. 2011;342:d1110.** https://www.bmj.com/content/342/bmj.d1110.abstract  
@@ -863,7 +863,7 @@ The advisory (`engine/rescue-config.js`, `engine/rescue.js`) reuses existing reg
 - **N2O and FiO2:** the maximum FiO2 is 1 − FiN2O (70% N2O leaves at most 0.30). This is simple arithmetic, so no source is cited.
 - **N2O cannot work alone:** its MAC40 is 104% (Mapleson), so it cannot provide anaesthesia alone at 1 atm and is modelled only as an adjunct.
 - **Depth-high (awareness-risk) alarm** (final-check fixes, 2026-11; `engine/timing.js` `DEPTH_HIGH_ALARM_*`): HIGH when the simulated processed-EEG index stays above the GA band upper bound 60 (B-Unaware [S52] / BAG-RECALL [S53] protocol band, reused) for ≥ 60 s during GA with the airway secured; clears at ≤ 58. The 60-s sustain, the 58 hysteresis and the HIGH priority are **simulator conventions** (no source gives an alarm duration); the index itself is an illustrative model output.
-- **Depth-low advisory, text only** (owner-approved, 2026-11; `engine/depth-advisory.js`, `engine/timing.js` `DEPTH_LOW_ADVISORY_*`): a card (not an alarm) when the simulated index stays below the GA band lower bound 40 (B-Unaware [S52] / BAG-RECALL [S53] protocol band, reused) for ≥ 120 s during GA maintenance after incision; ends at ≥ 42. The 120-s sustain and the 42 hysteresis are **simulator conventions**; no new source was added. It suggests no drug, dose or rate and cites no outcome evidence for deep anaesthesia.
+- **Depth-low advisory, text only** (owner-approved, 2026-11; `engine/depth-advisory.js`, `engine/timing.js` `DEPTH_LOW_ADVISORY_*`): a card (not an alarm) when the simulated index stays below the GA band lower bound 40 (B-Unaware [S52] / BAG-RECALL [S53] protocol band, reused) for ≥ 300 s (`DEPTH_LOW_ADVISORY_SUSTAIN_SEC`; was 120 s in 05k, lengthened in 05l) during GA maintenance after incision; ends at ≥ 42. The 300-s sustain and the 42 hysteresis are **simulator conventions**; no new source was added. It suggests no drug, dose or rate and cites no outcome evidence for deep anaesthesia.
 - **Maintenance-hypnotic classes** (final-check fixes, `engine/plan-safety.js` `MAINTENANCE_HYPNOTIC_CLASSES`): only volatile agents and hypnotic infusions (propofol) count as a GA maintenance hypnotic for the lockout check; N2O, dexmedetomidine and ketamine do not. A teaching rule of the simulator, not a sourced statement.
 - Sevoflurane carries two MAC references: Mapleson MAC40 = 1.80% and the US label table (2.1% at 40 y in O2). They differ. The engine's effect model uses Mapleson, and the UI may show both.
 

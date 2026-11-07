@@ -1,6 +1,6 @@
 // Smart NOA web simulator — UI entry point. Educational simulation with fictional patients.
 import * as LIB from '../data/drugs.js';
-import { h, clear, announce, fmtClock } from './dom.js';
+import { h, clear, announce, fmtClock, fill, add } from './dom.js';
 import { derivePatient, validatePatient } from '../engine/patient.js';
 import { createSimulation } from '../engine/sim.js';
 import { CASE_ACTIONS } from '../engine/case-actions.js';
@@ -9,7 +9,7 @@ import { initSources, srcTags } from './sources.js';
 import { renderPatient, defaultPatientInput } from './patient-form.js';
 import { renderAssessment } from './assessment.js';
 import { renderPlan, setMode, interlockExplanation } from './plan-editor.js';
-import { renderMonitor, newRunState, readinessItem } from './monitor.js';
+import { renderMonitor, newRunState, readinessRow } from './monitor.js';
 import { renderDebrief } from './debrief.js';
 import { exportPlan, planIssues, stepsFromBuiltPlan, setLockoutRemoved } from './plan-model.js';
 import { notModeled } from './labels.js';
@@ -132,7 +132,7 @@ function refreshStepper() {
     const b = h('button', { type: 'button', class: 'stepper__btn', id: `stepper-${s.n}`, 'aria-current': store.step === s.n ? 'step' : null, 'aria-disabled': c.ok ? null : 'true', title: c.ok ? null : c.why },
       h('span', { class: 'stepper__num' }, String(s.n)), h('span', { class: 'stepper__label' }, s.label), c.ok ? null : h('span', { class: 'sr-only' }, ` (unavailable: ${c.why})`));
     b.addEventListener('click', () => { if (store.step !== s.n) go(s.n); });
-    ol.append(h('li', { class: store.step === s.n ? 'is-current' : store.step > s.n ? 'is-done' : '' }, b));
+    add(ol, h('li', { class: store.step === s.n ? 'is-current' : store.step > s.n ? 'is-done' : '' }, b));
   }
 }
 
@@ -197,9 +197,9 @@ function drawExtubation(sim, dlg) {
     announce(res.message, !now.ready);
     dlg.close();
   };
-  clear(body).append(
+  fill(body, 
     h('p', {}, `Sim time ${fmtClock(sim.state.tSec)}. TOFR ≥ 0.9 must be confirmed before extubation `, srcTags([E.tofExtubation]), '; other criteria are illustrative simulator rules.'),
-    h('ul', { class: 'ready-list ready-list--light' }, r.criteria.map((c) => readinessItem(c))),
+    h('ul', { class: 'ready-list ready-list--light' }, r.criteria.map((c) => readinessRow(c))),
     r.ready ? h('p', { class: 'notice' }, 'All readiness criteria are met.')
       : h('p', { class: 'notice notice--warn', role: 'alert' }, `Not ready: ${unmet.map((c) => c.label).join('; ')}. Extubating now is logged as a decision against the checklist.`),
     h('div', { class: 'actions' },
@@ -214,7 +214,7 @@ async function renderAbout() {
   const assumptions = await loadModelAssumptions();
   const sim = store.sim;
   const info = sim ? sim.modelInfo() : {};
-  clear(body).append(
+  fill(body, 
     h('p', {}, h('strong', {}, TOOL_DESCRIPTION), ' It is not a medical device, not clinical decision support, and is not connected to any monitor, pump or record system. Nothing you enter leaves this page.'),
     h('h3', {}, 'What it does'),
     h('p', {}, 'You build a fictional adult patient, review a computed assessment, plan an anaesthetic with doses auto-filled from FDA prescribing information and society guidelines (each with its source), then run an illustrative monitor and debrief the case.'),

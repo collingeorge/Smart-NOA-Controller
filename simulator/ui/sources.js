@@ -1,5 +1,5 @@
 // Sources panel (built from SOURCES in data/drugs.js) and inline source tags.
-import { h, clear } from './dom.js';
+import { h, clear, add } from './dom.js';
 
 let LIB = null;
 
@@ -9,7 +9,7 @@ export function initSources(lib) {
   clear(body);
   const filter = h('input', { type: 'search', id: 'sources-filter', class: 'input', placeholder: 'Filter by id, author, drug…', autocomplete: 'off' });
   const list = h('div', { class: 'sources-list', id: 'sources-list' });
-  body.append(
+  add(body, 
     h('p', { class: 'muted' }, 'Every dose, range, ceiling, threshold and score cut-off in the simulator traces to one of these entries. ',
       '“Verified via” records exactly how each was confirmed. Full registry, including drugs that were left out and why, and the illustrative model assumptions: ',
       h('a', { href: 'SOURCES.md' }, 'SOURCES.md'), '.'),
@@ -19,7 +19,7 @@ export function initSources(lib) {
   for (const id of ids) {
     const s = lib.SOURCES[id];
     const url = typeof s.url === 'string' && /^https:\/\//.test(s.url) ? h('a', { href: s.url, rel: 'noopener noreferrer', target: '_blank' }, s.url) : (s.url ? h('code', {}, s.url) : null);
-    list.append(h('article', { class: 'source', id: `src-${id}`, tabindex: '-1', dataset: { text: `${id} ${s.citation} ${s.supports}`.toLowerCase() } },
+    add(list, h('article', { class: 'source', id: `src-${id}`, tabindex: '-1', dataset: { text: `${id} ${s.citation} ${s.supports}`.toLowerCase() } },
       h('h3', {}, h('span', { class: 'source__id' }, `[${id}]`), ' ', s.type ? h('span', { class: 'source__type' }, s.type) : null),
       h('p', { class: 'source__citation' }, s.citation),
       h('dl', { class: 'source__meta' },
@@ -31,7 +31,7 @@ export function initSources(lib) {
   }
   const notes = lib.LIBRARY_NOTES || {};
   if (Object.keys(notes).length) {
-    list.append(h('article', { class: 'source source--notes' }, h('h3', {}, 'Library notes'),
+    add(list, h('article', { class: 'source source--notes' }, h('h3', {}, 'Library notes'),
       h('ul', {}, Object.values(notes).map((n) => h('li', {}, n)))));
   }
   filter.addEventListener('input', () => {

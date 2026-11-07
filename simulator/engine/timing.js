@@ -56,6 +56,18 @@ export const TIMING_CONFIG = Object.freeze({
   MIDAZOLAM_REPEAT_MIN_SEC: e(240, 's',
     'No repeat midazolam bolus within 4 min of the previous one: label — give over at least 2 minutes, then wait an additional 2 or more minutes to evaluate the effect [S17].',
     'fda_label', ['S17']),
+  // Label repeat intervals of rescue boluses (emergency-rescue stress matrix, 2026-11). A planned repeat waits; a clinician-entered
+  // (manual or accepted advisory) repeat sooner than this is REFUSED (owner decision; midazolam stays warn-only). Only intervals the label states:
+  // ephedrine (IV bolus "as needed") and IV epinephrine (guideline: "titrated to effect") have none.
+  PHENYLEPHRINE_REPEAT_MIN_SEC: e(60, 's',
+    'No repeat phenylephrine IV bolus within 60 s of the previous one: label — additional boluses may be administered every 1–2 minutes as needed [S18]; the lower bound is used. Same label statement and value as the advisory repeat interval (engine/rescue-config.js RESCUE_CONFIG.PHENYLEPHRINE_REPEAT_MIN_SEC; a test keeps them equal).',
+    'fda_label', ['S18']),
+  GLYCOPYRROLATE_RESCUE_REPEAT_MIN_SEC: e(120, 's',
+    'No repeat glycopyrrolate IV bolus within 120 s of the previous one outside emergence: label — intraoperative 0.1 mg IV, repeated as needed at 2–3 minute intervals [S8]; the lower bound is used. Not applied in emergence, where glycopyrrolate is given with neostigmine (0.2 mg per 1 mg, same label).',
+    'fda_label', ['S8']),
+  EPINEPHRINE_IM_REPEAT_MIN_SEC: e(300, 's',
+    'No repeat intramuscular/subcutaneous epinephrine injection within 5 min of the previous IM/SC injection: label — anaphylaxis 0.3–0.5 mg IM or SC, repeated every 5 to 10 minutes as necessary [S40]; the lower bound is used. IV boluses (guideline titration, "titrated to effect" [S44, S45]) have no stated interval and are not gated.',
+    'fda_label', ['S40']),
   ROCURONIUM_TOPUP_TOF_COUNT_MIN: e(3, 'TOF count',
     'A rocuronium top-up (any rocuronium bolus after the first) waits until TOF count ≥ 3: label maintenance doses are administered at 25% recovery of control T1, defined as 3 twitches of train-of-four [S12]. A planned top-up is held (status "waiting") until then; a manual one is logged with a warning.',
     'fda_label', ['S12']),
@@ -74,8 +86,8 @@ export const TIMING_CONFIG = Object.freeze({
   DEPTH_HIGH_ALARM_PRIORITY: e('high', 'alarm priority',
     'Priority of the depth-high alarm (owner-approved, final-check fixes 2026-11): HIGH, so guided and automatic modes pause for it (AUTORUN_CONFIG.PAUSE_ALARM_PRIORITIES); only the clinician acknowledges it. Simulator convention.'),
   // ---------------------------------------------------------------- depth-low advisory (text only; owner-approved 2026-11)
-  DEPTH_LOW_ADVISORY_SUSTAIN_SEC: e(120, 's',
-    'Text-only "lighten anaesthetic" advisory (engine/depth-advisory.js) when the simulated index stays below the GA band lower bound (GA_DEPTH_BAND, reused, not redefined) for this long. Armed only in GA with the airway secured after loss of consciousness, in the maintenance phase after incision (before incision the pre-incision item — acknowledge an index below the band — applies instead), and not after every maintenance hypnotic is stopped once surgery has ended; never in MAC/sedation, before loss of consciousness or in emergence. Any sample at or above the lower bound restarts the count. NOT an alarm: no sound/priority, guided and automatic modes never pause for it, it never acknowledges anything and never changes a dose, rate or concentration. Owner-approved instead of recalibrating the illustrative depth model (which reads ~34–39 at label-default maintenance doses). The duration is a teaching choice (no source gives one).'),
+  DEPTH_LOW_ADVISORY_SUSTAIN_SEC: e(300, 's',
+    'Text-only "lighten anaesthetic" advisory (engine/depth-advisory.js) when the simulated index stays below the GA band lower bound (GA_DEPTH_BAND, reused, not redefined) for this long. Armed only in GA with the airway secured after loss of consciousness, in the maintenance phase after incision (before incision the pre-incision item — acknowledge an index below the band — applies instead), and not after every maintenance hypnotic is stopped once surgery has ended; never in MAC/sedation, before loss of consciousness or in emergence. Any sample at or above the lower bound restarts the count. NOT an alarm: no sound/priority, guided and automatic modes never pause for it, it never acknowledges anything and never changes a dose, rate or concentration. Owner-approved instead of recalibrating the illustrative depth model (which reads ~34–39 at label-default maintenance doses). The duration is a teaching choice (no source gives one): 300 s (owner decision, 05l; was 120 s in 05k) to limit alert fatigue — at 120 s the card appeared in nearly every GA case because the illustrative model reads deep at label-default doses; 300 s still flags sustained deep readings.'),
   DEPTH_LOW_ADVISORY_CLEAR: e(42, 'processed-EEG depth index (BIS-style, simulated)',
     'Hysteresis of the depth-low advisory: once shown it stays until the index is at or above this value (2 index units over the band lower bound, the same 2-unit hysteresis as the depth-high alarm and the other level alarms) or the advisory is disarmed (emergence, agents off after surgery). Simulator convention.'),
   NMB_SURGERY_TOF_COUNT_MAX: e(2, 'TOF count',
@@ -262,10 +274,21 @@ export function premedStatus(sim) {
 }
 
 /**
+ * Label repeat intervals of rescue boluses (TIMING_CONFIG): [{ key, drugId, name, routes, exceptPhases?, labelText, minSec, sourceIds }].
+ * Read by repeatBolusHold / labelRepeatHold (a planned repeat waits; a clinician-entered repeat is refused) and by the
+ * emergency-rescue stress matrix (tests/emergency-stress.mjs).
+ */
+export const LABEL_REPEAT_INTERVALS = Object.freeze([
+  { key: 'PHENYLEPHRINE_REPEAT_MIN_SEC', drugId: 'phenylephrine', name: 'phenylephrine', routes: ['IV'], labelText: 'additional boluses every 1–2 min as needed' },
+  { key: 'GLYCOPYRROLATE_RESCUE_REPEAT_MIN_SEC', drugId: 'glycopyrrolate', name: 'glycopyrrolate', routes: ['IV'], exceptPhases: ['emergence'], labelText: 'intraoperative 0.1 mg IV repeated as needed at 2–3 min intervals' },
+  { key: 'EPINEPHRINE_IM_REPEAT_MIN_SEC', drugId: 'epinephrine', name: 'epinephrine', routes: ['IM', 'SC'], labelText: 'IM/SC repeated every 5 to 10 min as necessary' },
+].map((x) => Object.freeze({ ...x, routes: Object.freeze(x.routes), ...(x.exceptPhases ? { exceptPhases: Object.freeze(x.exceptPhases) } : {}), minSec: TIMING_CONFIG[x.key].value, sourceIds: TIMING_CONFIG[x.key].sourceIds })));
+
+/**
  * State-gated repeat bolus (plan scheduler and manual administration).
  * -> null (may proceed) | { reason, sources }
  */
-export function repeatBolusHold(sim, drugId) {
+export function repeatBolusHold(sim, drugId, route0 = 'IV') {
   const t = sim.state.tSec; const log = (sim.doseLog || []).filter((d) => d.drugId === drugId && d.kind === 'bolus');
   if (!log.length) return null;
   if (drugId === 'rocuronium') {
@@ -275,6 +298,23 @@ export function repeatBolusHold(sim, drugId) {
   if (drugId === 'midazolam') {
     const last = log[log.length - 1]; const min = cfgv('MIDAZOLAM_REPEAT_MIN_SEC');
     if (t - last.tSec < min - 1e-9) return { reason: `repeat midazolam waits ${Math.ceil(min - (t - last.tSec))} s more (label: over ≥ 2 min, then ≥ 2 min to evaluate)`, sources: ['S17'] };
+  }
+  return labelRepeatHold(sim, drugId, route0);
+}
+
+/**
+ * Label repeat interval of a rescue bolus (LABEL_REPEAT_INTERVALS): null, or { reason, sources, remainingSec, minSec, key }.
+ * A planned repeat waits for it (repeatBolusHold); a clinician-entered (manual or advisory) repeat is REFUSED by
+ * sim.administer (owner decision, November 2026). Midazolam and the rocuronium top-up keep their warn-only rules.
+ */
+export function labelRepeatHold(sim, drugId, route0 = 'IV') {
+  const t = sim.state.tSec; const route = String(route0 || 'IV').toUpperCase();
+  for (const r of LABEL_REPEAT_INTERVALS) {
+    if (r.drugId !== drugId || !r.routes.includes(route) || (r.exceptPhases && r.exceptPhases.includes(sim.state.phase))) continue;
+    const same = (sim.doseLog || []).filter((d) => d.drugId === drugId && d.kind === 'bolus' && r.routes.includes(String(d.route || 'IV').toUpperCase()));
+    if (!same.length) continue;
+    const gap = t - same[same.length - 1].tSec;
+    if (gap < r.minSec - 1e-9) return { key: r.key, minSec: r.minSec, remainingSec: Math.ceil(r.minSec - gap), reason: `repeat ${r.name} ${route} bolus ${Math.round(gap)} s after the previous one; waits ${Math.ceil(r.minSec - gap)} s more (label: ${r.labelText}; minimum ${r.minSec} s)`, sources: [...r.sourceIds] };
   }
   return null;
 }

@@ -4,7 +4,7 @@
   "type": "module",
   "description": "Educational browser simulation (fictional patients). Not a medical device. Dev tooling (eslint, playwright for test:ui) is not needed to run the site.",
   "scripts": {
-    "test": "node --test tests/",
+    "test": "node --test tests/*.test.mjs",
     "test:ui": "node --test tests/ui.smoke.mjs",
     "lint": "eslint -c eslint.config.mjs ."
   },

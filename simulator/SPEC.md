@@ -161,5 +161,5 @@ Steps across the top (stepper): **1 Patient → 2 Assessment → 3 Anesthetic pl
 
 ## 7. Evidence and honesty rules
 - Every number shown as a dose, range, ceiling, threshold, or score cut-off must trace to `SOURCES`. Model parameters that are illustrative must be labelled as such in `SOURCES.md` under "Model assumptions (illustrative)".
-- PubMed/doi.org/DailyMed may be unreachable; verify via web-search records of FDA label PDFs/publisher pages and record exactly what was confirmed in `verifiedVia`. Reuse confirmed entries from `/home/user/breast-reconstruction-anesthesia-protocol/DOSING_SOURCES.md` (S1–S39) where they apply — copy the citation and verification text, do not re-number blindly.
+- PubMed/doi.org/DailyMed may be unreachable; verify via web-search records of FDA label PDFs/publisher pages and record exactly what was confirmed in `verifiedVia`. Reuse confirmed entries from `Breast-Reconstruction-Anesthesia-Protocol/DOSING_SOURCES.md` (S1–S39) where they apply — copy the citation and verification text, do not re-number blindly.
 - No claims of validation, accuracy, or clinical use anywhere.
