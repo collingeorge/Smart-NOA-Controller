@@ -282,6 +282,19 @@ select.input { padding-right: 1.8rem; }
 .il-status { font-weight: 700; }
 .il-status--green { color: var(--ok-hmi); } .il-status--red { color: var(--al-high-hmi); } .il-status--hold { color: var(--al-med-hmi); } .il-status--disabled { color: var(--hmi-muted); }
 .il-confirm { background: #3d3410; border-radius: 6px; padding: .5rem; margin-top: .4rem; }
+.il-confirm h4 { margin: 0 0 .35rem; font-size: .95rem; }
+.il-confirm p { margin: .25rem 0; overflow-wrap: anywhere; }
+.il-confirm .input { max-width: 100%; }
+.il-confirm__actions { margin-top: .45rem; }
+.il-responsibility { font-weight: 700; border-left: 4px solid var(--al-med-hmi); padding-left: .5rem; }
+/* Interlock suspension (manual override): striped amber border, distinct from alarms and holds. */
+.il-suspend-confirm { border: 3px solid var(--al-med-hmi); }
+.btn--override { border: 2px dashed var(--al-med-hmi); }
+.il-suspended-banner { margin: .5rem 0; padding: .55rem .7rem; border: 6px solid transparent; border-image: repeating-linear-gradient(45deg, var(--al-med-hmi) 0 10px, #1d1600 10px 20px) 6; background: #2b2508; color: #fff; overflow-wrap: anywhere; }
+.il-suspended-banner p, .il-suspended-banner span { margin: 0 0 .3rem; }
+.il-suspended-banner > span { display: block; }
+.il-hold-banner { margin: .5rem 0; padding: .45rem .7rem; border: 2px solid var(--al-med-hmi); border-radius: 6px; background: #3d3410; color: #fff; font-weight: 700; overflow-wrap: anywhere; }
+.il-badge--suspended { outline: 3px dashed var(--al-med-hmi); outline-offset: 2px; }
 
 .table--hmi th, .table--hmi td { border-bottom-color: var(--hmi-line); color: var(--hmi-ink); }
 .table--hmi thead th { color: var(--hmi-muted); }

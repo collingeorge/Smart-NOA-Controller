@@ -38,6 +38,20 @@ simulation_rate_ceilings:
   Dexmedetomidine: 0.5
   Ketamine: 0.2
   Lidocaine: 1.5
+sensor_plausibility:
+  # Simulation limits, NOT clinical standards. A reading outside [min, max], or a DROP between two
+  # consecutive usable 1-s readings larger than *_max_drop_per_sec, is treated as an unusable reading
+  # (full fail-safe: all controlled infusions zeroed, hold latched, RED). A sudden rise is not checked.
+  hr_min: 0
+  hr_max: 300
+  map_min: 0
+  map_max: 300
+  hr_max_drop_per_sec: 40
+  map_max_drop_per_sec: 30
+# Simulator conventions (seconds), not clinical standards: the longest explicit suspension of the HR/MAP
+# interlocks, and the interval of the non-blocking long-hold advisory.
+interlock_suspension_max_sec: 300
+interlock_long_hold_advisory_sec: 600
 age_adjustments:
   geriatric:
     age_threshold: 65

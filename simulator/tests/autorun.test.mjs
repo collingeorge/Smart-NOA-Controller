@@ -31,7 +31,7 @@ function setup(planId, { seed = 1, mode = 'full', editPlan = null } = {}) {
   /** What a user does when the runner pauses: acknowledge HIGH alarms, release a latched hold, Resume. */
   const userResolves = () => asUser(() => {
     for (const a of sim.state.alarms) if (a.priority === 'high' && !a.acknowledged) sim.action(`acknowledge:${a.id}`);
-    if (sim.core.holdLatched) sim.action('resume_hold');
+    if (sim.core.holdLatched) { sim.action('acknowledge_hold'); sim.action('resume_hold'); }
     clinicianResolves(runner); // clinician-only items (time out, index below band, missing prophylaxis)
     return runner.resume();
   });

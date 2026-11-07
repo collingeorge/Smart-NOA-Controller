@@ -70,10 +70,23 @@ class Demo(unittest.TestCase):
         self.assertEqual(runs[0], runs[1])
         text = runs[0]
         self.assertIn("Hard Lockouts Enabled: ['Ketorolac', 'Dexmedetomidine']", text)
-        self.assertIn("HYPOTENSION → PAUSING KEY INFUSIONS", text)
-        self.assertIn("SIMULATED LOW HR → DEX VALUE SET TO ZERO", text)
-        self.assertIn("INVALID SENSOR READING (HR=None", text)
+        self.assertIn("HYPOTENSION | Ce: 0.00 | MAP 59 < 60 → Dexmedetomidine, Lidocaine set to zero; "
+                      "hold latched", text)
+        self.assertIn("SIMULATED LOW HR | Ce: 0.04 | HR 47 < 48 → Dexmedetomidine set to zero; hold latched", text)
+        self.assertIn("INVALID SENSOR READING | Invalid sensor reading (HR=unusable, MAP=84) → all controlled "
+                      "infusions set to zero; hold latched", text)
         self.assertEqual(text.count("Final: HOLD"), 3)
+        # Scenario 4: refused release, acknowledged release (rates stay zero), suppressed breach, expiry.
+        self.assertIn("Release refused: Acknowledge the hold first: review the cause (MAP 59 < 60), then resume", text)
+        self.assertIn("Releasing this hold is a clinician decision. The simulation does not assess whether restart "
+                      "is appropriate.", text)
+        self.assertIn("After release (held agents stay at zero): GREEN {'Lidocaine': 0.0, 'Ketamine': 0.2, "
+                      "'Dexmedetomidine': 0.0}", text)
+        self.assertIn("breach_suppressed", text)
+        self.assertIn("Suspension expired after 60 s → HR/MAP interlocks active", text)
+        self.assertIn("Final: GREEN {'Lidocaine': 1.0, 'Ketamine': 0.2, 'Dexmedetomidine': 0.0} "
+                      "| suspended: False", text)
+        self.assertEqual(text.count("Event log:"), 4)
 
 
 if __name__ == "__main__":

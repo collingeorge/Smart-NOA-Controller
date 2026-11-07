@@ -59,17 +59,17 @@
     {
       "path": "EXAMPLES_MANIFEST.json",
       "bytes": 1296,
-      "sha256": "3844f14cacb96d8df7357880994865472a3d9fa1752efaa45878dc2920c22e4a"
+      "sha256": "ac672e3d531557ff35bda2e1b04cedd3e110f381a4598fe46a897be44455a95a"
     },
     {
       "path": "EXAMPLE_RESULTS.json",
-      "bytes": 11839,
-      "sha256": "251099249bebaf5242a876bd68713db57c053d502d8ea3066149ca38cdb6ae65"
+      "bytes": 34055,
+      "sha256": "b1cc19fd8e9d59072af185b31b268d1e9c13a4fb1ccebdaae49b3eae26d54928"
     },
     {
       "path": "GUIDELINE_INFORMED_EXAMPLES.md",
-      "bytes": 15322,
-      "sha256": "28f77897a2565b6c41daf8655701a7b21f9e818128c76d122ec9b9a6786eb18e"
+      "bytes": 15405,
+      "sha256": "8d5590130e9387c4e88c9b867a73c19f238f296b41224f55f1517208094d6d94"
     },
     {
       "path": "HISTORICAL_VERSION_NOTICE.md",
@@ -98,8 +98,8 @@
     },
     {
       "path": "README.md",
-      "bytes": 6819,
-      "sha256": "3e933a9936be0ad638436b491f9d31cd975d5d2c99386434750e1ff9eced5a92"
+      "bytes": 8533,
+      "sha256": "e61e584b1560cafb158ed2f9afc1683d8c5f16e039563d9f77ca85641488872e"
     },
     {
       "path": "RELEASE_NOTES.md",
@@ -118,13 +118,13 @@
     },
     {
       "path": "config.yaml",
-      "bytes": 1788,
-      "sha256": "e2b908025336498b991b5f5c92bcf4637e5d10ea19809a846e966764c83beb11"
+      "bytes": 2469,
+      "sha256": "704c7d4238a46ac8470d470c9ffcf448c01217c03a240138eb6a946785dfff68"
     },
     {
       "path": "example_walkthrough.py",
-      "bytes": 4967,
-      "sha256": "93f371d1e00c841bfd3eb93a6a017ad4568b400b0f2b4908a53e6caf3c7d4696"
+      "bytes": 9501,
+      "sha256": "a4dad31d786943dd7e6215698a8db2261aa51f251fbedf5c12e377efd5f570a3"
     },
     {
       "path": "main.tex",
@@ -138,8 +138,8 @@
     },
     {
       "path": "smart_noa_controller.py",
-      "bytes": 30596,
-      "sha256": "a06cb6834c93969c4e48e5cdb31f782f807b1aa0b5435a5737c03fe0dd71e537"
+      "bytes": 53706,
+      "sha256": "860f40130beaf2130ba7d57ef062080ab0b5e7d9b2878eb5767e6e1c39b30a45"
     },
     {
       "path": "smartnoa_architecture.jpg",

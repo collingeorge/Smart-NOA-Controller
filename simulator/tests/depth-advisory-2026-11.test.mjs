@@ -181,7 +181,7 @@ test('DA-L the card disarms on the same simulated second as Begin emergence (no 
       for (let i = 0; i < 14000 && !DONE.includes(runner.state); i++) {
         if (runner.state === 'paused') {
           for (const a of sim.state.alarms) if (a.priority === 'high' && !a.acknowledged) sim.action(`acknowledge:${a.id}`);
-          if (sim.core.holdLatched) sim.action('resume_hold');
+          if (sim.core.holdLatched) { sim.action('acknowledge_hold'); sim.action('resume_hold'); }
           clinicianResolves(runner); runner.resume(); continue;
         }
         sim.step(1); runner.tick();

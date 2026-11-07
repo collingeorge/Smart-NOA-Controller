@@ -23,7 +23,7 @@ if (REAL) {
   /** Drives a runner like a user would (guided: approve enabled gates; both: clinician resolves clinician-only items). */
   function drive(sim, r, mode, maxSec = 14000, onTick = null) {
     for (let i = 0; i < maxSec && !DONE.includes(r.state); i++) {
-      if (r.state === 'paused') { for (const a of sim.state.alarms) if (a.priority === 'high' && !a.acknowledged) sim.action(`acknowledge:${a.id}`); if (sim.core.holdLatched) sim.action('resume_hold'); clinicianResolves(r); r.resume(); continue; }
+      if (r.state === 'paused') { for (const a of sim.state.alarms) if (a.priority === 'high' && !a.acknowledged) sim.action(`acknowledge:${a.id}`); if (sim.core.holdLatched) { sim.action('acknowledge_hold'); sim.action('resume_hold'); } clinicianResolves(r); r.resume(); continue; }
       let st = r.status();
       if (mode === 'guided' && st.current && st.current.items && !st.current.enabled) { clinicianResolves(r); st = r.status(); }
       if (mode === 'guided' && st.current && st.current.gate && st.current.enabled) { assert.ok(r.approve(st.current.id).ok); continue; }
@@ -223,7 +223,7 @@ if (REAL) {
     const p = EX('healthy_adult'); const { plan } = buildTemplatePlan('ga_opioid', p, { library: REAL });
     const sim = sim0(p, plan); const r = createAutoRunner({ sim, mode: 'guided' }); r.start();
     for (let i = 0; i < 6000 && !(r.current && r.current.id === 'start_surgery'); i++) {
-      if (r.state === 'paused') { for (const a of sim.state.alarms) if (a.priority === 'high' && !a.acknowledged) sim.action(`acknowledge:${a.id}`); if (sim.core.holdLatched) sim.action('resume_hold'); r.resume(); continue; }
+      if (r.state === 'paused') { for (const a of sim.state.alarms) if (a.priority === 'high' && !a.acknowledged) sim.action(`acknowledge:${a.id}`); if (sim.core.holdLatched) { sim.action('acknowledge_hold'); sim.action('resume_hold'); } r.resume(); continue; }
       const st = r.status(); if (st.current.enabled) { r.approve(st.current.id); continue; }
       sim.step(1); r.tick();
     }
@@ -235,7 +235,7 @@ if (REAL) {
   function idle(sim, r, n) {
     for (let i = 0; i < n; i++) {
       sim.step(1); r.tick();
-      if (r.state === 'paused') { for (const a of sim.state.alarms) if (a.priority === 'high' && !a.acknowledged) sim.action(`acknowledge:${a.id}`); if (sim.core.holdLatched) sim.action('resume_hold'); r.resume(); }
+      if (r.state === 'paused') { for (const a of sim.state.alarms) if (a.priority === 'high' && !a.acknowledged) sim.action(`acknowledge:${a.id}`); if (sim.core.holdLatched) { sim.action('acknowledge_hold'); sim.action('resume_hold'); } r.resume(); }
     }
   }
   const gateOpen = (r) => r.status().current.enabled;
@@ -286,7 +286,7 @@ if (REAL) {
       if (r.state === 'paused') {
         const tp = r.pauseReasons.find((x) => x.item === 'time_out');
         if (tp) { timeOutPause = tp; break; }
-        for (const a of sim.state.alarms) if (a.priority === 'high' && !a.acknowledged) sim.action(`acknowledge:${a.id}`); if (sim.core.holdLatched) sim.action('resume_hold'); r.resume(); continue;
+        for (const a of sim.state.alarms) if (a.priority === 'high' && !a.acknowledged) sim.action(`acknowledge:${a.id}`); if (sim.core.holdLatched) { sim.action('acknowledge_hold'); sim.action('resume_hold'); } r.resume(); continue;
       }
       sim.step(1); r.tick();
     }
@@ -385,7 +385,7 @@ if (REAL) {
       const { plan } = buildTemplatePlan('ga_opioid', p, { library: REAL });
       const sim = createSimulation({ patient: p, plan, seed: 1, library: REAL }); const r = createAutoRunner({ sim, mode: 'full' }); r.start();
       for (let i = 0; i < 14000 && !['completed', 'stopped', 'manual'].includes(r.state); i++) {
-        if (r.state === 'paused') { for (const a of sim.state.alarms) if (a.priority === 'high' && !a.acknowledged) sim.action(`acknowledge:${a.id}`); if (sim.core.holdLatched) sim.action('resume_hold'); clinicianResolves(r); r.resume(); continue; }
+        if (r.state === 'paused') { for (const a of sim.state.alarms) if (a.priority === 'high' && !a.acknowledged) sim.action(`acknowledge:${a.id}`); if (sim.core.holdLatched) { sim.action('acknowledge_hold'); sim.action('resume_hold'); } clinicianResolves(r); r.resume(); continue; }
         sim.step(1); r.tick();
       }
       const c = liveTimingChecks(sim);

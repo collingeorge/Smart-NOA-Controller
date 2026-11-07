@@ -52,7 +52,8 @@
           "status": "GREEN",
           "hold_latched": false,
           "Cp_ng_mL": 0.0001736111111111111,
-          "Ce_ng_mL": 2.8935185185185185e-07
+          "Ce_ng_mL": 2.8935185185185185e-07,
+          "events": []
         },
         {
           "step": 2,
@@ -71,7 +72,28 @@
           "status": "RED",
           "hold_latched": true,
           "Cp_ng_mL": 0.00034710648148148144,
-          "Ce_ng_mL": 8.673804012345679e-07
+          "Ce_ng_mL": 8.673804012345679e-07,
+          "events": [
+            {
+              "t_sec": 1,
+              "code": "hr_low",
+              "status": "RED",
+              "drugs": [
+                "Dexmedetomidine"
+              ],
+              "message": "HR 40 < 48 \u2192 Dexmedetomidine set to zero; hold latched"
+            },
+            {
+              "t_sec": 1,
+              "code": "map_low",
+              "status": "RED",
+              "drugs": [
+                "Dexmedetomidine",
+                "Lidocaine"
+              ],
+              "message": "MAP 50 < 60 \u2192 Dexmedetomidine, Lidocaine set to zero; hold latched"
+            }
+          ]
         },
         {
           "step": 3,
@@ -90,7 +112,8 @@
           "status": "HOLD",
           "hold_latched": true,
           "Cp_ng_mL": 0.0003468750771604938,
-          "Ce_ng_mL": 1.4440598958333332e-06
+          "Ce_ng_mL": 1.4440598958333332e-06,
+          "events": []
         }
       ],
       "after_explicit_regeneration": {
@@ -160,7 +183,8 @@
           "status": "GREEN",
           "hold_latched": false,
           "Cp_ng_mL": 0.00017361111111111112,
-          "Ce_ng_mL": 2.8935185185185185e-07
+          "Ce_ng_mL": 2.8935185185185185e-07,
+          "events": []
         },
         {
           "step": 2,
@@ -179,7 +203,28 @@
           "status": "RED",
           "hold_latched": true,
           "Cp_ng_mL": 0.00034710648148148144,
-          "Ce_ng_mL": 8.673804012345679e-07
+          "Ce_ng_mL": 8.673804012345679e-07,
+          "events": [
+            {
+              "t_sec": 1,
+              "code": "hr_low",
+              "status": "RED",
+              "drugs": [
+                "Dexmedetomidine"
+              ],
+              "message": "HR 40 < 48 \u2192 Dexmedetomidine set to zero; hold latched"
+            },
+            {
+              "t_sec": 1,
+              "code": "map_low",
+              "status": "RED",
+              "drugs": [
+                "Dexmedetomidine",
+                "Lidocaine"
+              ],
+              "message": "MAP 50 < 60 \u2192 Dexmedetomidine, Lidocaine set to zero; hold latched"
+            }
+          ]
         },
         {
           "step": 3,
@@ -198,7 +243,8 @@
           "status": "HOLD",
           "hold_latched": true,
           "Cp_ng_mL": 0.00034687507716049383,
-          "Ce_ng_mL": 1.4440598958333332e-06
+          "Ce_ng_mL": 1.4440598958333332e-06,
+          "events": []
         }
       ],
       "after_explicit_regeneration": {
@@ -273,7 +319,8 @@
           "status": "GREEN",
           "hold_latched": false,
           "Cp_ng_mL": 0.0,
-          "Ce_ng_mL": 0.0
+          "Ce_ng_mL": 0.0,
+          "events": []
         },
         {
           "step": 2,
@@ -292,7 +339,28 @@
           "status": "RED",
           "hold_latched": true,
           "Cp_ng_mL": 0.0,
-          "Ce_ng_mL": 0.0
+          "Ce_ng_mL": 0.0,
+          "events": [
+            {
+              "t_sec": 1,
+              "code": "hr_low",
+              "status": "RED",
+              "drugs": [
+                "Dexmedetomidine"
+              ],
+              "message": "HR 40 < 48 \u2192 Dexmedetomidine set to zero; hold latched"
+            },
+            {
+              "t_sec": 1,
+              "code": "map_low",
+              "status": "RED",
+              "drugs": [
+                "Dexmedetomidine",
+                "Lidocaine"
+              ],
+              "message": "MAP 50 < 60 \u2192 Dexmedetomidine, Lidocaine set to zero; hold latched"
+            }
+          ]
         },
         {
           "step": 3,
@@ -311,7 +379,8 @@
           "status": "HOLD",
           "hold_latched": true,
           "Cp_ng_mL": 0.0,
-          "Ce_ng_mL": 0.0
+          "Ce_ng_mL": 0.0,
+          "events": []
         }
       ],
       "after_explicit_regeneration": {
@@ -386,7 +455,8 @@
           "status": "GREEN",
           "hold_latched": false,
           "Cp_ng_mL": 0.0,
-          "Ce_ng_mL": 0.0
+          "Ce_ng_mL": 0.0,
+          "events": []
         },
         {
           "step": 2,
@@ -405,7 +475,28 @@
           "status": "RED",
           "hold_latched": true,
           "Cp_ng_mL": 0.0,
-          "Ce_ng_mL": 0.0
+          "Ce_ng_mL": 0.0,
+          "events": [
+            {
+              "t_sec": 1,
+              "code": "hr_low",
+              "status": "RED",
+              "drugs": [
+                "Dexmedetomidine"
+              ],
+              "message": "HR 40 < 48 \u2192 Dexmedetomidine set to zero; hold latched"
+            },
+            {
+              "t_sec": 1,
+              "code": "map_low",
+              "status": "RED",
+              "drugs": [
+                "Dexmedetomidine",
+                "Lidocaine"
+              ],
+              "message": "MAP 50 < 60 \u2192 Dexmedetomidine, Lidocaine set to zero; hold latched"
+            }
+          ]
         },
         {
           "step": 3,
@@ -424,7 +515,8 @@
           "status": "HOLD",
           "hold_latched": true,
           "Cp_ng_mL": 0.0,
-          "Ce_ng_mL": 0.0
+          "Ce_ng_mL": 0.0,
+          "events": []
         }
       ],
       "after_explicit_regeneration": {
@@ -462,5 +554,802 @@
     },
     "status": "GREEN",
     "explanation": "Strict comparisons: exact boundary values do not trigger these configured rules; clinical acceptability remains unassessed."
-  }
+  },
+  "audit_examples": [
+    {
+      "label": "acknowledged_release",
+      "fictional": true,
+      "ops": [
+        {
+          "op": "vitals",
+          "readings": [
+            [
+              80,
+              80
+            ],
+            [
+              80,
+              55
+            ],
+            [
+              80,
+              80
+            ]
+          ]
+        },
+        {
+          "op": "resume",
+          "by": "clinician"
+        },
+        {
+          "op": "acknowledge",
+          "by": "clinician",
+          "note": "MAP cause reviewed"
+        },
+        {
+          "op": "vitals",
+          "readings": [
+            [
+              80,
+              80
+            ]
+          ]
+        },
+        {
+          "op": "resume",
+          "by": "clinician"
+        },
+        {
+          "op": "vitals",
+          "readings": [
+            [
+              80,
+              80
+            ],
+            [
+              80,
+              80
+            ]
+          ]
+        }
+      ],
+      "refusals": [
+        {
+          "t_sec": 3,
+          "op": "resume",
+          "message": "Acknowledge the hold first: review the cause (MAP 55 < 60), then resume"
+        }
+      ],
+      "events": [
+        {
+          "t_sec": 1,
+          "code": "map_low",
+          "status": "RED",
+          "drugs": [
+            "Dexmedetomidine",
+            "Lidocaine"
+          ],
+          "message": "MAP 55 < 60 \u2192 Dexmedetomidine, Lidocaine set to zero; hold latched"
+        },
+        {
+          "t_sec": 3,
+          "code": "hold_acknowledged",
+          "status": "HOLD",
+          "drugs": [
+            "Dexmedetomidine",
+            "Lidocaine"
+          ],
+          "message": "Hold #1 acknowledged by clinician (reasons: MAP 55 < 60; held: Dexmedetomidine, Lidocaine); note: MAP cause reviewed"
+        },
+        {
+          "t_sec": 4,
+          "code": "hold_released",
+          "status": "HOLD",
+          "drugs": [
+            "Dexmedetomidine",
+            "Lidocaine"
+          ],
+          "message": "Hold #1 released by clinician (held: Dexmedetomidine, Lidocaine; reasons: MAP 55 < 60) \u2192 held infusions stay at zero; no automatic restart"
+        }
+      ],
+      "final": {
+        "status": "GREEN",
+        "hold_latched": false,
+        "infusions": {
+          "Lidocaine": 0.0,
+          "Ketamine": 0.2,
+          "Dexmedetomidine": 0.0
+        },
+        "suspended": false,
+        "hold_reasons": []
+      }
+    },
+    {
+      "label": "stale_and_consumed_acknowledgment",
+      "fictional": true,
+      "ops": [
+        {
+          "op": "vitals",
+          "readings": [
+            [
+              80,
+              80
+            ],
+            [
+              46,
+              80
+            ]
+          ]
+        },
+        {
+          "op": "acknowledge",
+          "by": "clinician",
+          "note": ""
+        },
+        {
+          "op": "vitals",
+          "readings": [
+            [
+              80,
+              55
+            ]
+          ]
+        },
+        {
+          "op": "resume",
+          "by": "clinician"
+        },
+        {
+          "op": "acknowledge",
+          "by": "clinician",
+          "note": ""
+        },
+        {
+          "op": "resume",
+          "by": "clinician"
+        },
+        {
+          "op": "vitals",
+          "readings": [
+            [
+              80,
+              80
+            ],
+            [
+              46,
+              80
+            ]
+          ]
+        },
+        {
+          "op": "resume",
+          "by": "clinician"
+        }
+      ],
+      "refusals": [
+        {
+          "t_sec": 3,
+          "op": "resume",
+          "message": "Acknowledge the hold first: review the cause (HR 46 < 48; MAP 55 < 60), then resume"
+        },
+        {
+          "t_sec": 5,
+          "op": "resume",
+          "message": "Acknowledge the hold first: review the cause (HR 46 < 48), then resume"
+        }
+      ],
+      "events": [
+        {
+          "t_sec": 1,
+          "code": "hr_low",
+          "status": "RED",
+          "drugs": [
+            "Dexmedetomidine"
+          ],
+          "message": "HR 46 < 48 \u2192 Dexmedetomidine set to zero; hold latched"
+        },
+        {
+          "t_sec": 2,
+          "code": "hold_acknowledged",
+          "status": "RED",
+          "drugs": [
+            "Dexmedetomidine"
+          ],
+          "message": "Hold #1 acknowledged by clinician (reasons: HR 46 < 48; held: Dexmedetomidine)"
+        },
+        {
+          "t_sec": 2,
+          "code": "map_low",
+          "status": "RED",
+          "drugs": [
+            "Dexmedetomidine",
+            "Lidocaine"
+          ],
+          "message": "MAP 55 < 60 \u2192 Dexmedetomidine, Lidocaine set to zero; hold latched"
+        },
+        {
+          "t_sec": 2,
+          "code": "acknowledgment_invalidated",
+          "status": "RED",
+          "drugs": [
+            "Dexmedetomidine",
+            "Lidocaine"
+          ],
+          "message": "Acknowledgment of hold #1 invalidated by a new latch event (reasons: HR 46 < 48; MAP 55 < 60); acknowledge again before release"
+        },
+        {
+          "t_sec": 3,
+          "code": "hold_acknowledged",
+          "status": "RED",
+          "drugs": [
+            "Dexmedetomidine",
+            "Lidocaine"
+          ],
+          "message": "Hold #1 acknowledged by clinician (reasons: HR 46 < 48; MAP 55 < 60; held: Dexmedetomidine, Lidocaine)"
+        },
+        {
+          "t_sec": 3,
+          "code": "hold_released",
+          "status": "RED",
+          "drugs": [
+            "Dexmedetomidine",
+            "Lidocaine"
+          ],
+          "message": "Hold #1 released by clinician (held: Dexmedetomidine, Lidocaine; reasons: HR 46 < 48; MAP 55 < 60) \u2192 held infusions stay at zero; no automatic restart"
+        },
+        {
+          "t_sec": 4,
+          "code": "hr_low",
+          "status": "RED",
+          "drugs": [
+            "Dexmedetomidine"
+          ],
+          "message": "HR 46 < 48 \u2192 Dexmedetomidine set to zero; hold latched"
+        }
+      ],
+      "final": {
+        "status": "RED",
+        "hold_latched": true,
+        "infusions": {
+          "Lidocaine": 0.0,
+          "Ketamine": 0.2,
+          "Dexmedetomidine": 0.0
+        },
+        "suspended": false,
+        "hold_reasons": [
+          "HR 46 < 48"
+        ]
+      }
+    },
+    {
+      "label": "unusable_readings",
+      "fictional": true,
+      "ops": [
+        {
+          "op": "vitals",
+          "readings": [
+            [
+              80,
+              80
+            ],
+            [
+              null,
+              80
+            ],
+            [
+              80,
+              80
+            ],
+            [
+              350,
+              80
+            ],
+            [
+              80,
+              80
+            ],
+            [
+              80,
+              81
+            ],
+            [
+              30,
+              80
+            ],
+            [
+              80,
+              80
+            ],
+            [
+              80,
+              40.5
+            ],
+            [
+              true,
+              80
+            ],
+            [
+              "80",
+              80
+            ],
+            [
+              80
+            ]
+          ]
+        }
+      ],
+      "refusals": [],
+      "events": [
+        {
+          "t_sec": 1,
+          "code": "sensor_fault",
+          "status": "RED",
+          "drugs": [
+            "Dexmedetomidine",
+            "Ketamine",
+            "Lidocaine"
+          ],
+          "message": "Invalid sensor reading (HR=unusable, MAP=80) \u2192 all controlled infusions set to zero; hold latched"
+        },
+        {
+          "t_sec": 3,
+          "code": "sensor_fault",
+          "status": "RED",
+          "drugs": [
+            "Dexmedetomidine",
+            "Ketamine",
+            "Lidocaine"
+          ],
+          "message": "HR 350 outside simulation plausibility limits 0\u2013300: unusable \u2192 all controlled infusions set to zero; hold latched"
+        },
+        {
+          "t_sec": 6,
+          "code": "sensor_fault",
+          "status": "RED",
+          "drugs": [
+            "Dexmedetomidine",
+            "Ketamine",
+            "Lidocaine"
+          ],
+          "message": "HR drop \u221250 /min in 1 s (80 \u2192 30) above the simulation rate-of-change limit 40: unusable \u2192 all controlled infusions set to zero; hold latched"
+        },
+        {
+          "t_sec": 8,
+          "code": "sensor_fault",
+          "status": "RED",
+          "drugs": [
+            "Dexmedetomidine",
+            "Ketamine",
+            "Lidocaine"
+          ],
+          "message": "MAP drop \u221239.5 mmHg in 1 s (80 \u2192 40.5) above the simulation rate-of-change limit 30: unusable \u2192 all controlled infusions set to zero; hold latched"
+        },
+        {
+          "t_sec": 9,
+          "code": "sensor_fault",
+          "status": "RED",
+          "drugs": [
+            "Dexmedetomidine",
+            "Ketamine",
+            "Lidocaine"
+          ],
+          "message": "Invalid sensor reading (HR=unusable, MAP=80) \u2192 all controlled infusions set to zero; hold latched"
+        },
+        {
+          "t_sec": 10,
+          "code": "sensor_fault",
+          "status": "RED",
+          "drugs": [
+            "Dexmedetomidine",
+            "Ketamine",
+            "Lidocaine"
+          ],
+          "message": "Invalid sensor reading (HR=unusable, MAP=80) \u2192 all controlled infusions set to zero; hold latched"
+        },
+        {
+          "t_sec": 11,
+          "code": "sensor_fault",
+          "status": "RED",
+          "drugs": [
+            "Dexmedetomidine",
+            "Ketamine",
+            "Lidocaine"
+          ],
+          "message": "Invalid sensor reading (HR=unusable, MAP=unusable) \u2192 all controlled infusions set to zero; hold latched"
+        }
+      ],
+      "final": {
+        "status": "RED",
+        "hold_latched": true,
+        "infusions": {
+          "Lidocaine": 0.0,
+          "Ketamine": 0.0,
+          "Dexmedetomidine": 0.0
+        },
+        "suspended": false,
+        "hold_reasons": [
+          "invalid sensor (HR=unusable)",
+          "implausible HR 350 (limits 0\u2013300)",
+          "implausible HR jump \u221250 /min in 1 s",
+          "implausible MAP jump \u221239.5 mmHg in 1 s",
+          "invalid sensor (HR=unusable, MAP=unusable)"
+        ]
+      }
+    },
+    {
+      "label": "rate_faults",
+      "fictional": true,
+      "ops": [
+        {
+          "op": "vitals",
+          "readings": [
+            [
+              80,
+              80
+            ]
+          ]
+        },
+        {
+          "op": "set_rate",
+          "drug": "Ketamine",
+          "rate": 999
+        },
+        {
+          "op": "vitals",
+          "readings": [
+            [
+              80,
+              80
+            ]
+          ]
+        },
+        {
+          "op": "set_rate",
+          "drug": "Lidocaine",
+          "rate": -1
+        },
+        {
+          "op": "vitals",
+          "readings": [
+            [
+              80,
+              80
+            ],
+            [
+              80,
+              80
+            ]
+          ]
+        }
+      ],
+      "refusals": [],
+      "events": [
+        {
+          "t_sec": 1,
+          "code": "rate_fault",
+          "status": "RED",
+          "drugs": [
+            "Ketamine"
+          ],
+          "message": "Rate outside simulation ceiling (Ketamine) \u2192 set to zero; hold latched"
+        },
+        {
+          "t_sec": 2,
+          "code": "rate_fault",
+          "status": "RED",
+          "drugs": [
+            "Lidocaine"
+          ],
+          "message": "Rate outside simulation ceiling (Lidocaine) \u2192 set to zero; hold latched"
+        }
+      ],
+      "final": {
+        "status": "HOLD",
+        "hold_latched": true,
+        "infusions": {
+          "Lidocaine": 0.0,
+          "Ketamine": 0.0,
+          "Dexmedetomidine": 0.5
+        },
+        "suspended": false,
+        "hold_reasons": [
+          "rate outside simulation ceiling (Ketamine)",
+          "rate outside simulation ceiling (Lidocaine)"
+        ]
+      }
+    },
+    {
+      "label": "suspension",
+      "fictional": true,
+      "ops": [
+        {
+          "op": "vitals",
+          "readings": [
+            [
+              80,
+              80
+            ]
+          ]
+        },
+        {
+          "op": "suspend",
+          "seconds": 5,
+          "by": "clinician",
+          "reason": " <b>\"planned\"</b> vagal test \u2014 \u00e9 \u2713 "
+        },
+        {
+          "op": "suspend",
+          "seconds": 5,
+          "by": "clinician",
+          "reason": "second"
+        },
+        {
+          "op": "vitals",
+          "readings": [
+            [
+              46,
+              80
+            ],
+            [
+              80,
+              55
+            ],
+            [
+              80,
+              80
+            ],
+            [
+              null,
+              80
+            ],
+            [
+              80,
+              80
+            ],
+            [
+              80,
+              80
+            ],
+            [
+              46,
+              80
+            ]
+          ]
+        },
+        {
+          "op": "acknowledge",
+          "by": "clinician",
+          "note": ""
+        },
+        {
+          "op": "suspend",
+          "seconds": 3,
+          "by": "clinician",
+          "reason": "during a hold"
+        },
+        {
+          "op": "vitals",
+          "readings": [
+            [
+              80,
+              80
+            ]
+          ]
+        },
+        {
+          "op": "end_suspension",
+          "by": "clinician"
+        },
+        {
+          "op": "end_suspension",
+          "by": "clinician"
+        },
+        {
+          "op": "suspend",
+          "seconds": 0,
+          "by": "clinician",
+          "reason": "too short"
+        },
+        {
+          "op": "suspend",
+          "seconds": 301,
+          "by": "clinician",
+          "reason": "too long"
+        },
+        {
+          "op": "suspend",
+          "seconds": 60,
+          "by": "clinician",
+          "reason": "   "
+        }
+      ],
+      "refusals": [
+        {
+          "t_sec": 1,
+          "op": "suspend",
+          "message": "Interlocks are already suspended; end the suspension first"
+        },
+        {
+          "t_sec": 9,
+          "op": "end_suspension",
+          "message": "No interlock suspension is active"
+        },
+        {
+          "t_sec": 9,
+          "op": "suspend",
+          "message": "Suspension duration must be a whole number of seconds from 1 to 300"
+        },
+        {
+          "t_sec": 9,
+          "op": "suspend",
+          "message": "Suspension duration must be a whole number of seconds from 1 to 300"
+        },
+        {
+          "t_sec": 9,
+          "op": "suspend",
+          "message": "reason must be a non-empty string"
+        }
+      ],
+      "events": [
+        {
+          "t_sec": 1,
+          "code": "suspension_started",
+          "status": "GREEN",
+          "drugs": [],
+          "message": "Interlocks SUSPENDED by clinician for 5 s (reason:  <b>\"planned\"</b> vagal test \u2014 \u00e9 \u2713 ): HR/MAP holds will not latch; sensor fail-safe, rate faults, hard lockouts and any latched hold stay active"
+        },
+        {
+          "t_sec": 1,
+          "code": "breach_suppressed",
+          "status": "GREEN",
+          "drugs": [
+            "Dexmedetomidine"
+          ],
+          "message": "HR 46 < 48 \u2192 interlock SUSPENDED by clinician (00:05 left): no hold latched"
+        },
+        {
+          "t_sec": 2,
+          "code": "breach_suppressed",
+          "status": "GREEN",
+          "drugs": [
+            "Dexmedetomidine",
+            "Lidocaine"
+          ],
+          "message": "MAP 55 < 60 \u2192 interlock SUSPENDED by clinician (00:04 left): no hold latched"
+        },
+        {
+          "t_sec": 4,
+          "code": "sensor_fault",
+          "status": "RED",
+          "drugs": [
+            "Dexmedetomidine",
+            "Ketamine",
+            "Lidocaine"
+          ],
+          "message": "Invalid sensor reading (HR=unusable, MAP=80) \u2192 all controlled infusions set to zero; hold latched"
+        },
+        {
+          "t_sec": 6,
+          "code": "suspension_expired",
+          "status": "HOLD",
+          "drugs": [],
+          "message": "Suspension expired after 5 s \u2192 HR/MAP interlocks active"
+        },
+        {
+          "t_sec": 7,
+          "code": "hr_low",
+          "status": "RED",
+          "drugs": [
+            "Dexmedetomidine"
+          ],
+          "message": "HR 46 < 48 \u2192 Dexmedetomidine set to zero; hold latched"
+        },
+        {
+          "t_sec": 8,
+          "code": "hold_acknowledged",
+          "status": "RED",
+          "drugs": [
+            "Dexmedetomidine",
+            "Ketamine",
+            "Lidocaine"
+          ],
+          "message": "Hold #1 acknowledged by clinician (reasons: invalid sensor (HR=unusable); HR 46 < 48; held: Dexmedetomidine, Ketamine, Lidocaine)"
+        },
+        {
+          "t_sec": 8,
+          "code": "suspension_started",
+          "status": "RED",
+          "drugs": [],
+          "message": "Interlocks SUSPENDED by clinician for 3 s (reason: during a hold): HR/MAP holds will not latch; sensor fail-safe, rate faults, hard lockouts and any latched hold stay active"
+        },
+        {
+          "t_sec": 9,
+          "code": "suspension_ended",
+          "status": "HOLD",
+          "drugs": [],
+          "message": "Suspension ended by clinician (00:02 left) \u2192 HR/MAP interlocks active"
+        }
+      ],
+      "final": {
+        "status": "HOLD",
+        "hold_latched": true,
+        "infusions": {
+          "Lidocaine": 0.0,
+          "Ketamine": 0.0,
+          "Dexmedetomidine": 0.0
+        },
+        "suspended": false,
+        "hold_reasons": [
+          "invalid sensor (HR=unusable)",
+          "HR 46 < 48"
+        ]
+      }
+    },
+    {
+      "label": "long_hold_advisory",
+      "fictional": true,
+      "ops": [
+        {
+          "op": "vitals",
+          "readings": [
+            [
+              46,
+              80
+            ]
+          ]
+        },
+        {
+          "op": "steady",
+          "reading": [
+            80,
+            80
+          ],
+          "seconds": 1201
+        }
+      ],
+      "refusals": [],
+      "events": [
+        {
+          "t_sec": 0,
+          "code": "hr_low",
+          "status": "RED",
+          "drugs": [
+            "Dexmedetomidine"
+          ],
+          "message": "HR 46 < 48 \u2192 Dexmedetomidine set to zero; hold latched"
+        },
+        {
+          "t_sec": 600,
+          "code": "hold_long",
+          "status": "HOLD",
+          "drugs": [
+            "Dexmedetomidine"
+          ],
+          "message": "Hold has been active for 10 min (reasons: HR 46 < 48)"
+        },
+        {
+          "t_sec": 1200,
+          "code": "hold_long",
+          "status": "HOLD",
+          "drugs": [
+            "Dexmedetomidine"
+          ],
+          "message": "Hold has been active for 20 min (reasons: HR 46 < 48)"
+        }
+      ],
+      "final": {
+        "status": "HOLD",
+        "hold_latched": true,
+        "infusions": {
+          "Lidocaine": 1.5,
+          "Ketamine": 0.2,
+          "Dexmedetomidine": 0.0
+        },
+        "suspended": false,
+        "hold_reasons": [
+          "HR 46 < 48"
+        ]
+      }
+    }
+  ]
 }

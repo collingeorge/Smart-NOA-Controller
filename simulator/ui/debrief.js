@@ -77,7 +77,8 @@ export function renderDebrief(ctx, main) {
             h('ul', { class: 'ready-list ready-list--light' }, (ext.criteria || []).map((c) => readinessRow(c))),
             overrides.length ? h('p', { class: 'error-text' }, `Extubated despite unmet criteria (user confirmed, logged): ${overrides.map((o) => `${fmtClock(o.tSec)} — ${o.unmet.join(', ')}`).join('; ')}`) : null]),
       h('section', { class: 'card' }, h('h3', {}, 'Interlock events'),
-        s.interlockEvents.length ? h('ol', { class: 'list list--tight' }, s.interlockEvents.map((e) => h('li', {}, h('span', { class: 'mono' }, fmtClock(e.tSec)), ` ${e.message}`))) : h('p', {}, store.interlocks ? 'No interlock events.' : 'Interlocks were off.'))),
+        s.interlockEvents.length ? h('ol', { class: 'list list--tight' }, s.interlockEvents.map((e) => h('li', {}, h('span', { class: 'mono' }, fmtClock(e.tSec)), ` ${e.message}`))) : h('p', {}, store.interlocks ? 'No interlock events.' : 'Interlocks were off.'),
+        interlockAuditBlock(s.interlockAudit, lib))),
     h('section', { class: 'card' }, h('h3', {}, 'Alarms'),
       s.alarms.length ? h('div', { class: 'table-wrap' }, h('table', { class: 'table' },
         h('thead', {}, h('tr', {}, h('th', { scope: 'col' }, 'Priority'), h('th', { scope: 'col' }, 'Alarm'), h('th', { scope: 'col' }, 'From'), h('th', { scope: 'col' }, 'Cleared'))),
@@ -183,3 +184,15 @@ function prophylaxisCard(P, lib) {
 
 function stat(label, value) { return h('div', { class: 'card stat' }, h('p', { class: 'stat__label' }, label), h('p', { class: 'stat__value mono' }, value)); }
 export { srcTags };
+
+/** Explicit interlock actions (acknowledgments, releases, suspensions) and every hold with its reasons. */
+function interlockAuditBlock(A, lib) {
+  if (!A) return null;
+  const name = (id) => getDrugById(lib, id)?.name || id;
+  return h('div', { id: 'db-il-audit' },
+    h('h4', {}, 'Acknowledgments, releases and suspensions'),
+    A.actions.length ? h('ol', { class: 'list list--tight', id: 'db-il-actions' }, A.actions.map((e) => h('li', {}, h('span', { class: 'mono' }, fmtClock(e.tSec)), ` ${e.message}`))) : h('p', {}, 'None.'),
+    h('h4', {}, 'Holds and their reasons'),
+    A.holds.length ? h('ol', { class: 'list list--tight', id: 'db-il-holds' }, A.holds.map((x) => h('li', {},
+      `Hold #${x.id}, latched ${fmtClock(x.latchedAtSec)} (${x.drugs.map(name).join(', ') || 'none'}): ${x.reasons.map((r) => `${r.reason} (${fmtClock(r.tSec)})`).join('; ') || 'reason not recorded'} — ${x.releasedAtSec === null || x.releasedAtSec === undefined ? 'still latched at the end' : `released by ${x.releasedBy} at ${fmtClock(x.releasedAtSec)}${x.acknowledgedAtSec !== null ? ` (acknowledged at ${fmtClock(x.acknowledgedAtSec)})` : ''}`}.`))) : h('p', {}, 'No hold latched.'));
+}

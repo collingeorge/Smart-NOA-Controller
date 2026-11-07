@@ -263,7 +263,7 @@ function testSnapshot() {
     step: store.step, interlocksOn: store.interlocks, overrides: store.run.overrides,
     sim: sim ? { t: sim.state.tSec, phase: sim.state.phase, v: sim.state.vitals, il: sim.state.interlocks.status, interlocks: sim.state.interlocks,
       airway: sim.state.airway, ready: sim.extubationReadiness().ready, readiness: sim.extubationReadiness(), log: sim.state.log, playing: store.run.playing,
-      fluids: sim.state.fluids, prophylaxis: sim.state.prophylaxis, checklist: sim.prophylaxisChecklist(), alarms: sim.state.alarms, drugs: { lidocaine: sim.state.drugs.lidocaine } } : null,
+      fluids: sim.state.fluids, prophylaxis: sim.state.prophylaxis, checklist: sim.prophylaxisChecklist(), alarms: sim.state.alarms, drugs: { lidocaine: sim.state.drugs.lidocaine, dexmedetomidine: sim.state.drugs.dexmedetomidine, ketamine: sim.state.drugs.ketamine } } : null,
     plan: { mode: store.plan.mode, sedationTarget: store.plan.sedationTarget, template: store.plan.template || null, steps: store.plan.steps.map((x) => ({ drugId: x.drugId, kind: x.kind, phase: x.phase, regimenKey: x.regimenKey, amount: x.amount, rate: x.rate, atSec: x.atSec })) },
     auto: a ? { ...a.status(), idx: a.idx, history: a.history } : null,
     hist: store.run && store.run.hist ? { hr: store.run.hist.hr.slice(-3), map: store.run.hist.map.slice(-3), spo2: store.run.hist.spo2.slice(-3) } : null, // trend-chart samples (NaN gap → null)

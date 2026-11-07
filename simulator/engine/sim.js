@@ -10,7 +10,12 @@ import { createPkModel, isInhaled, isNitrous, referenceRegimen, ROUTE_KA_ILLUSTR
 import { combineEffects, patientModifiers, tofFromTwitches, SEDATION_RANK, PROFILES, PATIENT_MODS } from './pd.js';
 import { Physiology } from './physiology.js';
 import { buildParameterInventory } from './inventory.js';
-import { InterlockCore, CONTROLLED, PY_TO_SIM_ID, SIM_TO_PY_ID, PY_RATE_UNITS, NOA_CONFIG, aboveCeiling } from './interlocks.js';
+import { InterlockCore, CONTROLLED, PY_TO_SIM_ID, SIM_TO_PY_ID, PY_RATE_UNITS, NOA_CONFIG, aboveCeiling, LATCH_CODES } from './interlocks.js';
+
+/** Who performs the explicit interlock actions in the simulator (a fictional role; the simulated user). */
+export const INTERLOCK_ACTOR = 'clinician';
+/** Interlock event codes listed in the debrief / session JSON as explicit actions (with times). */
+export const INTERLOCK_ACTION_CODES = Object.freeze(['hold_acknowledged', 'hold_released', 'suspension_started', 'suspension_ended', 'suspension_expired', 'acknowledgment_invalidated']);
 import { AlarmManager } from './alarms.js';
 import { convertAmount, rateToAmountPerMin, isFiniteNumber, roundSig } from './units.js';
 import { getScenario } from '../data/scenarios.js';
@@ -154,7 +159,7 @@ class Simulation {
     this.ceilings = {};
     this.rateWeight = {};
     this._holdEp = null; this._locAt = null; this._hypnoticSeenRunning = false; this._depthHighSec = 0;
-    this._ilLast = {}; this._ilLoggedStatus = null; this._ilStatusT = -Infinity; this._alarmOn = new Set();
+    this._ilLast = {}; this._holdHistory = []; this._ilLoggedStatus = null; this._ilStatusT = -Infinity; this._alarmOn = new Set();
 
     // Lockouts: library lock rules + Python free-text lockouts (config.yaml) on condition/allergy ids and labels
     // (engine/plan-safety.js computeLockouts — the same set the plan-level maintenance-hypnotic check uses).
@@ -186,7 +191,7 @@ class Simulation {
       // (clinician only), clinician acknowledgement of an index below the GA band, planned end of surgery.
       periop: { transferAt: null, timeOut: null, depthAck: null, sedationAck: null, plannedSurgeryEndSec: null },
       alarms: [],
-      interlocks: { enabled: !!interlocksEnabled, status: interlocksEnabled ? 'INITIALIZING' : 'DISABLED', holdLatched: false, heldDrugs: [], lockouts, holdEpisode: null },
+      interlocks: { enabled: !!interlocksEnabled, status: interlocksEnabled ? 'INITIALIZING' : 'DISABLED', holdLatched: false, heldDrugs: [], lockouts, holdEpisode: null, hold: null, suspension: { active: false, by: null, reason: null, startedAtSec: null, durationSec: null, untilSec: null, remainingSec: 0 } },
       log: [],
     };
     this._log('phase', 'Simulation created (premed). Educational simulation — fictional patient.');
@@ -631,6 +636,37 @@ class Simulation {
       this.state.periop.sedationAck = { tSec: t, level: lvl, target: tgt };
       return ok(`Clinician acknowledged sedation below the planned target (${lvl} vs ${tgt}) and chose to start the procedure at the current level`);
     }
+    // Explicit interlock actions (engine/interlocks.js; Python acknowledge_hold / resume_hold /
+    // suspend_interlocks / end_suspension). Simulated clinician actions, logged (kind 'interlock') and
+    // recorded in stats.interlockEvents; the automatic runner never calls any of them.
+    if (id === 'acknowledge_hold' || id.startsWith('acknowledge_hold:')) {
+      if (!this.state.interlocks.enabled) return no('Interlocks are disabled');
+      if (!this.core.holdLatched) return no('No latched hold to acknowledge');
+      return this._interlockAction(t, () => this.core.acknowledgeHold(INTERLOCK_ACTOR, id.length > 16 ? id.slice(17) : ''));
+    }
+    if (id === 'resume_hold') {
+      if (!this.state.interlocks.enabled) return no('Interlocks are disabled');
+      if (!this.core.holdLatched) return no('No latched hold');
+      const held = this.core.hold ? [...this.core.hold.drugs] : [];
+      const hold = this.core.hold ? { ...this.core.hold, reasons: this.core.hold.reasons.map((r) => ({ ...r })) } : null;
+      const r = this._interlockAction(t, () => this.core.resumeHold(INTERLOCK_ACTOR), (e) => `Hold released by explicit user action (resume_hold): ${e.message}. Infusions do not restart automatically.`);
+      if (r.ok && hold) this._holdHistory.push(this._holdView({ ...hold, releasedBy: INTERLOCK_ACTOR, releasedAtSec: t }));
+      if (r.ok) r.released = held.map((x) => PY_TO_SIM_ID[x] || x);
+      return r;
+    }
+    if (id.startsWith('suspend_interlocks:')) {
+      // suspend_interlocks:<seconds>:<reason> — the reason (everything after the second ':') is required
+      // and stored verbatim.
+      if (!this.state.interlocks.enabled) return no('Interlocks are disabled');
+      const rest = id.slice(19); const k = rest.indexOf(':');
+      if (k < 0) return no('Use suspend_interlocks:<seconds>:<reason> (a reason is required)');
+      const sec = /^\d+$/.test(rest.slice(0, k)) ? Number(rest.slice(0, k)) : NaN;
+      return this._interlockAction(t, () => this.core.suspendInterlocks(sec, INTERLOCK_ACTOR, rest.slice(k + 1)));
+    }
+    if (id === 'end_suspension') {
+      if (!this.state.interlocks.enabled) return no('Interlocks are disabled');
+      return this._interlockAction(t, () => this.core.endSuspension(INTERLOCK_ACTOR));
+    }
     if (id.startsWith('acknowledge:')) {
       const aid = id.slice(12);
       const r = this.alarmMgr.acknowledge(aid); this.state.alarms = this.alarmMgr.list();
@@ -674,16 +710,36 @@ class Simulation {
         for (const def of this.armed.splice(0)) this._startEvent(def);
         return ok(`Extubated — readiness ${r.ready ? 'met' : 'NOT met: ' + r.criteria.filter((c) => !c.met).map((c) => c.label).join(', ')}`);
       }
-      case 'resume_hold': {
-        if (!this.state.interlocks.enabled) return no('Interlocks are disabled');
-        if (!this.core.holdLatched) return no('No latched hold');
-        const was = this.core.resumeHold();
-        this.stats.interlockEvents.push({ tSec: t, code: 'resume_hold', message: `Hold released by user (${was.join(', ') || 'none held'})` });
-        this._log('interlock', `Hold released by explicit user action (resume_hold); held: ${was.join(', ') || 'none'}. Infusions do not restart automatically.`);
-        return ok('Hold released');
-      }
       default: return no(`Unknown action '${id}'`);
     }
+  }
+
+  /** Runs one explicit interlock action on the core at time t; logs/records its events; refusal → { ok:false }. */
+  _interlockAction(t, fn, logText = (e) => e.message) {
+    this.core.clockSec = t;
+    const n = this.core.events.length;
+    try { fn(); } catch (e) { return { ok: false, message: e.message }; }
+    const evs = this.core.events.slice(n);
+    for (const e of evs) { this._log('interlock', logText(e)); this.stats.interlockEvents.push({ tSec: t, code: e.code, message: e.message }); }
+    this._syncInterlockState();
+    return { ok: true, message: evs.map((e) => e.message).join('; ') };
+  }
+
+  /** A hold instance with simulator drug ids (state.interlocks.hold, debrief, session JSON). */
+  _holdView(hd) {
+    return { id: hd.id, latchedAtSec: hd.latchedAtSec, reasons: hd.reasons.map((r) => ({ ...r })), drugs: hd.drugs.map((x) => PY_TO_SIM_ID[x] || x),
+      acknowledgedBy: hd.acknowledgedBy, acknowledgedAtSec: hd.acknowledgedAtSec, acknowledgmentNote: hd.acknowledgmentNote, longHoldNotices: hd.longHoldNotices || 0,
+      ...(hd.releasedAtSec !== undefined ? { releasedBy: hd.releasedBy, releasedAtSec: hd.releasedAtSec } : {}) };
+  }
+
+  /** Mirrors the core's hold / suspension into state.interlocks (after every evaluation and explicit action). */
+  _syncInterlockState() {
+    const I = this.state.interlocks; const c = this.core; const sp = c.suspension;
+    I.holdLatched = c.holdLatched;
+    I.heldDrugs = [...c.heldDrugs].map((x) => PY_TO_SIM_ID[x]);
+    I.hold = c.holdLatched && c.hold ? this._holdView(c.hold) : null;
+    I.suspension = c.suspended && sp ? { active: true, by: sp.by, reason: sp.reason, startedAtSec: sp.startedAtSec, durationSec: sp.durationSec, untilSec: sp.untilSec, remainingSec: Math.max(0, sp.untilSec - this.state.tSec) }
+      : { active: false, by: null, reason: null, startedAtSec: null, durationSec: null, untilSec: null, remainingSec: 0 };
   }
 
   /** A valid, unused clinician confirmation for a teaching ceiling (consumed by the caller), or null. */
@@ -901,17 +957,19 @@ class Simulation {
       }
       this.core.infusions = inf;
       const prevStatus = this.core.status; const prevHeld = new Set(this.core.heldDrugs);
-      const r = this.core.evaluate(S.vitals.hr, S.vitals.map);
+      const r = this.core.evaluate(S.vitals.hr, S.vitals.map, null, t);
       for (const py of CONTROLLED) {
         const id = PY_TO_SIM_ID[py]; const ds = S.drugs[id];
         if (ds && this.core.infusions[py] === 0 && ds.infusionRate !== 0) { this._setRate(getDrug(lib, id), 0, ds.rateUnit); this._log('interlock', `${getDrug(lib, id).name} set to zero by interlock`); }
       }
       const newHeld = [...this.core.heldDrugs].filter((d) => !prevHeld.has(d));
-      // Log/record decisions without flooding: each event code is recorded at most once per 60 s
-      // while it persists (and immediately when a new drug is held).
+      // Log/record decisions without flooding: each latch / suppressed-breach code is recorded at most once
+      // per 60 s while it persists (and immediately when a new drug is held); the other codes (suspension
+      // expiry, invalidated acknowledgment, long-hold advisory) are recorded every time.
       for (const e of r.events) {
         const last = this._ilLast[e.code];
-        if (last === undefined || t - last >= 60 || newHeld.length) {
+        const throttled = LATCH_CODES.includes(e.code) || e.code === 'breach_suppressed';
+        if (!throttled || last === undefined || t - last >= 60 || newHeld.length) {
           this._log('interlock', e.message); this.stats.interlockEvents.push({ tSec: t, code: e.code, message: e.message });
           this._ilLast[e.code] = t;
         }
@@ -921,9 +979,8 @@ class Simulation {
         this._ilLoggedStatus = r.status; this._ilStatusT = t;
       }
       S.interlocks.status = this.core.status;
-      S.interlocks.holdLatched = this.core.holdLatched;
-      S.interlocks.heldDrugs = [...this.core.heldDrugs].map((x) => PY_TO_SIM_ID[x]);
-      this._trackHoldEpisode(t, r.events, prevHeld);
+      this._syncInterlockState();
+      this._trackHoldEpisode(t, r.events.filter((e) => LATCH_CODES.includes(e.code)), prevHeld);
     } else {
       for (const d of listDrugs(lib)) { const ds = S.drugs[d.id]; if (!(isFiniteNumber(ds.infusionRate) && ds.infusionRate >= 0)) this._setRate(d, 0, ds.rateUnit); }
     }
@@ -1222,6 +1279,12 @@ class Simulation {
       alarms: this.alarmMgr.history.map((a) => ({ ...a })),
       extubation: this.stats.extubation || { tSec: null, ...this.extubationReadiness(), note: 'not extubated; current readiness' },
       interlockEvents: this.stats.interlockEvents.slice(),
+      // Explicit interlock actions with times, every released hold and the current one (with reasons).
+      interlockAudit: {
+        actions: this.stats.interlockEvents.filter((e) => INTERLOCK_ACTION_CODES.includes(e.code)).map((e) => ({ ...e })),
+        holds: [...this._holdHistory.map((x) => this._holdView(x)), ...(this.core.holdLatched && this.core.hold ? [{ ...this._holdView(this.core.hold), releasedAtSec: null }] : [])],
+        suspension: { ...this.state.interlocks.suspension },
+      },
       periop: { ...this.state.periop, timeOut: this.state.periop.timeOut ? { ...this.state.periop.timeOut } : null, depthAck: this.state.periop.depthAck ? { ...this.state.periop.depthAck } : null, sedationAck: this.state.periop.sedationAck ? { ...this.state.periop.sedationAck } : null },
       depthOutOfBandSec: Math.round(this.stats.depthOutOfBandSec),
       timingChecks: liveTimingChecks(this),

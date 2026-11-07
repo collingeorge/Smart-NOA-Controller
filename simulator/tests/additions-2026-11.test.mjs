@@ -236,12 +236,12 @@ test('C5 guided mode: antibiotic is a required pre-incision item; acknowledgemen
   const actions = []; const act = sim.action.bind(sim); sim.action = (id) => { actions.push(id); return act(id); };
   r.start(); let sawChecklist = false;
   for (let i = 0; i < 9000 && !DONE.includes(r.state); i++) {
-    if (r.state === 'paused') { for (const a of sim.state.alarms) if (a.priority === 'high' && !a.acknowledged) sim.action(`acknowledge:${a.id}`); if (sim.core.holdLatched) sim.action('resume_hold'); r.resume(); continue; }
+    if (r.state === 'paused') { for (const a of sim.state.alarms) if (a.priority === 'high' && !a.acknowledged) sim.action(`acknowledge:${a.id}`); if (sim.core.holdLatched) { sim.action('acknowledge_hold'); sim.action('resume_hold'); } r.resume(); continue; }
     const st = r.status();
     if (st.current && st.current.id === 'start_surgery' && st.current.checklist && !sawChecklist && st.current.items.filter((x) => !x.met).every((x) => x.clinician || x.id === 'antibiotic')) {
       sawChecklist = true;
       assert.ok(st.current.unmet.some((u) => /^Antibiotic prophylaxis started within its window/.test(u)), st.current.unmet.join(' | '));
-      for (let k = 0; k < 400; k++) { sim.step(1); r.tick(); if (r.state === 'paused') { sim.action('resume_hold'); r.resume(); } }
+      for (let k = 0; k < 400; k++) { sim.step(1); r.tick(); if (r.state === 'paused') { { sim.action('acknowledge_hold'); sim.action('resume_hold'); } r.resume(); } }
       assert.equal(sim.stim.surgeryStartAt, null, 'surgery waits for the clinician');
       assert.equal(sim.state.prophylaxis.doses.length, 0, 'never given automatically');
       assert.ok(sim.action('acknowledge_checklist:antibiotic').ok);
@@ -281,7 +281,7 @@ test('C6 full demonstration: missing prophylaxis pauses the sequence; acknowledg
         }
       }
       for (const a of sim.state.alarms) if (a.priority === 'high' && !a.acknowledged) sim.action(`acknowledge:${a.id}`);
-      if (sim.core.holdLatched) sim.action('resume_hold');
+      if (sim.core.holdLatched) { sim.action('acknowledge_hold'); sim.action('resume_hold'); }
       clinicianResolves(r);
       r.resume(); continue;
     }
@@ -399,7 +399,7 @@ for (const t of TECHNIQUE_TEMPLATES) for (const mode of ['guided', 'full']) {
       const asUser = (fn) => { user = true; try { return fn(); } finally { user = false; } };
       assert.ok(r.start().ok);
       for (let i = 0; i < 14000 && !DONE.includes(r.state); i++) {
-        if (r.state === 'paused') { asUser(() => { for (const a of sim.state.alarms) if (a.priority === 'high' && !a.acknowledged) sim.action(`acknowledge:${a.id}`); if (sim.core.holdLatched) sim.action('resume_hold'); clinicianResolves(r); }); r.resume(); continue; }
+        if (r.state === 'paused') { asUser(() => { for (const a of sim.state.alarms) if (a.priority === 'high' && !a.acknowledged) sim.action(`acknowledge:${a.id}`); if (sim.core.holdLatched) { sim.action('acknowledge_hold'); sim.action('resume_hold'); } clinicianResolves(r); }); r.resume(); continue; }
         let st = r.status();
         if (mode === 'guided' && st.current && st.current.items && !st.current.enabled) { asUser(() => clinicianResolves(r)); st = r.status(); }
         if (mode === 'guided' && st.current && st.current.gate && st.current.enabled) { assert.ok(r.approve(st.current.id).ok); continue; }

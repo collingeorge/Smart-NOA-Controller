@@ -94,10 +94,16 @@ async function clinicianItems(page) {
   for (const sel of ['#auto-timeout', '#auto-depth-ack', '#auto-abx-give']) if (await clickIf(page, sel)) n++;
   return n;
 }
+/** Releases a latched hold as the user: "Resume hold" → tick "I have reviewed the cause" → "Release hold". */
+async function releaseHold(page) {
+  await page.click('#mon-resume');
+  await page.check('#mon-release-check');
+  await page.click('#mon-release-ok');
+}
 /** Acts as the user when the runner pauses: acknowledge HIGH alarms, release a latched hold, clinician items, press Resume. */
 async function userResolvesPause(page) {
   for (const b of await page.locator('#mon-alarms button[data-ack]:not([disabled])').all()) await b.click();
-  if (await page.isEnabled('#mon-resume')) await page.click('#mon-resume');
+  if (await page.isEnabled('#mon-resume')) await releaseHold(page);
   await clinicianItems(page);
   if (await page.isEnabled('#auto-resume')) await page.click('#auto-resume');
 }
@@ -285,8 +291,108 @@ test('simulator UI smoke', { skip, timeout: 900000 }, async (t) => {
         assert.match(v, /^\d+(\/\d+)?$/, `${k} restored after the fault clears: ${v}`);
         assert.equal(await page.getAttribute(`#tile-${k} .tile__value`, 'aria-label'), null, k);
       }
-      await page.click('#mon-resume');
+      await releaseHold(page);
       assert.match(await page.textContent('#mon-log'), /Hold released by explicit user action/);
+      assert.match(await page.textContent('#mon-log'), /acknowledged by clinician/);
+    });
+
+    // ---- interlock hardening (2026-11): acknowledged release, persistent reasons, suspension
+    const CLINICIAN_LINE = 'Releasing this hold is a clinician decision. The simulation does not assess whether restart is appropriate.';
+    await t.test('interlock hold: "Resume hold" opens a confirmation (reasons, HR/MAP, clinician line); release needs the checkbox; both steps logged; held infusion stays at zero', async () => {
+      await loadCase(page, 'healthy_adult'); await toRun(page);
+      await page.selectOption('#ad-drug', 'dexmedetomidine'); await page.selectOption('#ad-kind', 'infusion');
+      await page.fill('#ad-value', '0.4'); await page.click('#ad-give');
+      await adv(page, 5);
+      assert.equal((await snap(page)).sim.drugs.dexmedetomidine.infusionRate, 0.4);
+      await page.click('#sf-hr_sensor_fault'); await adv(page, 3);
+      const st = await snap(page);
+      assert.ok(st.sim.interlocks.holdLatched); assert.equal(st.sim.drugs.dexmedetomidine.infusionRate, 0);
+      assert.ok(await page.isVisible('#mon-hold-banner'));
+      assert.equal(await page.getAttribute('#mon-hold-banner', 'role'), 'status');
+      assert.match(await page.textContent('#mon-hold-banner'), /HOLD #1 latched since \d\d:\d\d — held: Dexmedetomidine, Ketamine, Lidocaine[^—]* — reason\(s\): invalid sensor \(HR=unusable\)/);
+      // Cancel leaves the hold latched
+      await page.click('#mon-resume'); assert.ok(await page.isVisible('#mon-release'));
+      await page.click('#mon-release-cancel'); assert.ok(await page.isHidden('#mon-release'));
+      assert.ok((await snap(page)).sim.interlocks.holdLatched);
+      await adv(page, 70); // the fault clears; the hold stays, and so does its reason
+      assert.match(await page.textContent('#mon-hold-banner'), /invalid sensor \(HR=unusable\)/);
+      await page.click('#mon-resume');
+      assert.equal((await page.textContent('#mon-release-resp')).trim(), CLINICIAN_LINE);
+      assert.ok(await page.isVisible('#mon-release-resp'));
+      assert.match(await page.textContent('#mon-release-held'), /Dexmedetomidine, Ketamine, Lidocaine/);
+      assert.match(await page.textContent('#mon-release-reasons'), /invalid sensor \(HR=unusable\) \(at \d\d:\d\d\)/);
+      assert.match(await page.textContent('#mon-release-vitals'), /^Now: HR \d+ \/min · MAP \d+ mmHg$/);
+      assert.equal(await page.isEnabled('#mon-release-ok'), false, 'disabled until the checkbox is ticked');
+      await page.setViewportSize({ width: 390, height: 844 });
+      assert.ok(await noHScroll(page), 'release panel at 390 px'); await shot(page, 'phone-release-panel.png', false);
+      await page.setViewportSize({ width: 1280, height: 900 });
+      await page.check('#mon-release-check'); assert.equal(await page.isEnabled('#mon-release-ok'), true);
+      await page.click('#mon-release-ok');
+      assert.match(await page.textContent('#mon-feedback'), /Hold acknowledged and released \(both logged\)\. Held infusions stay at zero/);
+      assert.ok(await page.isHidden('#mon-release'));
+      const log = await simLog(page);
+      const iAck = log.findIndex((l) => l.kind === 'interlock' && /^Hold #1 acknowledged by clinician/.test(l.message));
+      const iRel = log.findIndex((l) => l.kind === 'interlock' && /^Hold released by explicit user action \(resume_hold\): Hold #1 released by clinician/.test(l.message));
+      assert.ok(iAck >= 0 && iRel > iAck, 'acknowledgment then release, both logged');
+      for (let k = 0; k < 6; k++) { await adv(page, 10); assert.equal((await snap(page)).sim.drugs.dexmedetomidine.infusionRate, 0, 'not restored after release'); }
+      assert.ok(await page.isHidden('#mon-hold-banner'));
+      assert.match(await page.textContent('#mon-il-badge'), /GREEN/);
+    });
+
+    await t.test('interlock suspension: confirmation with a required reason, banner with countdown, suppressed HR breach (no latch), expiry, End suspension now, debrief, phone width', async () => {
+      await loadCase(page, 'healthy_adult'); await toRun(page);
+      await page.click('#mon-suspend');
+      assert.ok(await page.isVisible('#mon-suspend-panel'));
+      assert.equal(await page.isEnabled('#mon-suspend-ok'), false);
+      await page.fill('#mon-suspend-reason', '   ');
+      assert.equal(await page.isEnabled('#mon-suspend-ok'), false, 'whitespace-only reason');
+      const reason = '<b>vagal</b> test "q" é';
+      await page.fill('#mon-suspend-reason', reason); await page.selectOption('#mon-suspend-dur', '60');
+      await page.click('#mon-suspend-ok');
+      assert.ok(await page.isVisible('#mon-suspended'));
+      assert.equal(await page.getAttribute('#mon-suspended', 'role'), 'status');
+      assert.equal(await page.getAttribute('#mon-suspended', 'aria-live'), 'polite');
+      const text = async () => (await page.textContent('#mon-suspended')).replace(/\s+/g, ' ');
+      assert.match(await text(), /INTERLOCKS SUSPENDED — HR\/MAP holds will not latch · 01:00 left · by clinician/);
+      assert.ok((await text()).includes(`reason: ${reason}`), 'reason rendered verbatim as text');
+      assert.equal(await page.locator('#mon-suspended b').count(), 0, 'never rendered as HTML');
+      assert.match(await page.textContent('#mon-il-badge'), /SUSPENDED/);
+      assert.ok(await page.isDisabled('#mon-suspend'), 'no second suspension while one is active');
+      await page.evaluate(() => window.__smartNoa.inject('vagal_bradycardia'));
+      await adv(page, 25);
+      let st = await snap(page);
+      assert.ok(st.sim.v.hr < 48, `HR ${st.sim.v.hr}`);
+      assert.equal(st.sim.interlocks.holdLatched, false, 'no hold latched during the suspension');
+      assert.ok(st.sim.log.some((l) => l.kind === 'interlock' && /^HR \d+ < 48 → interlock SUSPENDED by clinician \(00:\d\d left\): no hold latched$/.test(l.message)), 'breach logged as suppressed');
+      assert.match(await text(), /00:3\d left/);
+      await page.setViewportSize({ width: 390, height: 844 });
+      assert.ok(await noHScroll(page), 'suspension banner at 390 px'); await shot(page, 'phone-suspension.png', false);
+      await page.setViewportSize({ width: 1280, height: 900 });
+      await adv(page, 40);
+      assert.ok(await page.isHidden('#mon-suspended'), 'banner gone after expiry');
+      st = await snap(page);
+      assert.ok(st.sim.log.some((l) => /^Suspension expired after 60 s → HR\/MAP interlocks active$/.test(l.message)));
+      assert.doesNotMatch(await page.textContent('#mon-il-badge'), /SUSPENDED/);
+      await page.click('#mon-suspend'); await page.fill('#mon-suspend-reason', 'second'); await page.selectOption('#mon-suspend-dur', '120');
+      await page.click('#mon-suspend-ok'); await adv(page, 5);
+      assert.match(await text(), /01:55 left/);
+      await page.click('#mon-suspend-end');
+      assert.ok(await page.isHidden('#mon-suspended'));
+      assert.ok((await simLog(page)).some((l) => /^Suspension ended by clinician \(01:55 left\) → HR\/MAP interlocks active$/.test(l.message)));
+      await page.click('#mon-debrief'); await page.waitForSelector('#db-il-actions');
+      const acts = await page.textContent('#db-il-actions');
+      assert.match(acts, /Interlocks SUSPENDED by clinician for 60 s/); assert.match(acts, /Suspension expired/); assert.match(acts, /Suspension ended by clinician/);
+    });
+
+    await t.test('starting a suspension ends automatic mode (manual control); opening the form does not', async () => {
+      await loadCase(page, 'healthy_adult'); await toRun(page);
+      await page.click('#auto-full');
+      await waitAuto(page, (x) => x.state === 'running' && x.t > 5, { label: 'auto running' });
+      await page.click('#mon-suspend');
+      assert.notEqual((await autoStatus(page)).state, 'manual', 'opening the form is not manual control');
+      await page.fill('#mon-suspend-reason', 'demo'); await page.click('#mon-suspend-ok');
+      assert.equal((await autoStatus(page)).state, 'manual', 'starting a suspension ends automatic mode');
+      assert.ok(await page.isVisible('#mon-suspended'));
     });
 
     await t.test('MH patient + sevoflurane example plan: blocking "no maintenance hypnotic" warning; clinician adds propofol TIVA; then Run', async () => {
