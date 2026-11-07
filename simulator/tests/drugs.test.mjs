@@ -26,7 +26,7 @@ const ids = {
 function checkToken(tok, { extended }) {
   const m = /^(condition|allergy|medication|flag):([A-Za-z0-9_]+)$/.exec(tok);
   if (m) return ids[m[1]].has(m[2]) ? null : `unknown ${m[1]} id "${m[2]}"`;
-  if (/^egfr<\d+(\.\d+)?$/.test(tok)) return null;
+  if (/^egfr<=?\d+(\.\d+)?$/.test(tok)) return null;
   if (/^age>=\d+$/.test(tok)) return null;
   if (extended && (/^asa>=[1-5]$/.test(tok) || /^weight<\d+(\.\d+)?$/.test(tok))) return null;
   return `invalid when token "${tok}"`;
@@ -156,7 +156,12 @@ test('contraindications use documented when-forms and existing ids', () => {
       assert.equal(err, null, `${L}: ${err}`);
       assert.ok(['lock', 'warn'].includes(c.severity), `${L}.severity`);
       assert.ok(c.message && c.message.length > 10, `${L}.message`);
-      checkSources(c.sources, L);
+      // A rule no source supports must say so: provenance 'simulator_convention', no source ids, and the
+      // message names it as a convention (e.g. the dexamethasone-allergy block, 2026-11-07 full-page check).
+      if (c.provenance === 'simulator_convention') {
+        assert.equal(c.sources.length, 0, `${L}: a simulator convention cites no source for itself`);
+        assert.match(c.message, /simulator convention/, `${L}: message names the convention`);
+      } else checkSources(c.sources, L);
     }
   }
 });

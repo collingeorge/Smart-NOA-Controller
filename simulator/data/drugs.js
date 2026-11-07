@@ -200,8 +200,8 @@ export const SOURCES = {
     url: 'https://www.accessdata.fda.gov/drugsatfda_docs/label/2010/022450lbl.pdf',
     identifiers: 'NDA 022450',
     type: 'FDA label',
-    supports: 'Adults ≥50 kg: 1000 mg every 6 h or 650 mg every 4 h, max single dose 1000 mg, max 4000 mg/day; <50 kg: 15 mg/kg every 6 h or 12.5 mg/kg every 4 h, maximum single dose 15 mg/kg up to 750 mg, maximum 75 mg/kg per 24 h up to 3750 mg; daily maximum counts all routes. Contraindicated in severe hepatic impairment; caution in hepatic impairment.',
-    verifiedVia: 'Copied from DOSING_SOURCES.md S24: WebSearch record of the FDA-hosted 2010 label, the Mallinckrodt PI and drugs.com label copy, 2026-11-05. 2026-11 audit: the <50 kg absolute caps (15 mg/kg up to 750 mg per dose; 75 mg/kg up to 3750 mg per 24 h) confirmed in WebSearch records of the FDA-hosted 2010 label (accessdata 022450lbl.pdf), drugs.com/pro/ofirmev and RxList.',
+    supports: 'Adults ≥50 kg: 1000 mg every 6 h or 650 mg every 4 h, max single dose 1000 mg, max 4000 mg/day; <50 kg: 15 mg/kg every 6 h or 12.5 mg/kg every 4 h, maximum single dose 15 mg/kg up to 750 mg, maximum 75 mg/kg per 24 h up to 3750 mg; daily maximum counts all routes. Contraindicated in hypersensitivity to acetaminophen or excipients and in severe hepatic impairment or severe active liver disease; use caution in hepatic impairment or active hepatic disease, alcoholism, chronic malnutrition, severe hypovolemia or severe renal impairment (CrCl ≤ 30 mL/min).',
+    verifiedVia: 'Copied from DOSING_SOURCES.md S24: WebSearch record of the FDA-hosted 2010 label, the Mallinckrodt PI and drugs.com label copy, 2026-11-05. 2026-11 audit: the <50 kg absolute caps (15 mg/kg up to 750 mg per dose; 75 mg/kg up to 3750 mg per 24 h) confirmed in WebSearch records of the FDA-hosted 2010 label (accessdata 022450lbl.pdf), drugs.com/pro/ofirmev and RxList. 2026-11-07 full-page check (DailyMed set ID c5177abd-9465-40d8-861d-3904496d82b7, Mallinckrodt, version 21, effective 2021-12-07; label text "Revised: 6/2020"): ≥50 kg and <50 kg regimens, 4-h minimum interval and the all-routes daily maximum confirmed. Contraindications per the label: hypersensitivity to acetaminophen or excipients; severe hepatic impairment or severe active liver disease. Cautions: hepatic impairment or active hepatic disease, alcoholism, chronic malnutrition, severe hypovolemia, severe renal impairment (CrCl ≤ 30 mL/min) — wording corrected to match.',
   },
   S17: {
     id: 'S17',
@@ -326,8 +326,8 @@ export const SOURCES = {
     url: 'https://dailymed.nlm.nih.gov/dailymed/fda/fdaDrugXsl.cfm?setid=cca2c160-9188-48e8-9505-49a52388dcb7',
     identifiers: 'none',
     type: 'FDA label',
-    supports: 'Contraindications: systemic fungal infections; hypersensitivity to any component of this product (including sulfites in some products).',
-    verifiedVia: 'WebSearch records of drugcentral.org and medthority.com dexamethasone sodium phosphate label copies, 2026-11-05. 2026-11-06 (live-site audit): the drugcentral.org label link returned 404 and was replaced by the DailyMed label whose setid is in the URL. DailyMed could not be fetched from this environment (DNS blocked); the setid was confirmed in web-search records of DailyMed pages carrying it (titles "DailyMed - DEXAMETHASONE SODIUM PHOSPHATE injection, solution" and "Dexamethasone Sodium Phosphate Injection, USP For Intravenous or Intramuscular Use Only"; labeler Fresenius Kabi USA; 10 mg/mL, preservative-free and preserved versions). The NDC of this setid was not confirmed (search records point to 63323-516) and is not shown. Contraindications re-checked via web-search records of the ndclist.com Fresenius Kabi NDC 63323-516 label copy and a medthority.com Fresenius Kabi copy: systemic fungal infections; hypersensitivity to any component of this product, including sulfites. Full label text not opened. Dose is taken from S2/S3, not from this label.',
+    supports: 'Contraindications: systemic fungal infections (the current label’s only contraindication; it does not list hypersensitivity and does not mention sulfites).',
+    verifiedVia: 'WebSearch records of drugcentral.org and medthority.com dexamethasone sodium phosphate label copies, 2026-11-05. 2026-11-06 (live-site audit): the drugcentral.org label link returned 404 and was replaced by the DailyMed label whose setid is in the URL. DailyMed could not be fetched from this environment (DNS blocked); the setid was confirmed in web-search records of DailyMed pages carrying it (titles "DailyMed - DEXAMETHASONE SODIUM PHOSPHATE injection, solution" and "Dexamethasone Sodium Phosphate Injection, USP For Intravenous or Intramuscular Use Only"; labeler Fresenius Kabi USA; 10 mg/mL, preservative-free and preserved versions). The NDC of this setid was not confirmed (search records point to 63323-516) and is not shown. Contraindications re-checked via web-search records of the ndclist.com Fresenius Kabi NDC 63323-516 label copy and a medthority.com Fresenius Kabi copy: systemic fungal infections; hypersensitivity to any component of this product, including sulfites. Full label text not opened. Dose is taken from S2/S3, not from this label. 2026-11-07 full-page check (DailyMed set ID cca2c160-9188-48e8-9505-49a52388dcb7, Fresenius Kabi USA, 10 mg/mL, NDC 63323-506 / 63323-516; label "Revised: March 2026"): the CONTRAINDICATIONS section reads only "Systemic fungal infections." — no hypersensitivity contraindication and no mention of sulfites; claim corrected, and the simulator\'s dexamethasone-allergy lockout relabelled as a simulator convention.',
   },
   S31: {
     id: 'S31',
@@ -389,8 +389,8 @@ export const SOURCES = {
     url: 'https://webarchive.library.unt.edu/eot2008/20081028114252/http:/www.fda.gov/MEDWATCH/safety/2006/Aug_PIs/Forane_PI.pdf',
     identifiers: 'none confirmed',
     type: 'FDA label',
-    supports: 'Induction: start at 0.5%; 1.5–3.0% usually produces surgical anesthesia in 7–10 min. Maintenance: 1.0–2.5% in oxygen/nitrous oxide; an additional 0.5–1.0% may be required with oxygen alone. Average MAC in 100% O2: 1.28% (age 26 ± 4), 1.15% (44 ± 7), 1.05% (64 ± 5); in 70% N2O: 0.56%, 0.50%, 0.37%. Contraindications: known sensitivity to isoflurane or other halogenated agents; known or suspected genetic susceptibility to malignant hyperthermia.',
-    verifiedVia: 'WebSearch records of the archived FDA-hosted 2006 Forane PI, the Baxter Canada Forane monograph and an Irish SmPC (consistent figures), 2026-11-05. US-format contraindication wording from the search record; drugs.com isoflurane page text was garbled and not relied on. 2026-11-06 (live-site audit): the link is an archived copy and was not re-opened. A current DailyMed FORANE label (Baxter; setid 3d30eb8d-a62e-475f-926b-78ba63bee9c8, seen in web-search records) was considered as a replacement but not used: its text could not be opened (DailyMed DNS blocked) and search records of the current-format label did not confirm the 0.5% induction start or the age rows of the MAC table as cited here (the 26 ± 4 / 44 ± 7 / 64 ± 5 rows were seen in an older-format label copy, medex.com.bd; 1.5–3.0% in 7–10 min and 1.0–2.5% maintenance in the EU SmPC).',
+    supports: 'Induction: 1.5–3.0% usually produces surgical anesthesia in 7–10 min (no starting concentration is stated). Maintenance: 1.0–2.5% in oxygen/nitrous oxide; an additional 0.5–1.0% may be required with oxygen alone. Average MAC in 100% O2: 1.28% (age 26 ± 4), 1.15% (44 ± 7), 1.05% (64 ± 5); in 70% N2O: 0.56%, 0.50%, 0.37%. Contraindications: known sensitivity to isoflurane or other halogenated agents; known or suspected genetic susceptibility to malignant hyperthermia.',
+    verifiedVia: 'WebSearch records of the archived FDA-hosted 2006 Forane PI, the Baxter Canada Forane monograph and an Irish SmPC (consistent figures), 2026-11-05. US-format contraindication wording from the search record; drugs.com isoflurane page text was garbled and not relied on. 2026-11-06 (live-site audit): the link is an archived copy and was not re-opened. A current DailyMed FORANE label (Baxter; setid 3d30eb8d-a62e-475f-926b-78ba63bee9c8, seen in web-search records) was considered as a replacement but not used: its text could not be opened (DailyMed DNS blocked) and search records of the current-format label did not confirm the 0.5% induction start or the age rows of the MAC table as cited here (the 26 ± 4 / 44 ± 7 / 64 ± 5 rows were seen in an older-format label copy, medex.com.bd; 1.5–3.0% in 7–10 min and 1.0–2.5% maintenance in the EU SmPC). 2026-11-07: opened in full via the Wayback Machine snapshot of 9 Oct 2006 (http://www.fda.gov/medwatch/safety/2006/Aug_PIs/Forane_PI.pdf; the 2006, 2007 and 2009 snapshots have identical content; label "Revised: July 2006", Baxter): 1.5–3.0% surgical anaesthesia in 7–10 min, maintenance, all six MAC values and the contraindications confirmed. "Induction starts at 0.5%" is not in this label or the current DailyMed FORANE label (set ID 3d30eb8d-a62e-475f-926b-78ba63bee9c8, version 14, 2026-02-19) and was removed. The current label uses a finer age-banded MAC table.',
   },
   // S38–S39: NON-LABEL sources used for nitrous oxide only (owner request; US labels give no clinical dose).
   S38: {
@@ -511,8 +511,8 @@ export const SOURCES = {
     url: 'https://doi.org/10.1056/NEJMoa1711584',
     identifiers: 'doi:10.1056/NEJMoa1711584; PMID 29485925',
     type: 'randomized clinical trial (cluster, multiple crossover)',
-    supports: 'SMART: 15,802 critically ill adults in five ICUs; major adverse kidney events within 30 days in 14.3% with balanced crystalloids versus 15.4% with 0.9% saline (adjusted OR 0.90, 95% CI 0.82–0.99). Critically ill (ICU) population, not elective surgery; used only as an evidence note on the fluids panel.',
-    verifiedVia: 'WebSearch records (2026-11-05) of the NEJM PDF copy (uab.edu), criticalcarereviews.com, The Bottom Line and EMRA summaries (citation, DOI, 14.3% vs 15.4%, OR 0.90). 2026-11-06 (live-site audit): the third-party PDF link (uab.edu) was replaced by the DOI; a web search for NEJMoa1711584 returned the PubMed record 29485925 "Balanced Crystalloids versus Saline in Critically Ill Adults" (Semler, Self, et al., 2018), the PMC author manuscript PMC5846085 and The Bottom Line summary (15,802 patients, five ICUs; 14.3% vs 15.4%; conditional OR 0.90, P = 0.04); the 95% CI 0.82–0.99 was seen in a Medicina Intensiva letter record. Full text not opened.',
+    supports: 'SMART: 15,802 critically ill adults in five ICUs; major adverse kidney events within 30 days in 14.3% with balanced crystalloids versus 15.4% with 0.9% saline (conditional OR 0.90, 95% CI 0.82–0.99). Critically ill (ICU) population, not elective surgery; used only as an evidence note on the fluids panel.',
+    verifiedVia: 'WebSearch records (2026-11-05) of the NEJM PDF copy (uab.edu), criticalcarereviews.com, The Bottom Line and EMRA summaries (citation, DOI, 14.3% vs 15.4%, OR 0.90). 2026-11-06 (live-site audit): the third-party PDF link (uab.edu) was replaced by the DOI; a web search for NEJMoa1711584 returned the PubMed record 29485925 "Balanced Crystalloids versus Saline in Critically Ill Adults" (Semler, Self, et al., 2018), the PMC author manuscript PMC5846085 and The Bottom Line summary (15,802 patients, five ICUs; 14.3% vs 15.4%; conditional OR 0.90, P = 0.04); the 95% CI 0.82–0.99 was seen in a Medicina Intensiva letter record. Full text not opened. 2026-11-07 full-page check (PubMed 29485925 via NCBI E-utilities: title, authors, journal, abstract): 15,802 adults, five ICUs at one academic centre, pragmatic cluster-randomised multiple-crossover; MAKE30 1,139/7,942 (14.3%) vs 1,211/7,860 (15.4%); 0.90 (95% CI 0.82–0.99) is the conditional odds ratio (marginal 0.91, 0.84–0.99; P = 0.04) — wording corrected from "adjusted".',
   },
   S51: {
     id: 'S51',
@@ -608,7 +608,7 @@ export const FLUIDS = [
 
 // Evidence note shown next to the fluid choice (not used in the model).
 export const FLUID_EVIDENCE_NOTE = Object.freeze({
-  text: 'SMART (Semler 2018; critically ill ICU adults, not elective surgery): balanced crystalloids versus 0.9% saline — major adverse kidney events within 30 days 14.3% vs 15.4% (adjusted OR 0.90). The simulator does not model chloride, acid-base or kidney outcomes.',
+  text: 'SMART (Semler 2018; critically ill ICU adults, not elective surgery): balanced crystalloids versus 0.9% saline — major adverse kidney events within 30 days 14.3% vs 15.4% (conditional OR 0.90). The simulator does not model chloride, acid-base or kidney outcomes.',
   sources: ['S50'],
 });
 
@@ -953,9 +953,9 @@ export const DRUGS = [
         kind: 'inhaled',
         rate: { default: 1.5, min: 1.5, max: 3, unit: '%' },
         scalar: null, scalarBasis: null,
-        timing: 'Begin at 0.5%; 1.5–3.0% usually produces surgical anesthesia in 7–10 minutes.',
+        timing: '1.5–3.0% usually produces surgical anesthesia in 7–10 minutes.',
         sources: ['S37'],
-        note: 'Default = lower bound of the label surgical-anaesthesia range (label starting concentration is 0.5%).',
+        note: 'Default = lower bound of the label surgical-anaesthesia range (the label states no starting concentration).',
       },
       maintenance: {
         kind: 'inhaled',
@@ -1338,7 +1338,7 @@ export const DRUGS = [
     ceiling: null,
     contraindications: [
       { when: 'condition:systemic_fungal_infection', severity: 'lock', message: 'Contraindicated: systemic fungal infections (label CONTRAINDICATIONS; see WARNINGS regarding amphotericin B).', sources: ['S30'] },
-      { when: 'allergy:dexamethasone', severity: 'lock', message: 'Contraindicated: hypersensitivity to any component of this product (label CONTRAINDICATIONS).', sources: ['S30'] },
+      { when: 'allergy:dexamethasone', severity: 'lock', message: 'Blocked: documented allergy to dexamethasone (simulator convention — a safe default; the current label lists only systemic fungal infections as a contraindication [S30]).', sources: [], provenance: 'simulator_convention' },
     ],
     timing: NOT_STATED(),
     pkModel: 'calibrated',
@@ -1527,9 +1527,10 @@ export const DRUGS = [
       adjusted: { when: 'weight<50', perKg: 75, unit: 'mg/kg/day', value: 3750, valueUnit: 'mg/day', perDose: { value: 750, unit: 'mg' } }, sources: ['S16'],
       note: 'Counts all routes and all acetaminophen-containing products. Adults ≥50 kg: maximum single dose 1000 mg, 4000 mg/day. Adults <50 kg: maximum single dose 15 mg/kg up to 750 mg; maximum 75 mg/kg per 24 h up to 3750 mg (lesser applies).' },
     contraindications: [
-      { when: 'condition:severe_hepatic_impairment', severity: 'lock', message: 'Contraindicated in patients with severe hepatic impairment (label CONTRAINDICATIONS).', sources: ['S16'] },
-      { when: 'condition:liver_disease', severity: 'warn', message: 'Label: use caution in hepatic impairment, chronic alcohol use, malnutrition or hypovolemia.', sources: ['S16'] },
-      { when: 'condition:hypovolemia', severity: 'warn', message: 'Label: use caution in hypovolemia.', sources: ['S16'] },
+      { when: 'condition:severe_hepatic_impairment', severity: 'lock', message: 'Contraindicated in severe hepatic impairment or severe active liver disease (label CONTRAINDICATIONS).', sources: ['S16'] },
+      { when: 'condition:liver_disease', severity: 'warn', message: 'Label: use caution in hepatic impairment or active hepatic disease, alcoholism, chronic malnutrition, severe hypovolemia or severe renal impairment (creatinine clearance ≤ 30 mL/min).', sources: ['S16'] },
+      { when: 'condition:hypovolemia', severity: 'warn', message: 'Label: use caution in severe hypovolemia.', sources: ['S16'] },
+      { when: 'egfr<=30', severity: 'warn', message: 'Label: use caution in severe renal impairment (creatinine clearance ≤ 30 mL/min; the simulator uses eGFR as the stand-in — simulator convention).', sources: ['S16'] },
     ],
     timing: NOT_STATED(),
     pkModel: 'calibrated',
