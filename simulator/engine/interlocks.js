@@ -52,8 +52,24 @@ export const LATCH_CODES = Object.freeze(['sensor_fault', 'rate_fault', 'hr_low'
 export function drugList(drugs) { const s = new Set(drugs); return [...CONTROLLED.filter((d) => s.has(d)), ...[...s].filter((d) => !CONTROLLED.includes(d)).sort()]; }
 /** Whole seconds as mm:ss — Python _clock_text. */
 export function clockText(sec) { const s = Math.max(0, Math.round(sec)); return `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`; }
-/** A non-blank string (whitespace-only rejected), returned verbatim — Python _require_text. */
-export function requireText(v, name) { if (typeof v !== 'string' || !v.trim()) throw new Error(`${name} must be a non-empty string`); return v; }
+/**
+ * Characters refused in free text written to the event log (by, reason, note): C0/DEL/C1 controls
+ * (newline, tab ...), line/paragraph separators, bidirectional controls and the byte-order mark, any of
+ * which could make one log entry look like two or reorder its displayed text (05t audit, finding 4).
+ * Mirrors _UNSAFE_TEXT in smart_noa_controller.py.
+ */
+export function hasUnsafeText(v) {
+  for (const ch of v) {
+    const c = ch.codePointAt(0);
+    if (c <= 0x1f || (c >= 0x7f && c <= 0x9f) || c === 0x061c || c === 0x200e || c === 0x200f
+      || (c >= 0x2028 && c <= 0x202e) || (c >= 0x2066 && c <= 0x2069) || c === 0xfeff) return true;
+  }
+  return false;
+}
+/** Throws if `v` contains such a character — Python _check_safe_text. */
+export function checkSafeText(v, name) { if (hasUnsafeText(v)) throw new Error(`${name} must not contain control, line-separator or bidirectional-control characters`); return v; }
+/** A non-blank string (whitespace-only rejected; no control or bidi characters), returned verbatim — Python _require_text. */
+export function requireText(v, name) { if (typeof v !== 'string' || !v.trim()) throw new Error(`${name} must be a non-empty string`); return checkSafeText(v, name); }
 /**
  * Absolute tolerance for "rate above the simulation ceiling", in the ceiling's own (Python) unit.
  * Mirrors RATE_CEILING_TOLERANCE in smart_noa_controller.py (a parity test keeps them equal).
@@ -161,6 +177,7 @@ export class InterlockCore {
   acknowledgeHold(by, note = '') {
     requireText(by, 'by');
     if (typeof note !== 'string') throw new Error('note must be a string');
+    checkSafeText(note, 'note');
     if (!this.holdLatched) throw new Error('No hold is latched');
     if (this.hold === null) this._newHold(this.heldDrugs);
     Object.assign(this.hold, { acknowledgedBy: by, acknowledgedAtSec: this.clockSec, acknowledgmentNote: note });
@@ -174,6 +191,9 @@ export class InterlockCore {
     if (this.hold === null || this.hold.acknowledgedBy === null) throw new Error(`Acknowledge the hold first: review the cause (${this._reasonsText()}), then resume`);
     const held = drugList(this.heldDrugs);
     const msg = `Hold #${this.hold.id} released by ${by} (held: ${held.join(', ') || 'none'}; reasons: ${this._reasonsText()}) → held infusions stay at zero; no automatic restart`;
+    // Re-zero the held agents at the release itself, so a value written to infusions while latched cannot
+    // take effect afterwards (05t audit, finding 2; Python resume_hold).
+    for (const d of held) this.infusions[d] = 0;
     this.holdLatched = false; this.heldDrugs.clear(); this.hold = null;
     this._record('hold_released', held, msg);
     return held;
