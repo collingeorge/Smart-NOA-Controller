@@ -37,6 +37,8 @@ export const BANNERS = Object.freeze({
   full: 'Automatic demonstration: scripted sequence, not a closed-loop controller or a clinical recommendation',
   guided: 'Guided mode: each phase runs from your approved plan; you confirm every transition. Educational simulation — not a closed-loop controller or a clinical recommendation.',
 });
+/** Refusal shown when guided/automatic mode is started while interlocks are suspended (the UI shows it verbatim beside the disabled start buttons). */
+export const SUSPENDED_START_MESSAGE = 'Interlocks are suspended (manual override). End the suspension, or let it expire, before starting guided or automatic mode.';
 const ACTIVE = new Set(['running', 'paused']);
 const T = (k) => TIMING_CONFIG[k].value;
 // Clinician-only actions the runner performs ONLY when the clinician presses the matching button
@@ -166,7 +168,7 @@ class AutoRunner {
     if (S.phase !== 'premed' || S.airway.secured || prior || (S.periop && S.periop.transferAt !== null)) return { ok: false, message: 'Automatic and guided modes start from the beginning of a case; restart the case first.' };
     // An explicit interlock suspension is a manual override: guided/automatic modes never run under one
     // (the runner never suspends, ends a suspension, acknowledges or releases a hold).
-    if (this.sim.core && this.sim.core.suspended) return { ok: false, refused: 'interlocks_suspended', message: 'Interlocks are suspended (manual override). End the suspension, or let it expire, before starting guided or automatic mode.' };
+    if (this.sim.core && this.sim.core.suspended) return { ok: false, refused: 'interlocks_suspended', message: SUSPENDED_START_MESSAGE };
     const gap = this._hypnoticGap();
     if (this.mode === 'full' && gap.blocking) { this._log(`Automatic demonstration refused to start: ${gap.message}`); return { ok: false, refused: 'maintenance_hypnotic', message: gap.message }; }
     this.state = 'running'; this.startedAtSec = this._t(); this.enteredAt = this._t(); this.lastCheckT = this._t();

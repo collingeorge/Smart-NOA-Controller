@@ -40,8 +40,11 @@ S23–S45 are new (S40–S43 added later on 2026-11-05 for epinephrine, the Elev
   - Ketorolac "prophylactic analgesic before any major surgery" (CONTRAINDICATIONS) and "peri-operative use should be avoided ... when hemostasis is critical" (WARNINGS) are runtime **warnings** keyed to the surgery timeline (before incision / during surgery) and shown at plan time for premed/induction/sedation and maintenance steps: the simulator cannot know whether surgery is "major" or whether haemostasis is critical. Bleeding-risk and peptic-ulcer/GI-bleed conditions are LOCKs.
   - Phenylephrine 200 mcg: the 2019 Biorphen label says "not to exceed a total dosage of 200 mcg"; some later copies say "additional boluses up to 200 mcg". The simulator applies the conservative reading: all boluses in the session together ≤ 200 mcg (`scope: 'cumulative boluses'`); the 200 mcg/min infusion limit is separate.
   - Ketorolac below eGFR 30: the label says "advanced renal impairment", and the numeric cut-off comes from S35.
+  - Dexamethasone with a documented dexamethasone allergy is a LOCK by **simulator convention** (a safe default). The current label's only contraindication is systemic fungal infections (S30, full-page check 2026-11-07).
+  - Acetaminophen at eGFR ≤ 30 is a WARNING: the label says use caution in severe renal impairment (creatinine clearance ≤ 30 mL/min, S16); using eGFR as the stand-in for creatinine clearance is a simulator convention.
   - Succinylcholine with pre-existing hyperkalaemia is a LOCK by simulator policy. The label's exact wording on this point was not retrieved.
   - Etomidate with sepsis and ketamine with psychosis history are policy warnings. The quoted label text does not name these conditions.
+- **Repeat intervals and teaching ceilings (emergency-rescue stress matrix, November 2026):** a clinician-entered repeat bolus sooner than the label interval is refused — phenylephrine IV 60 s (S18), glycopyrrolate IV outside emergence 120 s (S8), epinephrine IM/SC 300 s (S40); a planned repeat waits instead (`engine/timing.js`, TIMING_EVIDENCE rows 66–68). Cumulative teaching ceilings — IV epinephrine boluses 0.5 mg, glycopyrrolate boluses 1 mg, crystalloid 30 mL/kg total body weight — are **simulator conventions** with no source id (`engine/teaching-ceilings.js`): no label or guideline states a cumulative maximum for these, and a dose above one needs the clinician's logged confirmation, which guided and automatic modes never give.
 - **`when` grammar:** contraindications take a single token: `condition:<id>`, `allergy:<id>`, `medication:<id>`, `egfr<N`, `age>=N` or `flag:<id>`. `adjust[].when` may join several tokens with `|` (OR) and may also use `asa>=N` and `weight<N`. `tests/drugs.test.mjs` enforces this.
 
 ## Registry
@@ -872,7 +875,7 @@ The advisory (`engine/rescue-config.js`, `engine/rescue.js`) reuses existing reg
 
 Terms follow the FDA computational-modelling credibility vocabulary (verification = the code does what the model says; validation = the model matches the real system). **This simulator has not been validated.**
 
-- **Verification (automated tests, `cd simulator && npm test`, 145 tests passing after the 2026-11 audit; browser smoke test `npm run test:ui`, 17 subtests):**
+- **Verification (automated tests, `cd simulator && npm test`: 311 tests passing at 05r, 2026-11-07 — 145 after the 2026-11 audit; browser smoke test `npm run test:ui`: 37 subtests at 05r — 17 after the audit):**
   - drug-library schema and source integrity (`drugs.test.mjs`): ids, ranges, `when` grammar, that every referenced S-id exists, and required contraindication rules;
   - dosing arithmetic and ceilings (`dosing.test.mjs`);
   - patient derivations: BMI, IBW/LBW/ABW, Apfel, STOP-Bang, flags (`patient.test.mjs`);

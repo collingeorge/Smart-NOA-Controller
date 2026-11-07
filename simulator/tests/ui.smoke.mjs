@@ -395,6 +395,42 @@ test('simulator UI smoke', { skip, timeout: 900000 }, async (t) => {
       assert.ok(await page.isVisible('#mon-suspended'));
     });
 
+    await t.test('05r: while interlocks are suspended "Start guided mode" and "Run full case automatically" are disabled and show the engine message; the suspension is kept', async () => {
+      const MSG = 'Interlocks are suspended (manual override). End the suspension, or let it expire, before starting guided or automatic mode.';
+      await loadCase(page, 'healthy_adult'); await toRun(page);
+      assert.ok(await page.isEnabled('#auto-guided')); assert.ok(await page.isEnabled('#auto-full'));
+      assert.ok(await page.isHidden('#auto-suspended-note'));
+      await adv(page, 5);
+      await page.click('#mon-suspend'); await page.fill('#mon-suspend-reason', 'teaching check'); await page.selectOption('#mon-suspend-dur', '60');
+      await page.click('#mon-suspend-ok');
+      assert.ok(await page.isVisible('#mon-suspended'));
+      assert.ok(await page.isDisabled('#auto-guided'), 'guided disabled while suspended');
+      assert.ok(await page.isDisabled('#auto-full'), 'full demonstration disabled while suspended');
+      assert.ok(await page.isVisible('#auto-suspended-note'));
+      assert.equal((await page.textContent('#auto-suspended-note')).trim(), MSG);
+      assert.equal(await page.getAttribute('#auto-full', 'aria-describedby'), 'auto-suspended-note');
+      // a scripted click on the disabled button does nothing: the case is not restarted and the suspension is kept
+      const t0 = (await lite(page)).t;
+      await page.evaluate(() => { document.getElementById('auto-full').click(); document.getElementById('auto-guided').click(); });
+      const s1 = await snap(page);
+      assert.ok(s1.sim.interlocks.suspension.active, 'suspension not discarded');
+      assert.ok((await lite(page)).t >= t0, 'case not restarted');
+      await page.setViewportSize({ width: 390, height: 844 });
+      assert.ok(await noHScroll(page), 'disabled start buttons + note at 390 px'); await shot(page, 'phone-auto-suspended.png', false);
+      await page.setViewportSize({ width: 1280, height: 900 });
+      await page.click('#mon-suspend-end');
+      assert.ok(await page.isHidden('#mon-suspended'));
+      assert.ok(await page.isEnabled('#auto-guided')); assert.ok(await page.isEnabled('#auto-full'));
+      assert.ok(await page.isHidden('#auto-suspended-note'));
+      // expiry also re-enables them
+      await page.click('#mon-suspend'); await page.fill('#mon-suspend-reason', 'expiry check'); await page.selectOption('#mon-suspend-dur', '60');
+      await page.click('#mon-suspend-ok');
+      assert.ok(await page.isDisabled('#auto-guided'));
+      await adv(page, 61);
+      assert.ok(await page.isHidden('#mon-suspended'));
+      assert.ok(await page.isEnabled('#auto-guided')); assert.ok(await page.isEnabled('#auto-full'));
+    });
+
     await t.test('MH patient + sevoflurane example plan: blocking "no maintenance hypnotic" warning; clinician adds propofol TIVA; then Run', async () => {
       await loadCase(page, 'mh_susceptible');
       await page.click('#pf-continue'); await page.waitForSelector('#as-continue'); await page.click('#as-continue'); await page.waitForSelector('#pl-continue');
@@ -1076,6 +1112,12 @@ test('simulator UI smoke', { skip, timeout: 900000 }, async (t) => {
         await page.click(`#${id}`);
         const dlg = id.replace('open-', '') + '-dialog';
         await page.waitForSelector(`#${dlg}[open]`);
+        if (id === 'open-about') {
+          // 05r: the About panel links the safety-design write-up by its site URL (root-relative; may 404 locally)
+          assert.equal(await page.getAttribute('#about-safety-design', 'href'), '/projects/smart-noa/SAFETY_DESIGN');
+          assert.match(await page.textContent('#about-safety-design'), /How the safety logic works, and why these design principles reduce risk/);
+          assert.doesNotMatch(await page.textContent('#about-body'), /does not have an explicit|adds an explicit, logged “Resume hold” action/);
+        }
         await page.click(`#${dlg} [data-close-dialog]`);
       }
     });

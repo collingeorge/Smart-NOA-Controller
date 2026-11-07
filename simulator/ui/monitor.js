@@ -8,7 +8,7 @@ import { CLASS_LABELS, CLASS_ORDER, PHASE_LABELS, PHASE_LABELS_MAC, PRIORITY_LAB
 import { getDrugById, isInhaledDrug, interlockCeiling, interlockNote, exceedsInterlockCeiling } from './plan-model.js';
 import { interlockExplanation } from './plan-editor.js';
 import { CASE_ACTIONS, surgeryState } from '../engine/case-actions.js';
-import { createAutoRunner, BANNERS, MODE_LABELS } from '../engine/autorun.js';
+import { createAutoRunner, BANNERS, MODE_LABELS, SUSPENDED_START_MESSAGE } from '../engine/autorun.js';
 import { FLUID_MODEL } from '../engine/sim.js';
 import { selectProphylaxis } from '../engine/prophylaxis.js';
 import { TIMING_CONFIG, PREMED_TO_INDUCTION_MIN_SEC, premedStatus } from '../engine/timing.js';
@@ -161,7 +161,7 @@ export function renderMonitor(ctx, main) {
   const susCancel = h('button', { type: 'button', class: 'btn btn--hmi', id: 'mon-suspend-cancel', 'data-auto-safe': 'suspend-cancel' }, 'Cancel');
   const ilSuspend = h('div', { class: 'il-confirm il-suspend-confirm', id: 'mon-suspend-panel', role: 'group', 'aria-labelledby': 'mon-suspend-h', hidden: true },
     h('h4', { id: 'mon-suspend-h' }, 'Suspend the HR/MAP interlocks?'),
-    h('p', { id: 'mon-suspend-help', class: 'hint hint--hmi' }, `Only the HR < ${NOA_CONFIG.hemodynamic_thresholds.hr_critical_low} and MAP < ${NOA_CONFIG.hemodynamic_thresholds.map_critical_low} holds are suspended: each breach is still logged, but no hold latches. The sensor fail-safe, rate faults, lockouts and any hold already latched stay active, and nothing is restarted. Maximum ${SUSPEND_MAX} s (simulator convention); it expires on its own. Starting it ends guided/automatic mode. Logged with your reason.`),
+    h('p', { id: 'mon-suspend-help', class: 'hint hint--hmi' }, `Only the HR < ${NOA_CONFIG.hemodynamic_thresholds.hr_critical_low} and MAP < ${NOA_CONFIG.hemodynamic_thresholds.map_critical_low} holds are suspended: each breach is still logged, but no hold latches. The sensor fail-safe, rate faults, lockouts and any hold already latched stay active, and nothing is restarted. Maximum ${SUSPEND_MAX} s (simulator convention); it expires on its own. Starting it ends guided/automatic mode, and those modes cannot be started until it ends. Logged with your reason.`),
     h('div', { class: 'inline-form' }, h('label', { for: 'mon-suspend-dur', class: 'label' }, 'Duration'), susDur),
     h('div', { class: 'field' }, h('label', { for: 'mon-suspend-reason', class: 'label' }, 'Reason (required)'), susReason),
     h('div', { class: 'il-confirm__actions' }, susOk, ' ', susCancel));
@@ -530,13 +530,18 @@ export function renderMonitor(ctx, main) {
   const autoTake = h('button', { type: 'button', class: 'btn btn--hmi btn--warn', id: 'auto-takeover' }, 'Take over manually');
   const autoGuided = h('button', { type: 'button', class: 'btn btn--hmi btn--primary', id: 'auto-guided' }, 'Start guided mode');
   const autoFull = h('button', { type: 'button', class: 'btn btn--hmi', id: 'auto-full' }, 'Run full case automatically');
+  // While interlocks are suspended both start buttons are disabled and the engine's refusal is shown
+  // (starting would restart the case and silently discard the suspension).
+  const autoSuspendNote = h('p', { class: 'hint hint--hmi', id: 'auto-suspended-note', role: 'status', hidden: true }, SUSPENDED_START_MESSAGE);
+  autoGuided.setAttribute('aria-describedby', 'auto-suspended-note'); autoFull.setAttribute('aria-describedby', 'auto-suspended-note');
   const autoStartRow = h('div', { class: 'btn-row', id: 'auto-start-row' }, autoGuided, autoFull);
   const autoCtlRow = h('div', { class: 'btn-row', id: 'auto-ctl-row' }, autoPause, autoResume, autoTake);
   const autoPanel = h('section', { class: 'hmi-panel auto-panel', id: 'auto-panel', 'aria-labelledby': 'auto-h', 'data-auto-safe': 'auto-panel' },
     h('h3', { id: 'auto-h' }, 'Guided & automatic modes'), autoBanner,
     h('p', { class: 'hint hint--hmi', id: 'auto-intro' }, `Use the patient and plan already entered (doses are not changed) and start the case from 00:00. Guided mode runs each phase from your plan and waits for you at every transition; the full demonstration walks the same sequence on fixed timings. Both pause for an interlock hold or a HIGH-priority alarm (never clearing or acknowledging it), never extubate unless the readiness checklist is met, and end as soon as you use any manual control. Every step is logged (log kind "auto").`),
-    autoStartRow, autoStatus, autoPaused, autoCtlRow, autoCountdown, autoGate, autoCk, autoUnmet, advAuto.el, depthAuto.el, autoTimingBox, autoSeq);
+    autoStartRow, autoSuspendNote, autoStatus, autoPaused, autoCtlRow, autoCountdown, autoGate, autoCk, autoUnmet, advAuto.el, depthAuto.el, autoTimingBox, autoSeq);
   const startAuto = (mode) => {
+    if (sim.core && sim.core.suspended) { feedback(SUSPENDED_START_MESSAGE, true); announce(SUSPENDED_START_MESSAGE, true); render(true); return; }
     if (sim.state.tSec > 0 || sim.state.phase !== 'premed') { ctx.restartSim(); store.run.autoStart = mode; ctx.rerender(); return; }
     beginAuto(mode);
   };
@@ -591,6 +596,8 @@ export function renderMonitor(ctx, main) {
     const A = run.auto; const st = A ? A.status() : null;
     const active = !!(st && st.active);
     autoStartRow.hidden = active; autoCtlRow.hidden = !active;
+    const suspendedNow = !!(sim.core && sim.core.suspended);
+    autoGuided.disabled = suspendedNow; autoFull.disabled = suspendedNow; autoSuspendNote.hidden = active || !suspendedNow;
     autoBanner.hidden = !st; if (st) setText(autoBanner, st.banner);
     autoPanel.classList.toggle('auto-panel--active', active);
     autoPanel.classList.toggle('auto-panel--paused', !!st && st.state === 'paused');

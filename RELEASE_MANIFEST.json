@@ -53,13 +53,13 @@
     },
     {
       "path": "DOCUMENT_BUILD.json",
-      "bytes": 933,
-      "sha256": "bdef9c6d88cece1bd3f03bfd3224946fd04650955b011722ec8775ecb52599d3"
+      "bytes": 1101,
+      "sha256": "751352ad5679baf8d45c72b5962a762a57f8bdc75874f536b786b88b57de1e32"
     },
     {
       "path": "EXAMPLES_MANIFEST.json",
       "bytes": 1296,
-      "sha256": "ac672e3d531557ff35bda2e1b04cedd3e110f381a4598fe46a897be44455a95a"
+      "sha256": "52485fd8438b683e073e2e3188ef0526e869206ff3240c1ed440556d9cdf1a9b"
     },
     {
       "path": "EXAMPLE_RESULTS.json",
@@ -68,8 +68,8 @@
     },
     {
       "path": "GUIDELINE_INFORMED_EXAMPLES.md",
-      "bytes": 15405,
-      "sha256": "8d5590130e9387c4e88c9b867a73c19f238f296b41224f55f1517208094d6d94"
+      "bytes": 17088,
+      "sha256": "4dbec8e5c8415f073c490d244b9305da1a242ba64085f445bd0e8bc0e5e1bfd4"
     },
     {
       "path": "HISTORICAL_VERSION_NOTICE.md",
@@ -98,8 +98,8 @@
     },
     {
       "path": "README.md",
-      "bytes": 8533,
-      "sha256": "e61e584b1560cafb158ed2f9afc1683d8c5f16e039563d9f77ca85641488872e"
+      "bytes": 9197,
+      "sha256": "6b3605a59f8ca17b5ef32bb2e9dc8b0878f50e263e02684894dd25ebb596e6f0"
     },
     {
       "path": "RELEASE_NOTES.md",
@@ -107,9 +107,14 @@
       "sha256": "405bd18b8781ffc5d47b68f296c9d1db1abdbd97f8af7ca6b529418ff4801a67"
     },
     {
+      "path": "SAFETY_DESIGN.md",
+      "bytes": 32976,
+      "sha256": "9d582734956cc29e5a8a9b54dfc49a5318e041489430a6e6addfd768ff068ce8"
+    },
+    {
       "path": "START_HERE.md",
-      "bytes": 1201,
-      "sha256": "14a2757ef45bad197c2aea8d6fccb47faa877e4ec72d1558ed42ee82ce0d3045"
+      "bytes": 1368,
+      "sha256": "2e2e0a93ea551391704e64d391b72b2f210ec65aee8577deccc50daf93d4e771"
     },
     {
       "path": "Smart_NOA__A_Deterministic_Closed_Loop_Safety_Controller.pdf",

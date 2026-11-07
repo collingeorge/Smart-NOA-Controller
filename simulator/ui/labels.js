@@ -53,7 +53,7 @@ export const PRIORITY_SHAPES = { high: '!!!', medium: '!!', low: '!' };
 
 export const INTERLOCK_TEXT = {
   GREEN: 'GREEN — no interlock action',
-  RED: 'RED — fault or threshold breach; controlled infusions zeroed',
+  RED: 'RED — fault or threshold breach; the affected controlled infusions are zeroed (all three on an unusable sensor reading)',
   HOLD: 'HOLD — latched; held infusions stay at zero (release with “Resume hold” after reviewing the cause; nothing restarts automatically)',
   DISABLED: 'DISABLED — Smart NOA rules off (label ceilings and lockouts still apply)',
   INITIALIZING: 'INITIALIZING — waiting for first monitor reading',

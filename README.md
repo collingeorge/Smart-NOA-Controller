@@ -1,6 +1,6 @@
 # Smart NOA: educational rule-checking simulation
 
-[Reader’s guide](START_HERE.md) · [Authorship & review status](AUTHORSHIP_AND_REVIEW.md) · [Disclaimer](DISCLAIMER.md) · [Portfolio home](https://collingeorge.github.io/CM-2026/)
+[Reader’s guide](START_HERE.md) · [How the safety logic works](SAFETY_DESIGN.md) · [Authorship & review status](AUTHORSHIP_AND_REVIEW.md) · [Disclaimer](DISCLAIMER.md) · [Portfolio home](https://collingeorge.github.io/CM-2026/)
 
 > **Educational work by a pre-medical student — not medical advice.** Not a clinical protocol, prescription, or patient handout, and not for patient care. See [DISCLAIMER](DISCLAIMER.md).
 This Python program updates in-memory values using fictional profiles and randomly generated vital signs. It has no device interface, patient monitoring input, clinical validation, or basis for recommending doses. It is not an operational safety supervisor.
@@ -28,6 +28,10 @@ Read [the synthetic male and female walkthroughs](GUIDELINE_INFORMED_EXAMPLES.md
 ## Anesthesia options and procedure cases
 
 [Compare anesthesia options, standards and twelve synthetic adult cases](ANESTHESIA_OPTIONS_AND_CASES.md): general, regional, procedural sedation/MAC and local anesthesia, with six male/female pairs, medication roles/routes, individualized alternatives and two discussion flows. This companion guide describes clinical concepts outside the implemented controller; it does not add drug or device capabilities.
+
+## Safety design
+
+[How the safety logic works, and why these design principles reduce risk](SAFETY_DESIGN.md) explains the hold, release, fail-safe and suspension rules with diagrams generated from `config.yaml`, and what published evidence and standards say about these principles in real anaesthesia practice. It makes no claim that this simulation reduces clinical risk, liability or insurance costs. The earlier [architecture figure](smartnoa_architecture.jpg) is from 29 October 2026 (the commit that added it); it predates the November 2026 interlock hardening; see the current diagram in SAFETY_DESIGN.md.
 
 ## Implementation and limitations
 
