@@ -17,6 +17,7 @@ import { createRescueAdvisor } from '../engine/rescue.js';
 import { advisoryCard, depthAdvisoryCard } from './advisory.js';
 import { createDepthAdvisor } from '../engine/depth-advisory.js';
 import { TEACHING_GUARDS } from '../engine/teaching-ceilings.js';
+import { CLINICIAN_RESPONSIBILITY, NOA_CONFIG } from '../engine/interlocks.js';
 
 const GA_BAND = TIMING_CONFIG.GA_DEPTH_BAND.value;
 const DEPTH_LABEL = 'Processed-EEG depth index (BIS-style, simulated)';
@@ -112,8 +113,95 @@ export function renderMonitor(ctx, main) {
   // ---------------- interlocks
   const ilStatus = h('p', { class: 'il-status', id: 'mon-il-status' });
   const ilHeld = h('p', { class: 'il-held', id: 'mon-il-held' });
-  const resumeBtn = h('button', { type: 'button', class: 'btn btn--hmi btn--warn', id: 'mon-resume', 'data-auto-safe': 'resume-hold' }, 'Resume hold');
-  resumeBtn.addEventListener('click', () => { const r = sim.action('resume_hold'); feedback(r.ok ? 'Hold released (logged). Held infusions stay at zero — restart them yourself if appropriate.' : r.message, !r.ok); render(true); });
+  // "Resume hold" opens a confirmation panel: the release takes two engine-enforced steps (acknowledge the
+  // reviewed cause, then release). The panel is not manual control of the case (data-auto-safe).
+  const resumeBtn = h('button', { type: 'button', class: 'btn btn--hmi btn--warn', id: 'mon-resume', 'data-auto-safe': 'resume-hold', 'aria-expanded': 'false', 'aria-controls': 'mon-release' }, 'Resume hold');
+  const relHeld = h('p', { id: 'mon-release-held' });
+  const relReasons = h('p', { id: 'mon-release-reasons' });
+  const relVitals = h('p', { id: 'mon-release-vitals', class: 'mono' });
+  const relCheck = h('input', { type: 'checkbox', id: 'mon-release-check' });
+  const relOk = h('button', { type: 'button', class: 'btn btn--hmi btn--warn', id: 'mon-release-ok', disabled: true }, 'Release hold');
+  const relCancel = h('button', { type: 'button', class: 'btn btn--hmi', id: 'mon-release-cancel' }, 'Cancel');
+  const ilRelease = h('div', { class: 'il-confirm il-release', id: 'mon-release', role: 'group', 'aria-labelledby': 'mon-release-h', 'data-auto-safe': 'resume-hold', hidden: true },
+    h('h4', { id: 'mon-release-h' }, 'Release the interlock hold?'), relHeld, relReasons, relVitals,
+    h('p', { class: 'il-responsibility', id: 'mon-release-resp' }, CLINICIAN_RESPONSIBILITY),
+    h('div', { class: 'check check--hmi' }, relCheck, h('label', { for: 'mon-release-check' }, 'I have reviewed the cause of this hold')),
+    h('p', { class: 'hint hint--hmi' }, 'Releasing does not restart anything: held infusions stay at zero until you set a rate yourself. Both steps (acknowledgment and release) are logged.'),
+    h('div', { class: 'il-confirm__actions' }, relOk, ' ', relCancel));
+  const closeRelease = (focus = true) => { ilRelease.hidden = true; resumeBtn.setAttribute('aria-expanded', 'false'); relCheck.checked = false; relOk.disabled = true; if (focus && !resumeBtn.disabled) resumeBtn.focus(); };
+  resumeBtn.addEventListener('click', () => { relCheck.checked = false; relOk.disabled = true; ilRelease.hidden = false; resumeBtn.setAttribute('aria-expanded', 'true'); renderRelease(); relCheck.focus(); });
+  relCheck.addEventListener('change', () => { relOk.disabled = !relCheck.checked; });
+  relCancel.addEventListener('click', () => closeRelease());
+  relOk.addEventListener('click', () => {
+    if (!relCheck.checked) return;
+    const a = sim.action('acknowledge_hold');
+    const r = a.ok ? sim.action('resume_hold') : a;
+    feedback(r.ok ? `Hold acknowledged and released (both logged). Held infusions stay at zero (${(r.released || []).map((id) => getDrugById(lib, id)?.name || id).join(', ') || 'none'}) — restart them yourself if appropriate.` : r.message, !r.ok);
+    announce(r.ok ? 'Hold released. Held infusions stay at zero.' : r.message);
+    closeRelease(false); render(true);
+  });
+  function renderRelease() {
+    if (ilRelease.hidden) return;
+    const S = sim.state; const hd = S.interlocks.hold;
+    if (!S.interlocks.holdLatched) { closeRelease(false); return; }
+    const name = (id) => getDrugById(lib, id)?.name || id;
+    setText(relHeld, `Held agents (stay at zero after release): ${(hd ? hd.drugs : S.interlocks.heldDrugs).map(name).join(', ') || 'none'}.`);
+    setText(relReasons, `Triggering reason(s): ${hd && hd.reasons.length ? hd.reasons.map((x) => `${x.reason} (at ${fmtClock(x.tSec)})`).join('; ') : 'not recorded'}.`);
+    const V = S.vitals;
+    setText(relVitals, `Now: HR ${isNum(V.hr) ? V.hr : 'unusable'} /min · MAP ${isNum(V.map) ? V.map : 'unusable'} mmHg`);
+  }
+
+  // Explicit, time-limited suspension of the HR/MAP threshold holds (manual override; logged; visible).
+  // The opener only shows the form; "Suspend" is manual control and ends guided/automatic mode.
+  const SUSPEND_MAX = NOA_CONFIG.interlock_suspension_max_sec;
+  const suspendBtn = h('button', { type: 'button', class: 'btn btn--hmi btn--override', id: 'mon-suspend', 'data-auto-safe': 'suspend-open', 'aria-expanded': 'false', 'aria-controls': 'mon-suspend-panel' }, 'Suspend interlocks…');
+  const susDur = h('select', { id: 'mon-suspend-dur', class: 'input input--hmi' }, [60, 120, 300].filter((x) => x <= SUSPEND_MAX).map((x) => h('option', { value: x }, `${x} s (${fmtClock(x)})`)));
+  const susReason = h('input', { type: 'text', id: 'mon-suspend-reason', class: 'input input--hmi', maxlength: '200', autocomplete: 'off', required: true, 'aria-describedby': 'mon-suspend-help' });
+  const susOk = h('button', { type: 'button', class: 'btn btn--hmi btn--override', id: 'mon-suspend-ok', disabled: true }, 'Suspend');
+  const susCancel = h('button', { type: 'button', class: 'btn btn--hmi', id: 'mon-suspend-cancel', 'data-auto-safe': 'suspend-cancel' }, 'Cancel');
+  const ilSuspend = h('div', { class: 'il-confirm il-suspend-confirm', id: 'mon-suspend-panel', role: 'group', 'aria-labelledby': 'mon-suspend-h', hidden: true },
+    h('h4', { id: 'mon-suspend-h' }, 'Suspend the HR/MAP interlocks?'),
+    h('p', { id: 'mon-suspend-help', class: 'hint hint--hmi' }, `Only the HR < ${NOA_CONFIG.hemodynamic_thresholds.hr_critical_low} and MAP < ${NOA_CONFIG.hemodynamic_thresholds.map_critical_low} holds are suspended: each breach is still logged, but no hold latches. The sensor fail-safe, rate faults, lockouts and any hold already latched stay active, and nothing is restarted. Maximum ${SUSPEND_MAX} s (simulator convention); it expires on its own. Starting it ends guided/automatic mode. Logged with your reason.`),
+    h('div', { class: 'inline-form' }, h('label', { for: 'mon-suspend-dur', class: 'label' }, 'Duration'), susDur),
+    h('div', { class: 'field' }, h('label', { for: 'mon-suspend-reason', class: 'label' }, 'Reason (required)'), susReason),
+    h('div', { class: 'il-confirm__actions' }, susOk, ' ', susCancel));
+  const closeSuspend = (focus = true) => { ilSuspend.hidden = true; suspendBtn.setAttribute('aria-expanded', 'false'); susReason.value = ''; susOk.disabled = true; if (focus && !suspendBtn.disabled) suspendBtn.focus(); };
+  suspendBtn.addEventListener('click', () => { ilSuspend.hidden = false; suspendBtn.setAttribute('aria-expanded', 'true'); susReason.focus(); });
+  susReason.addEventListener('input', () => { susOk.disabled = !susReason.value.trim(); });
+  susCancel.addEventListener('click', () => closeSuspend());
+  susOk.addEventListener('click', () => {
+    if (!susReason.value.trim()) return;
+    const r = sim.action(`suspend_interlocks:${susDur.value}:${susReason.value}`);
+    feedback(r.ok ? `Interlocks suspended for ${susDur.value} s (logged). HR/MAP holds will not latch until it ends.` : r.message, !r.ok, r.ok);
+    announce(r.ok ? 'Interlocks suspended.' : r.message);
+    if (r.ok) closeSuspend(false);
+    render(true);
+  });
+  const susBannerText = h('span', { id: 'mon-suspended-text' });
+  const susBannerTimer = h('span', { id: 'mon-suspended-timer', class: 'mono', role: 'timer', 'aria-live': 'off' });
+  const susBannerWho = h('span', { id: 'mon-suspended-who' });
+  const susEnd = h('button', { type: 'button', class: 'btn btn--hmi', id: 'mon-suspend-end', 'data-auto-safe': 'suspend-end' }, 'End suspension now');
+  susEnd.addEventListener('click', () => { const r = sim.action('end_suspension'); feedback(r.ok ? 'Suspension ended (logged). HR/MAP interlocks are active again.' : r.message, !r.ok); announce(r.ok ? 'Suspension ended. Interlocks active.' : r.message); render(true); });
+  const susBanner = h('div', { class: 'il-suspended-banner', id: 'mon-suspended', role: 'status', 'aria-live': 'polite', hidden: true },
+    h('p', {}, h('strong', {}, 'INTERLOCKS SUSPENDED'), ' — HR/MAP holds will not latch · ', susBannerTimer, ' left · ', susBannerWho), susBannerText, susEnd);
+  // Persistent hold banner: the exact trigger(s) stay visible until the hold is released.
+  const holdBanner = h('p', { class: 'il-hold-banner', id: 'mon-hold-banner', role: 'status', 'aria-live': 'polite', hidden: true });
+  function renderSuspension() {
+    const S = sim.state; const sp = S.interlocks.suspension; const hd = S.interlocks.hold;
+    const on = !!(sp && sp.active);
+    susBanner.hidden = !on;
+    if (on) { setText(susBannerTimer, fmtClock(sp.remainingSec)); setText(susBannerWho, `by ${sp.by}`); setText(susBannerText, `reason: ${sp.reason}`); }
+    suspendBtn.disabled = !S.interlocks.enabled || on;
+    if (suspendBtn.disabled && !ilSuspend.hidden) closeSuspend(false);
+    holdBanner.hidden = !(S.interlocks.enabled && S.interlocks.holdLatched);
+    if (!holdBanner.hidden) {
+      const name = (id) => getDrugById(lib, id)?.name || id;
+      const reasons = hd && hd.reasons.length ? hd.reasons.map((x) => `${x.reason} (${fmtClock(x.tSec)})`).join('; ') : 'not recorded';
+      const long = hd && hd.longHoldNotices ? ` · Hold has been active for ${hd.longHoldNotices * NOA_CONFIG.interlock_long_hold_advisory_sec / 60} min (advisory; nothing changes)` : '';
+      const ack = hd && hd.acknowledgedBy ? ` · acknowledged by ${hd.acknowledgedBy} at ${fmtClock(hd.acknowledgedAtSec)}` : '';
+      setText(holdBanner, `HOLD${hd ? ` #${hd.id}` : ''} latched${hd ? ` since ${fmtClock(hd.latchedAtSec)}` : ''} — held: ${(hd ? hd.drugs : S.interlocks.heldDrugs).map(name).join(', ') || 'none'} — reason(s): ${reasons}${ack}${long}. Infusions do not restart automatically.`);
+    }
+  }
   const ilToggle = h('input', { type: 'checkbox', id: 'mon-il-toggle', checked: store.interlocks });
   const ilConfirm = h('div', { class: 'il-confirm', hidden: true });
   ilToggle.addEventListener('change', () => {
@@ -127,7 +215,7 @@ export function renderMonitor(ctx, main) {
   });
   const lockouts = Object.entries(sim.state.interlocks.lockouts);
   const ilPanel = h('section', { class: 'hmi-panel', 'aria-labelledby': 'mon-il-h' }, h('h3', { id: 'mon-il-h' }, 'Interlocks (Smart NOA rules)'),
-    ilStatus, ilHeld, resumeBtn,
+    ilStatus, ilHeld, resumeBtn, ilRelease, ' ', suspendBtn, ilSuspend,
     h('div', { class: 'check check--hmi' }, ilToggle, h('label', { for: 'mon-il-toggle' }, 'Interlocks on')), ilConfirm,
     h('details', { class: 'hmi-details' }, h('summary', {}, 'What the interlocks do'), interlockExplanation(lib)),
     lockouts.length ? h('details', { class: 'hmi-details' }, h('summary', {}, `Lockouts (${lockouts.length}) — apply even with interlocks off`),
@@ -594,7 +682,7 @@ export function renderMonitor(ctx, main) {
         h('div', { class: 'hmi-toolbar__group', role: 'group', 'aria-label': 'Playback' }, playBtn, stepBtns),
         h('div', { class: 'hmi-toolbar__group', role: 'group', 'aria-label': 'Speed' }, h('span', { class: 'label' }, 'Speed'), speedBtns),
         h('div', { class: 'hmi-toolbar__group' }, ilBadge, restartBtn)),
-      fb, autoPanel, advRun.el, depthRun.el,
+      fb, susBanner, holdBanner, autoPanel, advRun.el, depthRun.el,
       h('div', { class: 'hmi-grid' },
         h('div', { class: 'hmi-main' }, tileGrid, chartGrid, drugPanel),
         h('div', { class: 'hmi-side' }, alarmPanel, ilPanel, abxPanel, phasePanel, readyPanel, airwayPanel, fluidPanel, intPanel)),
@@ -699,10 +787,13 @@ export function renderMonitor(ctx, main) {
     setTile('fio2', A.fio2.toFixed(2), n2o > 0 ? `N2O ${n2o} % · FiO2 max ${(1 - n2o / 100).toFixed(2)}` : '');
     // interlocks
     const st = S.interlocks.status;
-    ilBadge.className = `il-badge il-badge--${st.toLowerCase()}`; setText(ilBadge, `Interlocks: ${st}`);
+    const suspended = !!(S.interlocks.suspension && S.interlocks.suspension.active);
+    ilBadge.className = `il-badge il-badge--${st.toLowerCase()}${suspended ? ' il-badge--suspended' : ''}`; setText(ilBadge, `Interlocks: ${st}${suspended ? ' · SUSPENDED' : ''}`);
     setText(ilStatus, INTERLOCK_TEXT[st] || st); ilStatus.className = `il-status il-status--${st.toLowerCase()}`;
-    setText(ilHeld, S.interlocks.holdLatched ? `Held: ${S.interlocks.heldDrugs.map((id) => getDrugById(lib, id)?.name || id).join(', ') || 'none'}` : 'No hold latched.');
+    const hdr = S.interlocks.hold && S.interlocks.hold.reasons.length ? ` — reason(s): ${S.interlocks.hold.reasons.map((x) => x.reason).join('; ')}` : '';
+    setText(ilHeld, S.interlocks.holdLatched ? `Held: ${S.interlocks.heldDrugs.map((id) => getDrugById(lib, id)?.name || id).join(', ') || 'none'}${hdr}` : 'No hold latched.');
     resumeBtn.disabled = !(S.interlocks.enabled && S.interlocks.holdLatched);
+    renderRelease(); renderSuspension();
     // alarms
     renderAlarms();
     // phase buttons

@@ -29,7 +29,7 @@ const depthHigh = (sim) => sim.alarmMgr.history.filter((x) => x.id === 'depth_hi
 /** What the user does at a pause: acknowledge HIGH alarms, release a latched hold, clinician-only items, Resume. */
 function resolve(sim, runner) {
   for (const a of sim.state.alarms) if (a.priority === 'high' && !a.acknowledged) sim.action(`acknowledge:${a.id}`);
-  if (sim.core.holdLatched) sim.action('resume_hold');
+  if (sim.core.holdLatched) { sim.action('acknowledge_hold'); sim.action('resume_hold'); }
   clinicianResolves(runner);
   return runner.resume();
 }
@@ -292,7 +292,7 @@ if (REAL) {
   test('F2 sensor-fault interlock message renders unusable values as "unusable" (never NaN)', () => {
     const core = new InterlockCore();
     const r = core.evaluate(NaN, 118);
-    assert.equal(r.events[0].message, 'Invalid sensor reading (HR=unusable, MAP=118): all controlled infusions set to zero; hold latched.');
+    assert.equal(r.events[0].message, 'Invalid sensor reading (HR=unusable, MAP=118) → all controlled infusions set to zero; hold latched');
     assert.match(new InterlockCore().evaluate(72, undefined).events[0].message, /HR=72, MAP=unusable/);
     const sim = createSimulation({ patient: pat('healthy_adult'), seed: 1, library: REAL });
     sim.inject('map_sensor_fault'); for (let i = 0; i < 5; i++) sim.step(1);
@@ -398,7 +398,7 @@ if (REAL) {
     const b = holdCase();
     b.runner.clinicianAction('continue_with_hold');
     assert.ok(b.runner.holdContinue);
-    b.sim.action('resume_hold');
+    { b.sim.action('acknowledge_hold'); b.sim.action('resume_hold'); }
     b.sim.step(1); b.runner.tick();
     assert.equal(b.runner.holdContinue, null, 'released hold → the choice is gone');
     assert.ok(b.sim.core.holdLatched, 'MAP still < 60: re-latched');
@@ -422,7 +422,7 @@ if (REAL) {
     const id2 = S.interlocks.holdEpisode.id; assert.notEqual(id2, id1, 're-latch after recovery');
     S.vitals.hr = 45; sim._trackHoldEpisode(15, [...ev('map_low'), ...ev('hr_low')], new Set(sim.core.heldDrugs));
     assert.notEqual(S.interlocks.holdEpisode.id, id2, 'different trigger');
-    sim.core.resumeHold(); sim._trackHoldEpisode(16, [], new Set());
+    sim.core.acknowledgeHold('clinician'); sim.core.resumeHold('clinician'); sim._trackHoldEpisode(16, [], new Set());
     assert.equal(S.interlocks.holdEpisode, null);
   });
 }

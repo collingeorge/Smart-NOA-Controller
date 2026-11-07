@@ -164,6 +164,9 @@ class AutoRunner {
     if (this.state !== 'idle') return { ok: false, message: 'Already started' };
     const prior = this.sim.autoRun && this.sim.autoRun !== this;
     if (S.phase !== 'premed' || S.airway.secured || prior || (S.periop && S.periop.transferAt !== null)) return { ok: false, message: 'Automatic and guided modes start from the beginning of a case; restart the case first.' };
+    // An explicit interlock suspension is a manual override: guided/automatic modes never run under one
+    // (the runner never suspends, ends a suspension, acknowledges or releases a hold).
+    if (this.sim.core && this.sim.core.suspended) return { ok: false, refused: 'interlocks_suspended', message: 'Interlocks are suspended (manual override). End the suspension, or let it expire, before starting guided or automatic mode.' };
     const gap = this._hypnoticGap();
     if (this.mode === 'full' && gap.blocking) { this._log(`Automatic demonstration refused to start: ${gap.message}`); return { ok: false, refused: 'maintenance_hypnotic', message: gap.message }; }
     this.state = 'running'; this.startedAtSec = this._t(); this.enteredAt = this._t(); this.lastCheckT = this._t();

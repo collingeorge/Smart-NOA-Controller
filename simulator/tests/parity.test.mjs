@@ -12,6 +12,7 @@ const ROOT = fileURLToPath(new URL('../../', import.meta.url));
 const EXAMPLES = JSON.parse(readFileSync(ROOT + 'EXAMPLE_RESULTS.json', 'utf8'));
 const YAML = readFileSync(ROOT + 'config.yaml', 'utf8');
 
+const pyEvent = (e) => ({ t_sec: e.tSec, code: e.code, status: e.status, drugs: e.drugs, message: e.message });
 const relClose = (a, b) => assert.ok(Math.abs(a - b) <= 1e-12 * Math.max(1, Math.abs(b)), `${a} ≉ ${b}`);
 const make = ({ age = 40, weight = 70, egfr = 90, allergies = [], comorbidities = [] } = {}) => {
   const c = new SmartNoaControllerPort({ age, weight_kg: weight, asa_class: 2, egfr, allergies, comorbidities });
@@ -31,6 +32,10 @@ test('NOA_CONFIG mirrors config.yaml', () => {
   assert.equal(num('Ketamine'), NOA_CONFIG.simulation_rate_ceilings.Ketamine);
   assert.equal(num('Lidocaine'), NOA_CONFIG.simulation_rate_ceilings.Lidocaine);
   assert.equal(num('geriatric_dose'), NOA_CONFIG.drug_dosing.dexmedetomidine.geriatric_dose);
+  for (const k of ['hr_min', 'hr_max', 'map_min', 'map_max', 'hr_max_drop_per_sec', 'map_max_drop_per_sec']) assert.equal(num(k), NOA_CONFIG.sensor_plausibility[k], k);
+  assert.deepEqual(Object.keys(NOA_CONFIG.sensor_plausibility).sort(), ['hr_max', 'hr_max_drop_per_sec', 'hr_min', 'map_max', 'map_max_drop_per_sec', 'map_min']);
+  assert.equal(num('interlock_suspension_max_sec'), NOA_CONFIG.interlock_suspension_max_sec);
+  assert.equal(num('interlock_long_hold_advisory_sec'), NOA_CONFIG.interlock_long_hold_advisory_sec);
   assert.match(YAML, new RegExp(`version: "${NOA_CONFIG.version}"`));
   const list = (key) => JSON.parse(new RegExp(`${key}:\\s*(\\[[^\\]]*\\])`).exec(YAML)[1]);
   assert.deepEqual(list('cardiac_conditions'), NOA_CONFIG.contraindications.dexmedetomidine.cardiac_conditions);
@@ -55,9 +60,35 @@ for (const ex of EXAMPLES.examples) {
       assert.deepEqual(got.rates_before, exp.rates_before);
       assert.deepEqual(got.rates_after, exp.rates_after);
       relClose(got.Cp, exp.Cp_ng_mL); relClose(got.Ce, exp.Ce_ng_mL);
+      // Auditable event log: identical codes, statuses, drugs, times and messages (Python ↔ JS).
+      assert.deepEqual(got.events.map(pyEvent), exp.events, `step ${exp.step} events`);
     });
     assert.deepEqual(c.generateStartingRates(), ex.after_explicit_regeneration);
     for (const [drug, [allowed, msg]] of Object.entries(ex.unsupported_drugs)) assert.deepEqual(c.checkContraindication(drug), [allowed, msg]);
+  });
+}
+
+// Scripted audit-log examples (example_walkthrough.py AUDIT_SCRIPTS): replay every op on the port; every
+// event (code, status, drugs, time, message), every refusal message and the final state must match Python.
+for (const ex of EXAMPLES.audit_examples) {
+  test(`EXAMPLE_RESULTS audit ${ex.label}: event codes and messages identical to Python`, () => {
+    const c = make();
+    const refusals = [];
+    for (const op of ex.ops) {
+      try {
+        if (op.op === 'vitals') c.monitorAndControl(op.readings);
+        else if (op.op === 'steady') c.monitorAndControl(Array(op.seconds).fill(op.reading));
+        else if (op.op === 'acknowledge') c.acknowledgeHold(op.by, op.note);
+        else if (op.op === 'resume') c.resumeHold(op.by);
+        else if (op.op === 'suspend') c.suspendInterlocks(op.seconds, op.by, op.reason);
+        else if (op.op === 'end_suspension') c.endSuspension(op.by);
+        else if (op.op === 'set_rate') c.infusions[op.drug] = op.rate;
+        else throw new TypeError(`unknown op ${op.op}`);
+      } catch (e) { if (e instanceof TypeError) throw e; refusals.push({ t_sec: c.clockSec, op: op.op, message: e.message }); }
+    }
+    assert.deepEqual(refusals, ex.refusals);
+    assert.deepEqual(c.events.map(pyEvent), ex.events);
+    assert.deepEqual({ status: c.status, hold_latched: c.holdLatched, infusions: { ...c.infusions }, suspended: c.suspended, hold_reasons: c.holdReasons }, ex.final);
   });
 }
 
@@ -180,7 +211,12 @@ for (const { name, lib } of LIBS) {
     assert.equal(blocked.blocked, true);
     sim.state.drugs.dexmedetomidine.infusionRate = 0.4; // direct write while latched
     runFor(sim, 2); assert.equal(dexRate(sim), 0);
+    const refused = sim.action('resume_hold'); // two engine-enforced steps: acknowledge, then release
+    assert.equal(refused.ok, false); assert.match(refused.message, /^Acknowledge the hold first: review the cause \(invalid sensor \(HR=unusable\)\), then resume$/);
+    assert.equal(sim.state.interlocks.holdLatched, true);
+    assert.ok(sim.action('acknowledge_hold').ok);
     assert.ok(sim.action('resume_hold').ok);
+    assert.equal(sim.action('resume_hold').ok, false, 'the acknowledgment is consumed by the release');
     runFor(sim, 2);
     assert.equal(sim.state.interlocks.status, 'GREEN'); assert.equal(dexRate(sim), 0); // no automatic restart
     assert.ok(sim.state.log.some((l) => l.kind === 'interlock' && /resume_hold/.test(l.message)));

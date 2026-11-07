@@ -164,7 +164,7 @@ function runCase(tplId, mode, { dropVaso = true, seed = 1 } = {}) {
       if (DONE.includes(runner.state)) break;
       if (runner.state === 'paused') {
         for (const a of sim.state.alarms) if (a.priority === 'high' && !a.acknowledged) sim.action(`acknowledge:${a.id}`);
-        if (sim.core.holdLatched) sim.action('resume_hold');
+        if (sim.core.holdLatched) { sim.action('acknowledge_hold'); sim.action('resume_hold'); }
         clinicianResolves(runner);
         if (runner.status().pauseDetails.some((d) => d.item === 'sedation')) runner.clinicianAction('acknowledge_sedation_below_target');
         runner.resume(); continue;

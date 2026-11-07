@@ -107,7 +107,7 @@ This conceptual sequence is not an executable dosing algorithm. Patient deterior
 | Inspectable rules and units | YAML, source and four reproducible traces | Appropriate regimen selection or dosing accuracy |
 | Repeatable simultaneous-event demonstration | Step 2 activates both rules | Prevention of bradycardia/hypotension |
 | Persistent selected-rate hold | Step 3 and explicit regeneration | Complete shutdown, residual-drug management or safe restart |
-| Rejection of invalid numerical inputs and intermediate overflow | Existing regression suite | Detection of plausible but wrong clinical inputs or sensor artifacts |
+| Rejection of invalid numerical inputs and intermediate overflow | Existing regression suite | Detection of plausible but wrong clinical inputs, or of sensor artifacts other than out-of-range values and sudden one-second drops (simulation limits) |
 | Unknown agents labeled UNASSESSED | Three unsupported agents in JSON | Full drug knowledge or contraindication coverage |
 | Transparent limitations | Same Cp/Ce across pairs; unchanged ketamine; exact-boundary example | Clinical validation, equity assessment, effectiveness or regulatory clearance |
 
