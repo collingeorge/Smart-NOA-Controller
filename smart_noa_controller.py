@@ -6,8 +6,10 @@
 # Author: Collin B. George (pre-medical student)
 # =============================================================================
 
+import decimal
 import math
 import random
+import re
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -37,15 +39,44 @@ LATCH_CODES = ("sensor_fault", "rate_fault", "hr_low", "map_low")
 
 
 def _is_finite_number(value) -> bool:
-    """A finite int/float that is not a bool."""
-    return not isinstance(value, bool) and isinstance(value, (int, float)) and math.isfinite(value)
+    """A finite int/float that is not a bool.
+
+    An int too large for a float (for example 10**400) is not finite here: math.isfinite would raise
+    OverflowError, and the web simulator reads the same number as Infinity (05t audit, finding 1).
+    """
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return False
+    try:
+        return math.isfinite(value)
+    except OverflowError:
+        return False
 
 
 def _num_text(value) -> str:
-    """Number as the web simulator prints it (JavaScript String(n)): 46.0 -> "46", 46.5 -> "46.5"."""
-    if isinstance(value, float) and value.is_integer():
-        return str(int(value))
-    return str(value)
+    """Number exactly as the web simulator prints it (ECMAScript Number::toString, i.e. String(n)).
+
+    46.0 -> "46", 46.5 -> "46.5", 1e-05 -> "0.00001", 10**22 -> "1e+22". Python and JavaScript event
+    messages therefore match for every finite value (05t audit, finding 5).
+    """
+    if not _is_finite_number(value):
+        return str(value)
+    f = float(value)
+    if f == 0:
+        return "0"
+    _, digit_tuple, exponent = decimal.Decimal(repr(abs(f))).normalize().as_tuple()
+    digits = "".join(map(str, digit_tuple))
+    k = len(digits)
+    n = k + int(exponent)          # position of the decimal point relative to the digit string
+    if k <= n <= 21:
+        text = digits + "0" * (n - k)
+    elif 0 < n <= 21:
+        text = digits[:n] + "." + digits[n:]
+    elif -6 < n <= 0:
+        text = "0." + "0" * (-n) + digits
+    else:
+        e = n - 1
+        text = digits[0] + ("." + digits[1:] if k > 1 else "") + "e" + ("+" if e >= 0 else "-") + str(abs(e))
+    return ("-" if f < 0 else "") + text
 
 
 def _reading_text(value) -> str:
@@ -65,11 +96,24 @@ def _drug_list(drugs) -> list:
     return [d for d in CONTROLLED_AGENTS if d in drugs] + sorted(d for d in drugs if d not in CONTROLLED_AGENTS)
 
 
+# Characters refused in free text that is written to the event log (by, reason, note): control
+# characters (C0, DEL, C1, including newline and tab), line/paragraph separators, bidirectional
+# controls and the byte-order mark. Any of them could make one log entry look like two, or reorder
+# its displayed text (05t audit, finding 4). Mirrors hasUnsafeText in simulator/engine/interlocks.js.
+_UNSAFE_TEXT = re.compile("[\x00-\x1f\x7f-\x9f\u061c\u200e\u200f\u2028-\u202e\u2066-\u2069\ufeff]")
+
+
+def _check_safe_text(value: str, name: str) -> str:
+    if _UNSAFE_TEXT.search(value):
+        raise ValueError(f"{name} must not contain control, line-separator or bidirectional-control characters")
+    return value
+
+
 def _require_text(value, name: str) -> str:
-    """A non-blank string (whitespace-only is rejected); returned verbatim, never trimmed."""
+    """A non-blank string (no whitespace-only, control or bidi characters); returned verbatim, never trimmed."""
     if not isinstance(value, str) or not value.strip():
         raise ValueError(f"{name} must be a non-empty string")
-    return value
+    return _check_safe_text(value, name)
 
 # --- Data Structures ---
 
@@ -271,14 +315,14 @@ class Pharmacokinetics:
             k1e: Effect-site transfer rate constant in 1/min
         """
         for name, value in (("weight_kg", weight_kg), ("central_vol", central_vol)):
-            if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or value <= 0:
+            if not _is_finite_number(value) or value <= 0:
                 raise ValueError(f"{name} must be finite and positive")
         for name, value in (("k10", k10), ("k1e", k1e)):
-            if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or value < 0:
+            if not _is_finite_number(value) or value < 0:
                 raise ValueError(f"{name} must be finite and nonnegative")
         # Vc: Central Compartment Volume (L) - normalized by weight
         self.Vc: float = central_vol * weight_kg
-        if not math.isfinite(self.Vc) or self.Vc <= 0:
+        if not _is_finite_number(self.Vc) or self.Vc <= 0:
             raise ValueError("Derived central volume must be finite and positive")
         self.k10: float = k10  # Elimination rate constant (1/min)
         self.k1e: float = k1e  # Effect-site transfer rate constant (1/min)
@@ -309,7 +353,7 @@ class Pharmacokinetics:
         # 1 mcg/L equals 1 ng/mL. Compute into local candidates so invalid
         # arithmetic cannot partially mutate the model.
         for value in (self.Cp, self.Ce):
-            if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or value < 0:
+            if not _is_finite_number(value) or value < 0:
                 raise ValueError("Model state must be finite and nonnegative")
         try:
             infusion_mass = infusion_rate_mcg_per_min * time_delta_min
@@ -321,7 +365,7 @@ class Pharmacokinetics:
         except (OverflowError, ZeroDivisionError) as error:
             raise ValueError("Model arithmetic exceeded the finite input domain") from error
         candidates = (infusion_mass, elimination_mass, new_mass, cp_candidate, ce_candidate)
-        if not all(math.isfinite(value) for value in candidates):
+        if not all(_is_finite_number(value) for value in candidates):
             raise ValueError("Model arithmetic exceeded the finite input domain")
         self.Cp, self.Ce = cp_candidate, max(0.0, ce_candidate)
 
@@ -347,7 +391,7 @@ class SmartNOAController:
             patient: Patient object with simulated demographic and profile data
             config_path: Path to configuration YAML file
         """
-        if not math.isfinite(patient.weight_kg) or patient.weight_kg <= 0:
+        if not _is_finite_number(patient.weight_kg) or patient.weight_kg <= 0:
             raise ValueError("Simulated weight must be finite and positive")
         self.patient: Patient = patient
         self.config: ConfigLoader = ConfigLoader(config_path)
@@ -529,7 +573,7 @@ class SmartNOAController:
     @staticmethod
     def _is_valid_reading(value) -> bool:
         """A usable reading is a finite, non-boolean number (plausibility is checked separately)."""
-        return not isinstance(value, bool) and isinstance(value, (int, float)) and math.isfinite(value)
+        return _is_finite_number(value)
 
     def _latch_hold(self, drugs) -> None:
         drugs = list(drugs)
@@ -547,7 +591,7 @@ class SmartNOAController:
         faults = []
         for drug, rate in self.infusions.items():
             ceiling = self.config.get('simulation_rate_ceilings', drug)
-            valid = not isinstance(rate, bool) and isinstance(rate, (int, float)) and math.isfinite(rate) and rate >= 0
+            valid = _is_finite_number(rate) and rate >= 0
             if not valid or ceiling is None or rate > ceiling + RATE_CEILING_TOLERANCE:
                 faults.append(drug)
         return _drug_list(faults)
@@ -630,6 +674,7 @@ class SmartNOAController:
         _require_text(by, "by")
         if not isinstance(note, str):
             raise ValueError("note must be a string")
+        _check_safe_text(note, "note")
         if not self.hold_latched:
             raise ValueError("No hold is latched")
         if self.hold is None:  # a hold latched outside the rules (e.g. set directly): still auditable
@@ -671,6 +716,10 @@ class SmartNOAController:
         held = _drug_list(self.held_drugs)
         message = (f"Hold #{self.hold['id']} released by {by} (held: {', '.join(held) or 'none'}; reasons: "
                    f"{self._reasons_text()}) → held infusions stay at zero; no automatic restart")
+        # Re-zero the held agents at the release itself, so a value written to self.infusions while the hold
+        # was latched (after the last enforcement) cannot take effect afterwards (05t audit, finding 2).
+        for drug in held:
+            self.infusions[drug] = 0.0
         self.hold_latched = False
         self.held_drugs.clear()
         self.hold = None

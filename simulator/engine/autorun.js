@@ -320,6 +320,9 @@ class AutoRunner {
   /** Call after every simulated second (sim.step(1)). */
   tick() {
     if (this.state !== 'running') return this.status();
+    // A suspension started mid-run (from any caller, not only the UI) is a manual override: end the mode,
+    // as the UI's takeOver does (05t audit, finding 3). The runner never suspends or ends a suspension.
+    if (this.sim.core && this.sim.core.suspended) { this.takeOver('interlock suspension (manual override)'); return this.status(); }
     const t = this._t();
     const blk = this.blockers(true);
     this.lastCheckT = t;

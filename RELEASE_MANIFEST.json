@@ -143,8 +143,8 @@
     },
     {
       "path": "smart_noa_controller.py",
-      "bytes": 53706,
-      "sha256": "860f40130beaf2130ba7d57ef062080ab0b5e7d9b2878eb5767e6e1c39b30a45"
+      "bytes": 55601,
+      "sha256": "f109385901ab9151a37e3f32e92b98e982d0e47ebf595ac754753f70a16cd6fb"
     },
     {
       "path": "smartnoa_architecture.jpg",
