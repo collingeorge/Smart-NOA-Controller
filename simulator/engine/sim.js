@@ -388,7 +388,7 @@ class Simulation {
       this.bolusGiven[drug.id] = (this.bolusGiven[drug.id] || 0) + amt;
       if (tg) { this.teaching.given[tg.key] += amt; if (tgUse) { tgUse.used = { tSec: this.state.tSec, amount: amt, totalAfter: this.teaching.given[tg.key] }; warnings.push(`Given above the simulator teaching ceiling ${tg.value} ${tg.unit} (${tg.label}; total now ${roundSig(this.teaching.given[tg.key])} ${tg.unit}) after the clinician's confirmation`); } }
       if (route !== 'IV') { this.depots.push({ drugId: drug.id, remaining: amt, ka: ROUTE_KA_ILLUSTRATIVE[route] ?? ROUTE_KA_ILLUSTRATIVE.IM, route }); ds.cumulative += amt; }
-      else if (overSec) this.timed.push({ drugId: drug.id, perMin: amt / (overSec / 60), remaining: amt, total: amt, startedSec: this.state.tSec });
+      else if (overSec) this.timed.push({ drugId: drug.id, perMin: amt / (overSec / 60), remaining: amt, total: amt, startedSec: this.state.tSec, teachingKey: tg ? tg.key : null });
       else { model.model.bolus(amt); ds.cumulative += amt; }
       if (drug.id === 'rocuronium') this.lastRocBolus = { tSec: this.state.tSec, perKg: amt / this.patient.weightKg };
       this._doseLog(drug, { kind: 'bolus', regimenKey: cmd.regimenKey || null, amount: amt, route, overSec, tierWarning: rtw.find((x) => /tier for the current block/.test(x)) || null }, meta);
@@ -463,6 +463,10 @@ class Simulation {
     const drug = getDrug(this.lib, drugId);
     for (const x of gone) {
       const undelivered = x.remaining; const delivered = x.total - x.remaining;
+      // The whole amount was charged to the bolus ceiling (and any teaching ceiling) when it was scheduled;
+      // credit back what was never delivered, so a later dose is judged on what the patient received.
+      this.bolusGiven[drugId] = Math.max(0, (this.bolusGiven[drugId] || 0) - undelivered);
+      if (x.teachingKey) this.teaching.given[x.teachingKey] = Math.max(0, this.teaching.given[x.teachingKey] - undelivered);
       const rec = { tSec: this.state.tSec, drugId, reason, total: x.total, delivered, undelivered, unit: drug.amountUnit };
       this.stats.timedCancellations.push(rec);
       this.doseLog.push({ tSec: this.state.tSec, drugId, phase: this.state.phase, source: 'engine', kind: 'timed_cancelled', reason, total: x.total, delivered, undelivered });

@@ -4,8 +4,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createSimulation } from '../engine/sim.js';
 import { derivePatient } from '../engine/patient.js';
-import { createPalliativeSim, derivePalliative, recommendStart } from '../engine/palliative.js';
-import { PALLIATIVE_CASES } from '../data/palliative.js';
+import { createPalliativeSim, derivePalliative, recommendStart, validatePalliative } from '../engine/palliative.js';
+import { PALLIATIVE_CASES, PALLIATIVE_RULES } from '../data/palliative.js';
 import { NOA_CONFIG } from '../engine/interlocks.js';
 import { REAL, basePatient, runFor } from './helpers.mjs';
 
@@ -117,4 +117,36 @@ test('finding 2: opioid-tolerant doses are bounded by the current regimen or the
   const big = pal('eol_dyspnoea_secretions').approveRegimen({ drugId: 'morphine', route: 'iv', dose: 100, intervalH: 4, scheduled: true, prnDose: 0, reductionPct: 25, ivRatio: 3 }, OK);
   assert.equal(big.ok, false); assert.match(big.reason, /engine's conversion/);
   assert.ok(pal('eol_dyspnoea_secretions').approveRegimen({ drugId: 'morphine', route: 'iv', dose: big.bound.max, intervalH: 4, scheduled: true, prnDose: 0, reductionPct: 25, ivRatio: 3 }, OK).ok);
+});
+
+// ------------------------------------------------------------------ follow-up review (PR #21)
+test('follow-up: a cancelled timed dose credits the undelivered amount back to the bolus and teaching ceilings', { skip }, () => {
+  const sim = newSim(); runFor(sim, 1);
+  assert.ok(sim.administer({ drugId: 'phenylephrine', kind: 'bolus', amount: 200, amountUnit: 'mcg', overSec: 600 }).ok);
+  runFor(sim, 60); assert.ok(sim.administer({ drugId: 'phenylephrine', kind: 'stop' }).ok);
+  const given = cum(sim, 'phenylephrine');
+  assert.ok(Math.abs(sim.bolusGiven.phenylephrine - given) < 1e-6, 'only the delivered amount counts toward the 200 mcg label maximum');
+  runFor(sim, 120);
+  assert.ok(sim.administer({ drugId: 'phenylephrine', kind: 'bolus', amount: 100, amountUnit: 'mcg' }).ok, 'next dose judged on what was delivered');
+  // teaching ceiling (glycopyrrolate): same credit
+  const g = newSim(); runFor(g, 1);
+  assert.ok(g.administer({ drugId: 'glycopyrrolate', kind: 'bolus', amount: 0.2, amountUnit: 'mg', overSec: 600 }).ok);
+  runFor(g, 60); g.administer({ drugId: 'glycopyrrolate', kind: 'stop' });
+  assert.ok(Math.abs(g.teaching.given.glycopyrrolate - cum(g, 'glycopyrrolate')) < 1e-9);
+});
+
+test('follow-up: an opioid-tolerant baseline above the 200 MME/day teaching ceiling (or IV) is refused at entry and at approval', () => {
+  const cap = PALLIATIVE_RULES.TOLERANT_BASELINE_MAX_MME_DAY;
+  assert.equal(cap.value, 200); assert.equal(cap.provenance, 'simulator_convention');
+  const c = CASE('bone_pain_hospice');
+  for (const [cur, ok] of [[{ drugId: 'morphine', route: 'oral', dose: 30, intervalH: 4 }, true], [{ drugId: 'morphine', route: 'oral', dose: 40, intervalH: 4 }, false],
+    [{ drugId: 'morphine', route: 'oral', dose: 5000, intervalH: 4 }, false], [{ drugId: 'morphine', route: 'iv', dose: 5, intervalH: 4 }, false]]) {
+    const pt = { ...c.patient, currentRegimen: cur };
+    assert.equal(validatePalliative(pt).ok, ok, `form ${JSON.stringify(cur)}`);
+    const s = createPalliativeSim({ patient: derivePalliative(pt), caseDef: c, module: c.module, seed: 1 });
+    const r = s.approveRegimen({ drugId: cur.drugId, route: cur.route, dose: Math.min(cur.dose, 20), intervalH: 4, scheduled: true, prnDose: 0 }, OK);
+    assert.equal(r.ok, ok, `approve ${JSON.stringify(cur)}`);
+    if (!ok) assert.match(r.reason, /specialist decision; not simulated/);
+  }
+  for (const k of PALLIATIVE_CASES) if (k.patient.opioidStatus === 'tolerant') assert.ok(validatePalliative(k.patient).ok, `${k.id} stays valid`);
 });

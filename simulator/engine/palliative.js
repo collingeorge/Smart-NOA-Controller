@@ -44,7 +44,8 @@ export function validatePalliative(p) {
   if (p.opioidStatus === 'tolerant') {
     const r = p.currentRegimen;
     if (!r || !PALLIATIVE_OPIOIDS[r.drugId] || !PALLIATIVE_OPIOIDS[r.drugId].routes[r.route]) errors.currentRegimen = 'Choose the current opioid and route.';
-    else if (!(r.dose > 0) || !(r.intervalH >= 1 && r.intervalH <= 24)) errors.currentRegimen = 'Enter the current dose (mg) and interval (1–24 h).';
+    else if (!(typeof r.dose === 'number' && Number.isFinite(r.dose) && r.dose > 0) || !(typeof r.intervalH === 'number' && r.intervalH >= 1 && r.intervalH <= 24)) errors.currentRegimen = 'Enter the current dose (mg) and interval (1–24 h).';
+    else { const why = baselineProblem(r); if (why) errors.currentRegimen = why; }
   }
   if (!['comfort', 'life_prolonging', 'mixed'].includes(p.goals)) errors.goals = 'Choose goals of care.';
   if (!['weeks_months', 'days_weeks', 'hours_days', 'not_applicable'].includes(p.prognosis)) errors.prognosis = 'Choose a prognosis category.';
@@ -53,6 +54,19 @@ export function validatePalliative(p) {
 
 const factorFor = (drugId) => R.CDC_MME_FACTORS.value[drugId];
 /** CDC 2022 oral MME/day (risk estimate only). IV regimens return null. */
+/**
+ * Simulator teaching ceiling on an opioid-tolerant baseline (audit 2026-11-26): an oral regimen of at most
+ * TOLERANT_BASELINE_MAX_MME_DAY (CDC MME factors, used here only to size exposure). IV or higher baselines:
+ * specialist decision; not simulated. Returns the refusal text or null.
+ */
+export function baselineProblem(r) {
+  const cap = R.TOLERANT_BASELINE_MAX_MME_DAY.value;
+  const mme = mmePerDay(r);
+  if (mme === null) return `Current regimen ${r.drugId} ${String(r.route).toUpperCase()}: only oral baselines up to ${cap} MME/day are simulated — specialist decision; not simulated.`;
+  if (mme > cap + 1e-9) return `Current regimen ${mme} MME/day is above the simulator teaching ceiling of ${cap} MME/day — specialist decision; not simulated. This is a simulator teaching bound, not a clinical limit.`;
+  return null;
+}
+
 export function mmePerDay(reg) {
   if (!reg || reg.route !== 'oral' || !factorFor(reg.drugId)) return null;
   return fix((reg.dose * 24 / reg.intervalH) * factorFor(reg.drugId));
@@ -386,7 +400,10 @@ export function createPalliativeSim({ patient, caseDef = {}, module = 'pain', se
       if (!rec.ok) return { ok: false, reason: rec.reason };
       return { ok: true, min: Math.min(rec.dose.min, rec.dose.value), max: Math.max(rec.dose.max, rec.dose.value), why: `the label starting range ${rec.dose.min}–${rec.dose.max} mg${rec.adjusted ? ' (renal/hepatic-adjusted)' : ''} for an opioid-naïve patient`, sources: rec.sources };
     }
-    const cur = p.currentRegimen; const cur24 = cur.dose * 24 / cur.intervalH;
+    const cur = p.currentRegimen;
+    if (!(typeof cur.dose === 'number' && Number.isFinite(cur.dose) && cur.dose > 0 && typeof cur.intervalH === 'number' && cur.intervalH > 0)) return { ok: false, reason: 'The current regimen is not a usable dose.' };
+    const bp = baselineProblem(cur); if (bp) return { ok: false, reason: bp };
+    const cur24 = cur.dose * 24 / cur.intervalH;
     if (cur.drugId === reg.drugId && cur.route === reg.route) {
       return { ok: true, min: 0, max: fix(cur24 * reg.intervalH / 24), why: `the current ${cur.drugId} ${cur.route.toUpperCase()} regimen (${fix(cur24)} mg/24 h; increases go through the daily review)`, sources: [] };
     }
