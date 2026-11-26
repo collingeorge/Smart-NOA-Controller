@@ -239,7 +239,7 @@ for (const { name, lib } of LIBS) {
     assert.equal(s2.state.drugs.lidocaine.infusionRate, 0); assert.ok(s2.state.drugs.ketamine.infusionRate > 0);
   });
 
-  test(`${name}: Python simulation ceilings apply only with interlocks on; label ceilings always`, () => {
+  test(`${name}: Python simulation ceilings and the rate/sensor fail-safe apply in every mode; label ceilings always`, () => {
     const on = createSimulation({ patient: P(), library: lib });
     const r1 = on.administer({ drugId: 'dexmedetomidine', kind: 'infusion', rate: 0.6, rateUnit: 'mcg/kg/h' });
     assert.equal(r1.blocked, true); assert.match(r1.reasons[0], /Python simulation ceiling/);
@@ -255,9 +255,16 @@ for (const { name, lib } of LIBS) {
       }
     }
     runFor(on, 3); assert.equal(on.state.interlocks.holdLatched, false);
+    // HR/MAP holds off (interlocks: false): the Python simulation ceiling still blocks (audit 2026-11-26, finding 3)
     const off = createSimulation({ patient: P(), library: lib, interlocks: false });
-    assert.ok(off.administer({ drugId: 'dexmedetomidine', kind: 'infusion', rate: 0.6, rateUnit: 'mcg/kg/h' }).ok);
+    const r0 = off.administer({ drugId: 'dexmedetomidine', kind: 'infusion', rate: 0.6, rateUnit: 'mcg/kg/h' });
+    assert.equal(r0.blocked, true); assert.match(r0.reasons[0], /Python simulation ceiling .*applies in every mode/);
+    assert.ok(off.administer({ drugId: 'dexmedetomidine', kind: 'infusion', rate: 0.5, rateUnit: 'mcg/kg/h' }).ok);
     assert.equal(off.administer({ drugId: 'dexmedetomidine', kind: 'infusion', rate: 5, rateUnit: 'mcg/kg/h' }).blocked, true); // label ceiling
+    // ... and a direct write above it is a rate fault that zeroes and latches, as with the holds on
+    off.state.drugs.ketamine.infusionRate = 1e6; runFor(off, 2);
+    assert.equal(off.state.drugs.ketamine.infusionRate, 0); assert.ok(off.state.interlocks.holdLatched);
+    assert.ok(off.state.interlocks.heldDrugs.includes('ketamine'));
     // direct write above the Python ceiling → zeroed and latched (rate fault)
     on.state.drugs.dexmedetomidine.infusionRate = 1e6; runFor(on, 2);
     assert.equal(on.state.drugs.dexmedetomidine.infusionRate, 0); assert.ok(on.state.interlocks.holdLatched);

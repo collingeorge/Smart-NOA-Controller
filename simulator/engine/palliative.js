@@ -44,7 +44,8 @@ export function validatePalliative(p) {
   if (p.opioidStatus === 'tolerant') {
     const r = p.currentRegimen;
     if (!r || !PALLIATIVE_OPIOIDS[r.drugId] || !PALLIATIVE_OPIOIDS[r.drugId].routes[r.route]) errors.currentRegimen = 'Choose the current opioid and route.';
-    else if (!(r.dose > 0) || !(r.intervalH >= 1 && r.intervalH <= 24)) errors.currentRegimen = 'Enter the current dose (mg) and interval (1–24 h).';
+    else if (!(typeof r.dose === 'number' && Number.isFinite(r.dose) && r.dose > 0) || !(typeof r.intervalH === 'number' && r.intervalH >= 1 && r.intervalH <= 24)) errors.currentRegimen = 'Enter the current dose (mg) and interval (1–24 h).';
+    else { const why = baselineProblem(r); if (why) errors.currentRegimen = why; }
   }
   if (!['comfort', 'life_prolonging', 'mixed'].includes(p.goals)) errors.goals = 'Choose goals of care.';
   if (!['weeks_months', 'days_weeks', 'hours_days', 'not_applicable'].includes(p.prognosis)) errors.prognosis = 'Choose a prognosis category.';
@@ -53,6 +54,19 @@ export function validatePalliative(p) {
 
 const factorFor = (drugId) => R.CDC_MME_FACTORS.value[drugId];
 /** CDC 2022 oral MME/day (risk estimate only). IV regimens return null. */
+/**
+ * Simulator teaching ceiling on an opioid-tolerant baseline (audit 2026-11-26): an oral regimen of at most
+ * TOLERANT_BASELINE_MAX_MME_DAY (CDC MME factors, used here only to size exposure). IV or higher baselines:
+ * specialist decision; not simulated. Returns the refusal text or null.
+ */
+export function baselineProblem(r) {
+  const cap = R.TOLERANT_BASELINE_MAX_MME_DAY.value;
+  const mme = mmePerDay(r);
+  if (mme === null) return `Current regimen ${r.drugId} ${String(r.route).toUpperCase()}: only oral baselines up to ${cap} MME/day are simulated — specialist decision; not simulated.`;
+  if (mme > cap + 1e-9) return `Current regimen ${mme} MME/day is above the simulator teaching ceiling of ${cap} MME/day — specialist decision; not simulated. This is a simulator teaching bound, not a clinical limit.`;
+  return null;
+}
+
 export function mmePerDay(reg) {
   if (!reg || reg.route !== 'oral' || !factorFor(reg.drugId)) return null;
   return fix((reg.dose * 24 / reg.intervalH) * factorFor(reg.drugId));
@@ -335,6 +349,7 @@ export function createPalliativeSim({ patient, caseDef = {}, module = 'pain', se
     log('review', `Daily review opened (${sug.length} item(s)).`);
   }
 
+  const isNum = (v) => typeof v === 'number' && Number.isFinite(v);
   function decide(id, decision, opts = {}) {
     const r = st.pendingReview; if (!r) return { ok: false, reason: 'No review open.' };
     const s = r.suggestions.find((y) => y.id === id); if (!s) return { ok: false, reason: 'Unknown suggestion.' };
@@ -344,10 +359,14 @@ export function createPalliativeSim({ patient, caseDef = {}, module = 'pain', se
       if (s.kind === 'rotation') {
         const reg = st.regimen; const c = convertOpioid({ fromDrug: reg.drugId, fromRoute: reg.route, total24h: reg.dose * 24 / reg.intervalH, toDrug: opts.toDrug, toRoute: opts.toRoute, reductionPct: opts.reductionPct });
         if (!c.ok) return { ok: false, blocked: true, reason: c.reason };
+        if (!(isNum(c.perDose) && c.perDose > 0)) return { ok: false, blocked: true, reason: 'Conversion did not give a usable dose.' };
         const bt = breakthroughDose(c.perDose * 24 / c.intervalH, opts.toDrug, opts.toRoute);
         st.regimen = { ...reg, drugId: opts.toDrug, route: opts.toRoute, dose: c.perDose, intervalH: c.intervalH, prn: reg.prn ? { dose: bt.dose } : null };
         log('action', `Clinician approved rotation → ${opts.toDrug} ${c.perDose} mg ${opts.toRoute.toUpperCase()} every ${c.intervalH} h (reduction ${opts.reductionPct}%).`);
       } else if (s.change) {
+        // Review changes are engine-computed (NCCN steps; as-needed capped at the label maximum); still refuse a
+        // non-finite or non-positive value rather than store it (audit 2026-11-26, finding 2).
+        for (const k of ['dose', 'prnDose']) if (s.change[k] !== undefined && !(isNum(s.change[k]) && s.change[k] > 0)) return { ok: false, blocked: true, reason: `Review change ${k} is not a usable dose.` };
         if (typeof s.change.dose === 'number') st.regimen = { ...st.regimen, dose: s.change.dose };
         if (typeof s.change.prnDose === 'number' && st.regimen.prn) st.regimen = { ...st.regimen, prn: { dose: s.change.prnDose } };
         if (s.change.bowel) st.bowelRegimen = true;
@@ -366,13 +385,50 @@ export function createPalliativeSim({ patient, caseDef = {}, module = 'pain', se
   function blockIfHigh() { const a = st.alarms.find((y) => y.priority === 'high' && y.active && !y.acknowledged); if (a && !st.paused) st.paused = { reason: 'alarm', message: `Paused: HIGH alarm — ${a.message}` }; }
 
   // ----------------------------------------------------------------- public actions
+  /**
+   * Engine-enforced dose bounds for a new regimen (audit 2026-11-26, finding 2). The label data give starting
+   * ranges, not maxima, so these are the scenario's teaching bounds: opioid-naive → within the label starting
+   * range (renal-adjusted by recommendStart); opioid-tolerant → no more than the current 24-h amount (same opioid
+   * and route) or the engine's own conversion of it (rotation; reductionPct required). Higher doses come only
+   * from the daily review's engine-computed steps. As-needed: scheduled regimen → no more than 20% of the 24-h
+   * scheduled amount (breakthrough range); as-needed only → the same bound as the dose.
+   */
+  function regimenBounds(reg) {
+    const tol = p.opioidStatus === 'tolerant' && p.currentRegimen;
+    if (!tol) {
+      const rec = recommendStart(p, reg.drugId, reg.route);
+      if (!rec.ok) return { ok: false, reason: rec.reason };
+      return { ok: true, min: Math.min(rec.dose.min, rec.dose.value), max: Math.max(rec.dose.max, rec.dose.value), why: `the label starting range ${rec.dose.min}–${rec.dose.max} mg${rec.adjusted ? ' (renal/hepatic-adjusted)' : ''} for an opioid-naïve patient`, sources: rec.sources };
+    }
+    const cur = p.currentRegimen;
+    if (!(typeof cur.dose === 'number' && Number.isFinite(cur.dose) && cur.dose > 0 && typeof cur.intervalH === 'number' && cur.intervalH > 0)) return { ok: false, reason: 'The current regimen is not a usable dose.' };
+    const bp = baselineProblem(cur); if (bp) return { ok: false, reason: bp };
+    const cur24 = cur.dose * 24 / cur.intervalH;
+    if (cur.drugId === reg.drugId && cur.route === reg.route) {
+      return { ok: true, min: 0, max: fix(cur24 * reg.intervalH / 24), why: `the current ${cur.drugId} ${cur.route.toUpperCase()} regimen (${fix(cur24)} mg/24 h; increases go through the daily review)`, sources: [] };
+    }
+    const c = convertOpioid({ fromDrug: cur.drugId, fromRoute: cur.route, total24h: cur24, toDrug: reg.drugId, toRoute: reg.route, reductionPct: reg.reductionPct, ivRatio: reg.ivRatio, intervalH: reg.intervalH });
+    if (!c.ok) return { ok: false, reason: c.reason };
+    return { ok: true, min: 0, max: c.perDose, why: `the engine's conversion of the current regimen (${c.perDose} mg every ${c.intervalH} h after a ${c.reductionPct}% reduction)`, sources: [] };
+  }
+
   function approveRegimen(reg, { approved } = {}) {
     if (approved !== true) return { ok: false, blocked: true, reason: 'Clinician approval required.' };
+    if (!reg || typeof reg !== 'object') return { ok: false, blocked: true, reason: 'Invalid regimen.' };
     const d = PALLIATIVE_OPIOIDS[reg.drugId]; const r = d && d.routes[reg.route];
     if (!r) return { ok: false, blocked: true, reason: 'Not simulated — specialist decision.' };
-    if (!(reg.dose > 0)) return { ok: false, blocked: true, reason: 'Enter a dose.' };
-    if (!(reg.intervalH >= r.intervalH.min && reg.intervalH <= r.intervalH.max)) return { ok: false, blocked: true, reason: `Interval must be ${r.intervalH.min}–${r.intervalH.max} h (label).` };
+    if (!isNum(reg.dose) || !(reg.dose > 0)) return { ok: false, blocked: true, reason: 'Enter a dose (a positive number of mg).' };
+    if (!isNum(reg.intervalH) || !(reg.intervalH >= r.intervalH.min && reg.intervalH <= r.intervalH.max)) return { ok: false, blocked: true, reason: `Interval must be ${r.intervalH.min}–${r.intervalH.max} h (label).` };
+    const hasPrn = reg.prnDose !== undefined && reg.prnDose !== null && reg.prnDose !== 0;
+    if (hasPrn && (!isNum(reg.prnDose) || !(reg.prnDose > 0))) return { ok: false, blocked: true, reason: 'The as-needed dose must be a positive number of mg (0 for none).' };
     if (st.regimen) return { ok: false, blocked: true, reason: 'A regimen is already running; changes go through the daily review.' };
+    const b = regimenBounds(reg);
+    if (!b.ok) return { ok: false, blocked: true, reason: b.reason };
+    if (reg.dose > b.max + 1e-9 || reg.dose < b.min - 1e-9) return { ok: false, blocked: true, reason: `${reg.dose} mg is outside ${b.why}: allowed ${b.min > 0 ? `${b.min}–` : 'up to '}${b.max} mg per dose. This is a simulator teaching bound, not a clinical limit.`, bound: { min: b.min, max: b.max } };
+    if (hasPrn) {
+      const prnMax = reg.scheduled ? (() => { const bt = breakthroughDose(reg.dose * 24 / reg.intervalH, reg.drugId, reg.route); return Math.max(bt.range.max, bt.dose); })() : b.max;
+      if (reg.prnDose > prnMax + 1e-9) return { ok: false, blocked: true, reason: `As-needed dose ${reg.prnDose} mg is above ${reg.scheduled ? `the breakthrough range (no more than 20% of the ${fix(reg.dose * 24 / reg.intervalH)} mg/24 h scheduled amount)` : b.why}: allowed up to ${fix(prnMax)} mg. This is a simulator teaching bound, not a clinical limit.`, bound: { prnMax: fix(prnMax) } };
+    }
     st.regimen = { drugId: reg.drugId, route: reg.route, dose: fix(reg.dose), intervalH: reg.intervalH, scheduled: !!reg.scheduled, prn: reg.prnDose > 0 ? { dose: fix(reg.prnDose) } : null };
     st.bowelRegimen = !!reg.bowel; regimenStartMin = st.tMin;
     if (p.opioidStatus === 'tolerant' && reg.scheduled) lastScheduledMin = null;

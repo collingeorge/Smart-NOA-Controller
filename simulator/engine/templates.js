@@ -5,7 +5,7 @@
 // recommend() through buildPlan() (data/scenarios.js); this module adds no numbers of its own. It
 // only (1) picks the template's optional steps, (2) swaps a locked primary drug for the template's
 // fallback, (3) drops lidocaine pretreatment when an IV lidocaine analgesic regimen is planned, and
-// (4) with interlocks on, pre-fills the Smart NOA simulation ceiling (config.yaml) when a label
+// (4) pre-fills the Smart NOA simulation ceiling (config.yaml; applies in every mode) when a label
 // default is above it — the same rule as the plan editor.
 
 import { resolveLibrary, getDrug } from './library.js';
@@ -36,12 +36,12 @@ function rateWeight(drug, p) {
 }
 
 /**
- * buildTemplatePlan(templateId, patientDerived, { library, interlocks = true, sedationTarget, include, prefillCeilings = interlocks })
+ * buildTemplatePlan(templateId, patientDerived, { library, interlocks = true, sedationTarget, include, prefillCeilings = true })
  * (the plan editor passes prefillCeilings:false and applies the same ceiling itself, with its note)
  *  -> { plan, skipped, notes:[{ key, text, sources }], substitutions:[…], omitted:[…], prefilled:[…], template }
  * include: { [optionalId]: boolean } (absent → the option's default).
  */
-export function buildTemplatePlan(templateId, patient, { library = null, interlocks = true, sedationTarget = null, include = {}, prefillCeilings = interlocks } = {}) {
+export function buildTemplatePlan(templateId, patient, { library = null, interlocks: _interlocks = true, sedationTarget = null, include = {}, prefillCeilings = true } = {}) {
   const lib = resolveLibrary(library);
   const tpl = getTemplate(templateId);
   if (!tpl) throw new Error(`Unknown template '${templateId}'`);
@@ -74,7 +74,7 @@ export function buildTemplatePlan(templateId, patient, { library = null, interlo
   built.plan.steps = built.plan.steps.filter((s) => s.kind !== 'stop' || started.has(s.drugId));
   // interlock ceiling pre-fill (same rule as the plan editor)
   const prefilled = [];
-  if (interlocks && prefillCeilings) {
+  if (prefillCeilings) {
     for (const s of built.plan.steps) {
       if (s.kind !== 'infusion') continue;
       const py = SIM_TO_PY_ID[s.drugId];
@@ -90,7 +90,7 @@ export function buildTemplatePlan(templateId, patient, { library = null, interlo
     }
   }
   const N = lib.TEMPLATE_NOTES || {};
-  const notes = (tpl.notes || []).filter((k) => N[k] && (k !== 'lidocaineOverlap' || omitted.length) && (k !== 'dexInterlock' || interlocks)).map((k) => ({ key: k, text: N[k].text, sources: [...N[k].sources] }));
+  const notes = (tpl.notes || []).filter((k) => N[k] && (k !== 'lidocaineOverlap' || omitted.length)).map((k) => ({ key: k, text: N[k].text, sources: [...N[k].sources] }));
   built.plan.template = { id: tpl.id, label: tpl.label };
   return { ...built, notes, substitutions, omitted, prefilled, template: tpl };
 }

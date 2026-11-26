@@ -77,7 +77,7 @@ export function exceedsInterlockCeiling(drug, rate, unit, patient) {
 
 export function interlockNote(rec, ic) {
   const r = rec.rate.range;
-  return `Label range ${r.min ?? 0}–${r.max ?? '?'} ${rec.rate.unit} (default ${rec.rate.value}); Smart NOA simulation ceiling ${ic.pyValue} ${ic.pyUnit} applies while interlocks are on, so the ceiling was pre-filled.`;
+  return `Label range ${r.min ?? 0}–${r.max ?? '?'} ${rec.rate.unit} (default ${rec.rate.value}); Smart NOA simulation ceiling ${ic.pyValue} ${ic.pyUnit} applies in every mode, so the ceiling was pre-filled.`;
 }
 
 /** Steps for a drug + regimen (an infusion with a loading dose gives two steps). Returns { steps, reason }. */
@@ -135,7 +135,7 @@ export function refillStep(c, step) {
     step.rate = step.kind === 'inhaled' ? rec.rate.value : rec.rate.value; step.rateUnit = rec.rate.unit; step.labelDefault = rec.rate.value;
     if (step.kind === 'infusion') {
       const ic = interlockCeiling(drug, rec.rate.unit, c.patient);
-      if (c.interlocks && ic && exceedsInterlockCeiling(drug, rec.rate.value, rec.rate.unit, c.patient)) { step.rate = ic.value; step.prefillNote = interlockNote(rec, ic); }
+      if (ic && exceedsInterlockCeiling(drug, rec.rate.value, rec.rate.unit, c.patient)) { step.rate = ic.value; step.prefillNote = interlockNote(rec, ic); }
     }
   }
   return step;
@@ -156,7 +156,7 @@ export function stepsFromBuiltPlan(c, plan) {
       st.addWarnings = rec.warnings.slice();
       if (s.kind === 'infusion') {
         const ic = interlockCeiling(getDrugById(c.lib, s.drugId), s.rateUnit, c.patient);
-        if (c.interlocks && ic && exceedsInterlockCeiling(getDrugById(c.lib, s.drugId), s.rate, s.rateUnit, c.patient) && rec.rate) { st.rate = ic.value; st.prefillNote = interlockNote(rec, ic); }
+        if (ic && exceedsInterlockCeiling(getDrugById(c.lib, s.drugId), s.rate, s.rateUnit, c.patient) && rec.rate) { st.rate = ic.value; st.prefillNote = interlockNote(rec, ic); }
       }
       if (s.kind === 'inhaled' && rec.rate && rec.rate.ageAdjustedMac && Math.abs(s.rate - rec.rate.ageAdjustedMac.value) < 1e-9) st.dialNote = `Example plan dial = 1.0 × age-adjusted MAC (${rec.rate.ageAdjustedMac.value} %), clamped to the label range.`;
     }
@@ -233,7 +233,7 @@ export function checkStep(c, step, allSteps) {
         const ic = interlockCeiling(drug, step.rateUnit, c.patient);
         if (ic) {
           info.interlockCeiling = ic;
-          if (c.interlocks && exceedsInterlockCeiling(drug, step.rate, step.rateUnit, c.patient)) errors.push({ text: `Blocked while interlocks are on: above the Smart NOA simulation ceiling ${ic.pyValue} ${ic.pyUnit} (config.yaml). Label range ${rec.rate.range.min ?? 0}–${rec.rate.range.max} ${rec.rate.unit}.`, fix: { label: `Use ceiling ${ic.value}`, apply: (s) => { s.rate = ic.value; s.prefillNote = interlockNote(rec, ic); } } });
+          if (exceedsInterlockCeiling(drug, step.rate, step.rateUnit, c.patient)) errors.push({ text: `Blocked in every mode: above the Smart NOA simulation ceiling ${ic.pyValue} ${ic.pyUnit} (config.yaml). Label range ${rec.rate.range.min ?? 0}–${rec.rate.range.max} ${rec.rate.unit}.`, fix: { label: `Use ceiling ${ic.value}`, apply: (s) => { s.rate = ic.value; s.prefillNote = interlockNote(rec, ic); } } });
         }
       }
       if (step.kind === 'inhaled' && isNitrousDrug(drug)) {

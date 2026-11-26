@@ -32,9 +32,12 @@ contraindications:
 simulation_rate_ceilings:
   # Software ceilings, not clinical maxima: the loop zeroes and latches any agent whose
   # in-memory rate is negative, non-finite or above these values. Units match drug_dosing
-  # (dexmedetomidine mcg/kg/h; ketamine and lidocaine mg/kg/h). The lidocaine value matches the
-  # upper infusion rate in the 2021 international consensus (Foo et al., Anaesthesia 2021;76:238-250),
-  # which also specifies ideal body weight and a 24 h limit that this simulation does not model.
+  # (dexmedetomidine mcg/kg/h; ketamine and lidocaine mg/kg/h). Each value is an independent
+  # simulator teaching parameter. The lidocaine value is applied to TOTAL body weight. It is
+  # numerically equal to the upper infusion rate in the 2021 international consensus (Foo et al.,
+  # Anaesthesia 2021;76:238-250) but does not implement that consensus, which uses ideal body weight
+  # and sets further limits (an absolute hourly ceiling, a 24 h duration limit, separation from other
+  # local-anaesthetic interventions; simulator/SOURCES.md S1) that this Python controller does not model.
   Dexmedetomidine: 0.5
   Ketamine: 0.2
   Lidocaine: 1.5

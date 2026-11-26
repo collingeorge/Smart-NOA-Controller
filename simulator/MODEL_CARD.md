@@ -783,7 +783,7 @@ Every timed element was cross-checked against FDA labels and guidelines in Novem
 ## Palliative and end-of-life modules
 Generated from `engine/palliative.js` `palliativeParameterInventory()` (data: `data/palliative.js`; sources S100–S120 in SOURCES.md). Educational simulation with fictional patients; not clinical decision support. Opioid starting doses come only from FDA labels; titration, breakthrough, conversion, CDC, naloxone and palliative-sedation values from the cited guidelines/frameworks; every other number is a labelled simulator convention or an illustrative author estimate. The symptom model (pain, dyspnoea, agitation, secretions, nausea, constipation, RASS, respiratory rate) is illustrative and not validated; no survival or mortality is modelled and no outcome claim is made. Palliative sedation is gated by six documentation items, every titration needs the clinician's approval, the engine never escalates or acknowledges anything on its own, and comfort opioids continue (they are not used to sedate). Excluded by design: any content about medical aid in dying, euthanasia or hastening death.
 
-78 parameters. Provenance counts: fda_label: 11, guideline: 21, simulator_convention: 12, author_estimate_unvalidated: 34.
+79 parameters. Provenance counts: fda_label: 11, guideline: 21, simulator_convention: 13, author_estimate_unvalidated: 34.
 
 | Component | Drug | Parameter | Value | Unit | Provenance | Sources | Note |
 |---|---|---|---|---|---|---|---|
@@ -824,6 +824,7 @@ Generated from `engine/palliative.js` `palliativeParameterInventory()` (data: `d
 | palliative_rule |  | NALOXONE_MIN_INTERVAL_MIN | 2 | min | guideline | S116, S14 | Repeat no sooner than every 2 min (IV). |
 | palliative_rule |  | PROPORTIONALITY_ALARM_MIN | 30 | min deeper than the documented target | simulator_convention | S101 | Proportionality (S101) means the lowest sedation level that relieves the symptom; the 30-min persistence before the alarm is a teaching convention. |
 | palliative_rule |  | COMFORT_NOT_ACHIEVED_SCORE | 4 | symptom score 0–10, sustained 60 min | simulator_convention |  | Alarm when the documented target symptom stays ≥4 for 60 min during sedation (teaching convention). The engine never escalates on its own. |
+| palliative_rule |  | TOLERANT_BASELINE_MAX_MME_DAY | 200 | MME/day (oral) | simulator_convention |  | Simulator teaching ceiling on an opioid-tolerant patient's current regimen (owner decision, audit 2026-11-26): above every shipped case (60–120 MME/day). No source gives a maximum; higher or IV baselines are a specialist decision and are not simulated. Not a clinical limit. |
 | palliative_rule |  | MIDAZOLAM_MAX_SIM_MG_H | 10 | mg/h | guideline | S101 | Framework: at doses above 10 mg/h consider adding or changing medication; second-line agents are not simulated, so the simulator stops at 10 mg/h (simulator hard stop anchored to the framework statement). |
 | palliative_sedation | midazolam | midazolam light bolus SC / IV | "2.5 / 1.25" | mg | guideline | S101 | Revised EAPC framework step 1. |
 | palliative_sedation | midazolam | midazolam deep bolus SC / IV | "5–10 / 2.5–5" | mg | guideline | S101 | Revised EAPC framework step 1; default = lower bound. |

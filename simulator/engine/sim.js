@@ -142,7 +142,7 @@ class Simulation {
     this.autoRun = null; // set by engine/autorun.js while/after an automatic or guided run
     this.rescueAdvisor = null; // set by engine/rescue.js createRescueAdvisor(); advisory only, never doses
     this.depthAdvisor = null; // set by engine/depth-advisory.js createDepthAdvisor(); text only, never doses, not an alarm
-    this.stats = { depthOutOfBandSec: 0, timeMapBelow65Sec: 0, minSpo2: Infinity, maxHr: -Infinity, minHr: Infinity, maxMap: -Infinity, minMap: Infinity, interlockEvents: [], extubation: null };
+    this.stats = { depthOutOfBandSec: 0, timeMapBelow65Sec: 0, minSpo2: Infinity, maxHr: -Infinity, minHr: Infinity, maxMap: -Infinity, minMap: Infinity, interlockEvents: [], timedCancellations: [], extubation: null };
     this.maskVentSec = 0;
     this.depots = [];
     this.fluid = { retainedMl: 0, pendingMl: 0, sepsisNoteLogged: false, cautionsLogged: new Set() };
@@ -169,7 +169,9 @@ class Simulation {
     }
     const { lockouts, pyLocks } = computeLockouts(p, this.lib);
     this.core = new InterlockCore({ hardLockouts: pyLocks });
-    if (!interlocksEnabled) this.core.status = 'DISABLED';
+    // interlocks=false turns off only the HR/MAP holds (audit 2026-11-26, finding 3): the sensor fail-safe,
+    // the Python simulation rate ceilings, lockouts and any latched hold apply in every mode.
+    this.core.thresholdRulesEnabled = !!interlocksEnabled;
 
     const drugs = {};
     for (const d of listDrugs(this.lib)) {
@@ -191,7 +193,7 @@ class Simulation {
       // (clinician only), clinician acknowledgement of an index below the GA band, planned end of surgery.
       periop: { transferAt: null, timeOut: null, depthAck: null, sedationAck: null, plannedSurgeryEndSec: null },
       alarms: [],
-      interlocks: { enabled: !!interlocksEnabled, status: interlocksEnabled ? 'INITIALIZING' : 'DISABLED', holdLatched: false, heldDrugs: [], lockouts, holdEpisode: null, hold: null, suspension: { active: false, by: null, reason: null, startedAtSec: null, durationSec: null, untilSec: null, remainingSec: 0 } },
+      interlocks: { enabled: !!interlocksEnabled, status: 'INITIALIZING', holdLatched: false, heldDrugs: [], lockouts, holdEpisode: null, hold: null, suspension: { active: false, by: null, reason: null, startedAtSec: null, durationSec: null, untilSec: null, remainingSec: 0 } },
       log: [],
     };
     this._log('phase', 'Simulation created (premed). Educational simulation — fictional patient.');
@@ -326,6 +328,7 @@ class Simulation {
     const warnings = [];
     if (kind === 'stop') {
       this._setRate(drug, 0, ds.rateUnit);
+      this._cancelTimed(drug.id, 'stopped by the clinician');
       this._doseLog(drug, { kind: 'stop', regimenKey: null }, meta);
       this._log('dose', `${drug.name} stopped${meta.source === 'plan' ? ' (plan)' : ''}`);
       return res(true, false, [], []);
@@ -336,6 +339,7 @@ class Simulation {
     const noRegimen = noRegimenReason(drug, kind);
     if (noRegimen) return res(false, true, [noRegimen], []);
     if (this.state.interlocks.lockouts[drug.id]) return res(false, true, this.state.interlocks.lockouts[drug.id], []);
+    if (kind === 'bolus' && this._isHeld(drug.id)) return res(false, true, [`${drug.name} is held by a latched interlock; use resume_hold first`], []);
     for (const c of evaluateContraindications(this.patient, drug.id, this.lib)) if (c.severity === 'warn') warnings.push(c.message);
     const limits = this.ceilings[drug.id];
 
@@ -384,7 +388,7 @@ class Simulation {
       this.bolusGiven[drug.id] = (this.bolusGiven[drug.id] || 0) + amt;
       if (tg) { this.teaching.given[tg.key] += amt; if (tgUse) { tgUse.used = { tSec: this.state.tSec, amount: amt, totalAfter: this.teaching.given[tg.key] }; warnings.push(`Given above the simulator teaching ceiling ${tg.value} ${tg.unit} (${tg.label}; total now ${roundSig(this.teaching.given[tg.key])} ${tg.unit}) after the clinician's confirmation`); } }
       if (route !== 'IV') { this.depots.push({ drugId: drug.id, remaining: amt, ka: ROUTE_KA_ILLUSTRATIVE[route] ?? ROUTE_KA_ILLUSTRATIVE.IM, route }); ds.cumulative += amt; }
-      else if (overSec) this.timed.push({ drugId: drug.id, perMin: amt / (overSec / 60), remaining: amt });
+      else if (overSec) this.timed.push({ drugId: drug.id, perMin: amt / (overSec / 60), remaining: amt, total: amt, startedSec: this.state.tSec, teachingKey: tg ? tg.key : null });
       else { model.model.bolus(amt); ds.cumulative += amt; }
       if (drug.id === 'rocuronium') this.lastRocBolus = { tSec: this.state.tSec, perKg: amt / this.patient.weightKg };
       this._doseLog(drug, { kind: 'bolus', regimenKey: cmd.regimenKey || null, amount: amt, route, overSec, tierWarning: rtw.find((x) => /tier for the current block/.test(x)) || null }, meta);
@@ -422,11 +426,11 @@ class Simulation {
         }
         for (const L of limits) if (L.type === 'cumulative' && !L.bolusOnly && rate > 0 && ds.cumulative >= L.absolute - 1e-9) return res(false, true, [`Cumulative ceiling already reached (${L.label})`], warnings);
         const py = SIM_TO_PY_ID[drug.id];
-        if (this.state.interlocks.enabled && py && CONTROLLED.includes(py)) {
+        if (py && CONTROLLED.includes(py)) {
           if (this.core.holdLatched && this.core.heldDrugs.has(py) && rate > 0) return res(false, true, [`${drug.name} is held by a latched interlock; use resume_hold first`], warnings);
           const pyRate = convertRateSafe(rate, unit, PY_RATE_UNITS[py], this.rateWeight[drug.id]);
           const ceil = NOA_CONFIG.simulation_rate_ceilings[py];
-          if (pyRate === null || aboveCeiling(pyRate, ceil)) return res(false, true, [`Rate above the Python simulation ceiling ${ceil} ${PY_RATE_UNITS[py]} (config.yaml simulation_rate_ceilings; applies while interlocks are on)`], warnings);
+          if (pyRate === null || aboveCeiling(pyRate, ceil)) return res(false, true, [`Rate above the Python simulation ceiling ${ceil} ${PY_RATE_UNITS[py]} (config.yaml simulation_rate_ceilings; applies in every mode)`], warnings);
         }
       }
       const rc = this._rangeCheck(drug, kind, rate, unit);
@@ -442,6 +446,35 @@ class Simulation {
   }
 
   /** Record a dose for the live timing checks (engine/timing.js liveTimingChecks). */
+  /** True while `drugId` is held by a latched interlock (controlled agents only). */
+  _isHeld(drugId) {
+    const py = SIM_TO_PY_ID[drugId];
+    return !!(py && CONTROLLED.includes(py) && this.core.holdLatched && this.core.heldDrugs.has(py));
+  }
+
+  /**
+   * Cancel every pending timed IV dose of `drugId` (a hold, a lockout or a stop). The undelivered amount is
+   * logged and recorded; nothing restarts on its own: a new dose needs a fresh, explicit action (audit 2026-11-26).
+   */
+  _cancelTimed(drugId, reason) {
+    const gone = this.timed.filter((x) => x.drugId === drugId);
+    if (!gone.length) return 0;
+    this.timed = this.timed.filter((x) => x.drugId !== drugId);
+    const drug = getDrug(this.lib, drugId);
+    for (const x of gone) {
+      const undelivered = x.remaining; const delivered = x.total - x.remaining;
+      // The whole amount was charged to the bolus ceiling (and any teaching ceiling) when it was scheduled;
+      // credit back what was never delivered, so a later dose is judged on what the patient received.
+      this.bolusGiven[drugId] = Math.max(0, (this.bolusGiven[drugId] || 0) - undelivered);
+      if (x.teachingKey) this.teaching.given[x.teachingKey] = Math.max(0, this.teaching.given[x.teachingKey] - undelivered);
+      const rec = { tSec: this.state.tSec, drugId, reason, total: x.total, delivered, undelivered, unit: drug.amountUnit };
+      this.stats.timedCancellations.push(rec);
+      this.doseLog.push({ tSec: this.state.tSec, drugId, phase: this.state.phase, source: 'engine', kind: 'timed_cancelled', reason, total: x.total, delivered, undelivered });
+      this._log('dose', `${drug.name} timed dose cancelled (${reason}): ${roundSig(delivered)} of ${roundSig(x.total)} ${drug.amountUnit} delivered, ${roundSig(undelivered)} ${drug.amountUnit} not delivered. It does not restart; give a new dose to continue.`);
+    }
+    return gone.reduce((a, x) => a + x.remaining, 0);
+  }
+
   _doseLog(drug, x, meta) {
     const agentsOn = listDrugs(this.lib).filter((d) => ['volatile', 'gas', 'hypnotic'].includes(d.cls) && this.state.drugs[d.id].infusionRate > 0).map((d) => d.id);
     this.doseLog.push({ tSec: this.state.tSec, drugId: drug.id, phase: this.state.phase, source: meta.source || 'user', tofCount: this.state.vitals.tofCount, agentsOn, ...x });
@@ -645,12 +678,10 @@ class Simulation {
     // suspend_interlocks / end_suspension). Simulated clinician actions, logged (kind 'interlock') and
     // recorded in stats.interlockEvents; the automatic runner never calls any of them.
     if (id === 'acknowledge_hold' || id.startsWith('acknowledge_hold:')) {
-      if (!this.state.interlocks.enabled) return no('Interlocks are disabled');
       if (!this.core.holdLatched) return no('No latched hold to acknowledge');
       return this._interlockAction(t, () => this.core.acknowledgeHold(INTERLOCK_ACTOR, id.length > 16 ? id.slice(17) : ''));
     }
     if (id === 'resume_hold') {
-      if (!this.state.interlocks.enabled) return no('Interlocks are disabled');
       if (!this.core.holdLatched) return no('No latched hold');
       const held = this.core.hold ? [...this.core.hold.drugs] : [];
       const hold = this.core.hold ? { ...this.core.hold, reasons: this.core.hold.reasons.map((r) => ({ ...r })) } : null;
@@ -674,14 +705,13 @@ class Simulation {
     if (id.startsWith('suspend_interlocks:')) {
       // suspend_interlocks:<seconds>:<reason> — the reason (everything after the second ':') is required
       // and stored verbatim.
-      if (!this.state.interlocks.enabled) return no('Interlocks are disabled');
+      if (!this.state.interlocks.enabled) return no('HR/MAP holds are off for this case, so there is nothing to suspend');
       const rest = id.slice(19); const k = rest.indexOf(':');
       if (k < 0) return no('Use suspend_interlocks:<seconds>:<reason> (a reason is required)');
       const sec = /^\d+$/.test(rest.slice(0, k)) ? Number(rest.slice(0, k)) : NaN;
       return this._interlockAction(t, () => this.core.suspendInterlocks(sec, INTERLOCK_ACTOR, rest.slice(k + 1)));
     }
     if (id === 'end_suspension') {
-      if (!this.state.interlocks.enabled) return no('Interlocks are disabled');
       return this._interlockAction(t, () => this.core.endSuspension(INTERLOCK_ACTOR));
     }
     if (id.startsWith('acknowledge:')) {
@@ -948,7 +978,7 @@ class Simulation {
       if (ds.infusionRate !== this._lastRate[d.id] && !(Number.isNaN(ds.infusionRate) && Number.isNaN(this._lastRate[d.id]))) {
         const v = ds.infusionRate;
         this._log('interlock', `Direct write detected: ${d.name} rate ${String(v)} ${ds.rateUnit} — re-validated by safety layer`);
-        const isPy = S.interlocks.enabled && SIM_TO_PY_ID[d.id] && CONTROLLED.includes(SIM_TO_PY_ID[d.id]);
+        const isPy = SIM_TO_PY_ID[d.id] && CONTROLLED.includes(SIM_TO_PY_ID[d.id]);
         if (!(isFiniteNumber(v) && v >= 0)) { if (!isPy) this._setRate(d, 0, ds.rateUnit); else this._lastRate[d.id] = v; }
         else {
           try { this._setRate(d, v, ds.rateUnit); } catch { this._setRate(d, 0, ds.rateUnit); }
@@ -964,7 +994,7 @@ class Simulation {
     //    after the reading crosses the threshold. This mirrors the Python controller loop and the parity tests
     //    (tests/parity.test.mjs) and is deliberately not reordered. No extra drug is delivered during the lag:
     //    the infusions for this second are zeroed here, before PK (step 6) consumes them (AUDIT_2026-11.md).
-    if (S.interlocks.enabled) {
+    {
       const inf = {};
       for (const py of CONTROLLED) {
         const id = PY_TO_SIM_ID[py]; const ds = S.drugs[id];
@@ -979,6 +1009,7 @@ class Simulation {
         const id = PY_TO_SIM_ID[py]; const ds = S.drugs[id];
         if (ds && this.core.infusions[py] === 0 && ds.infusionRate !== 0) { this._setRate(getDrug(lib, id), 0, ds.rateUnit); this._log('interlock', `${getDrug(lib, id).name} set to zero by interlock`); }
       }
+      for (const py of this.core.heldDrugs) if (PY_TO_SIM_ID[py]) this._cancelTimed(PY_TO_SIM_ID[py], 'interlock hold');
       const newHeld = [...this.core.heldDrugs].filter((d) => !prevHeld.has(d));
       // Log/record decisions without flooding: each latch / suppressed-breach code is recorded at most once
       // per 60 s while it persists (and immediately when a new drug is held); the other codes (suspension
@@ -998,17 +1029,21 @@ class Simulation {
       S.interlocks.status = this.core.status;
       this._syncInterlockState();
       this._trackHoldEpisode(t, r.events.filter((e) => LATCH_CODES.includes(e.code)), prevHeld);
-    } else {
-      for (const d of listDrugs(lib)) { const ds = S.drugs[d.id]; if (!(isFiniteNumber(ds.infusionRate) && ds.infusionRate >= 0)) this._setRate(d, 0, ds.rateUnit); }
     }
+    for (const d of listDrugs(lib)) { const ds = S.drugs[d.id]; if (!(isFiniteNumber(ds.infusionRate) && ds.infusionRate >= 0)) this._setRate(d, 0, ds.rateUnit); }
 
     for (const d of this._labelCheckAfterInterlock || []) this._enforceLabelRate(d, t);
     this._labelCheckAfterInterlock = null;
 
     // 5. lockouts (all drugs) re-enforced every step
+    for (const id of Object.keys(S.interlocks.lockouts)) this._cancelTimed(id, 'locked out');
     for (const id of Object.keys(S.interlocks.lockouts)) if (S.drugs[id] && S.drugs[id].infusionRate !== 0) { this._setRate(getDrug(lib, id), 0, S.drugs[id].rateUnit); this._log('interlock', `${getDrug(lib, id).name} is locked out — set to zero`); }
 
     // 6. timed boluses and cumulative ceilings, then PK
+    for (const id of new Set(this.timed.map((x) => x.drugId))) {
+      if (this._isHeld(id)) this._cancelTimed(id, 'interlock hold');
+      else if (S.interlocks.lockouts[id]) this._cancelTimed(id, 'locked out');
+    }
     for (const tb of this.timed) {
       const amt = Math.min(tb.remaining, tb.perMin * dtMin);
       const m = this._model(tb.drugId); m.model.bolus(amt); tb.remaining -= amt; S.drugs[tb.drugId].cumulative += amt;
@@ -1140,7 +1175,7 @@ class Simulation {
       this._depthHighAlarm(V, h, hy), // reads the arming state updated once above (_updateDepthArmingState)
       { id: 'depth_over_target', priority: 'medium', message: `Sedation deeper than ${target} target (${V.sedationLevel}): airway/ventilation risk`, active: !!target && SEDATION_RANK[V.sedationLevel] > SEDATION_RANK[target] },
       ...this._prophylaxisAlarm(t),
-      { id: 'interlock_hold', priority: 'medium', message: `Interlock hold latched (${S.interlocks.heldDrugs.join(', ') || 'no infusions running'}); resume_hold required`, active: S.interlocks.enabled && S.interlocks.holdLatched },
+      { id: 'interlock_hold', priority: 'medium', message: `Interlock hold latched (${S.interlocks.heldDrugs.join(', ') || 'no infusions running'}); resume_hold required`, active: S.interlocks.holdLatched },
     ];
     this.alarmMgr.update(t, conds);
     S.alarms = this.alarmMgr.list();
