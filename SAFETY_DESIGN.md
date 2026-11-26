@@ -23,7 +23,7 @@ Every number in the diagrams and in the table below is **generated from the engi
 | MAP hold threshold (strict "<") | 60 mmHg | `hemodynamic_thresholds.map_critical_low` |
 | Sensor plausibility limits | HR 0–300 /min, MAP 0–300 mmHg | `sensor_plausibility` (simulation limits, not clinical standards) |
 | Sudden-drop limits (1-s drop, strict ">") | HR 40 /min, MAP 30 mmHg | `sensor_plausibility.*_max_drop_per_sec` |
-| Simulation rate ceilings | dexmedetomidine 0.5 mcg/kg/h, ketamine 0.2 mg/kg/h, lidocaine 1.5 mg/kg/h | `simulation_rate_ceilings` (software ceilings, not clinical maxima) |
+| Simulation rate ceilings | dexmedetomidine 0.5 mcg/kg/h, ketamine 0.2 mg/kg/h, lidocaine 1.5 mg/kg/h | `simulation_rate_ceilings` (software ceilings and independent teaching parameters, not clinical maxima; applied to total body weight, so the lidocaine value does not implement the 2021 lidocaine consensus) |
 | Longest suspension | 1–300 s | `interlock_suspension_max_sec` (simulator convention) |
 | Long-hold note interval | 600 s (10 min) | `interlock_long_hold_advisory_sec` (simulator convention) |
 | Label repeat intervals (clinician repeat refused) | phenylephrine IV 60 s, glycopyrrolate IV 120 s (outside emergence), epinephrine IM/SC 300 s | `TIMING_CONFIG` (lower bounds of the label intervals) |
@@ -38,7 +38,7 @@ Each simulated second the engine re-applies the hard lockouts and any latched ho
 <!-- safety-diagrams:decision-tree:start -->
 ```mermaid
 flowchart TD
-  T0(["Each simulated second with interlocks on: InterlockCore.evaluate(HR, MAP)"])
+  T0(["Each simulated second, in every mode: InterlockCore.evaluate(HR, MAP)"])
   T0 --> C1["Enforce constraints: re-zero hard-locked agents and agents held by a latched hold"]
   C1 --> X{"Suspension set and its end time reached?"}
   X -->|"yes"| X1["End the suspension; log suspension_expired"]
@@ -53,7 +53,9 @@ flowchart TD
   R -->|"yes"| RF["That agent set to zero; hold latched; status RED; log rate_fault"]
   R -->|"no"| PK["Update the dexmedetomidine model"]
   RF --> PK
-  PK --> H{"HR < 48 /min?"}
+  PK --> HM{"HR/MAP holds on for this case?"}
+  HM -->|"no: holds turned off"| ST
+  HM -->|"yes"| H{"HR < 48 /min?"}
   H -->|"yes, suspension active"| HS["Log breach_suppressed; no hold latched"]
   H -->|"yes, not suspended"| HT["Dexmedetomidine set to zero; hold latched; status RED; log hr_low"]
   H -->|"no"| M{"MAP < 60 mmHg?"}
@@ -80,7 +82,7 @@ flowchart TD
   L1 --> DONE
 ```
 
-**Text alternative.** Every simulated second, while interlocks are on, the engine first re-zeroes every hard-locked agent and every agent held by a latched hold, then ends a suspension whose time is up (logged). It then checks the reading. If HR or MAP is unusable — missing, not a number, NaN, infinite or boolean; outside HR 0–300 /min or MAP 0–300 mmHg; or a drop of more than 40 /min (HR) or 30 mmHg (MAP) since the previous usable reading one second earlier — all three controlled infusions go to zero, the hold latches, the status is RED and the rest of the threshold rules are skipped (fail-safe). Otherwise the reading becomes the drop baseline; any rate that is negative, non-finite or above its simulation ceiling (dexmedetomidine 0.5 mcg/kg/h, ketamine 0.2 mg/kg/h, lidocaine 1.5 mg/kg/h) is set to zero and latches the hold (RED); the dexmedetomidine model updates; then HR < 48 /min (dexmedetomidine) and MAP < 60 mmHg (dexmedetomidine and lidocaine) are checked in that order: each either zeroes its agents, latches the hold and sets RED, or — only while an explicit suspension is active — is logged as a suppressed breach without a latch. The status is RED after a MAP trip; HOLD when a hold is latched and nothing new tripped on HR or rate; GREEN when no hold is latched and there is no rate fault; otherwise RED. Finally, if a new trigger or a newly held agent cancelled an acknowledgment, that is logged, and a non-blocking long-hold note is logged every 10 minutes a hold stays latched. Ketamine is not part of the HR/MAP rules. Nothing in the step raises a rate.
+**Text alternative.** Every simulated second, in every mode, the engine first re-zeroes every hard-locked agent and every agent held by a latched hold, then ends a suspension whose time is up (logged). It then checks the reading. If HR or MAP is unusable — missing, not a number, NaN, infinite or boolean; outside HR 0–300 /min or MAP 0–300 mmHg; or a drop of more than 40 /min (HR) or 30 mmHg (MAP) since the previous usable reading one second earlier — all three controlled infusions go to zero, the hold latches, the status is RED and the rest of the threshold rules are skipped (fail-safe). Otherwise the reading becomes the drop baseline; any rate that is negative, non-finite or above its simulation ceiling (dexmedetomidine 0.5 mcg/kg/h, ketamine 0.2 mg/kg/h, lidocaine 1.5 mg/kg/h) is set to zero and latches the hold (RED); the dexmedetomidine model updates; then HR < 48 /min (dexmedetomidine) and MAP < 60 mmHg (dexmedetomidine and lidocaine) are checked in that order: each either zeroes its agents, latches the hold and sets RED, or — only while an explicit suspension is active — is logged as a suppressed breach without a latch. The status is RED after a MAP trip; HOLD when a hold is latched and nothing new tripped on HR or rate; GREEN when no hold is latched and there is no rate fault; otherwise RED. Finally, if a new trigger or a newly held agent cancelled an acknowledgment, that is logged, and a non-blocking long-hold note is logged every 10 minutes a hold stays latched. If the HR/MAP holds are turned off for a case, the HR and MAP checks are skipped; every other step above still runs. Ketamine is not part of the HR/MAP rules. Nothing in the step raises a rate.
 <!-- safety-diagrams:decision-tree:end -->
 
 ### 1.2 Why release takes two steps, and why nothing restarts automatically

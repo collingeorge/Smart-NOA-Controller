@@ -305,7 +305,7 @@ class AutoRunner {
       this.holdContinue = null;
     }
     const continuing = !!(latched && ep && this.holdContinue && ep.id === this.holdContinue.episodeId);
-    if (this._v('PAUSE_ON_INTERLOCK_HOLD') && S.interlocks.enabled && latched && !continuing) {
+    if (this._v('PAUSE_ON_INTERLOCK_HOLD') && latched && !continuing) {
       out.push({ kind: 'interlock_hold', episodeId: ep ? ep.id : null, headline: 'Interlock hold latched', message: `Interlock hold latched (held: ${S.interlocks.heldDrugs.join(', ') || 'no infusions running'}${ep ? `; ${triggerText(ep.triggers)}` : ''}). Automatic mode does not release holds — use "Resume hold" if appropriate, then Resume, or choose "Continue with hold latched (this hold only)".` });
     }
     const pr = this._v('PAUSE_ALARM_PRIORITIES');

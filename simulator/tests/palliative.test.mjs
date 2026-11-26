@@ -124,7 +124,13 @@ test('symptom model sanity: analgesia lowers pain; opioid excess raises sedation
   const mean = (x) => x.state.trend.slice(-60).reduce((a, y) => a + y.pain, 0) / 60;
   assert.ok(mean(treated) < mean(none) - 1, `pain lower with analgesia (${mean(treated)} vs ${mean(none)})`);
   const od = sim('naive_ckd_inpatient');
-  od.approveRegimen({ drugId: 'hydromorphone', route: 'iv', dose: 1, intervalH: 2, scheduled: true, prnDose: 1, bowel: true }, OK);
+  // Since audit 2026-11-26 the engine refuses this overdose (above the renal-adjusted label starting range) ...
+  const refused = od.approveRegimen({ drugId: 'hydromorphone', route: 'iv', dose: 1, intervalH: 2, scheduled: true, prnDose: 1, bowel: true }, OK);
+  assert.equal(refused.ok, false); assert.match(refused.reason, /label starting range .*simulator teaching bound, not a clinical limit/);
+  assert.equal(od.state.regimen, null);
+  // ... so the symptom/alarm model is exercised by writing the same regimen straight into the model state
+  // (deliberately bypassing approval; a model-sanity check, not a path the interface offers).
+  od.state.regimen = { drugId: 'hydromorphone', route: 'iv', dose: 1, intervalH: 2, scheduled: true, prn: { dose: 1 } }; od.state.bowelRegimen = true;
   od.step(1000);
   assert.ok(od.state.alarms.some((a) => ['excess_sedation', 'resp_depression'].includes(a.id) && a.priority === 'high'), 'opioid excess alarm');
   assert.equal(od.state.paused.reason, 'alarm', 'HIGH alarm pauses');
@@ -198,8 +204,9 @@ test('all example cases run in guided mode for three days with clinician decisio
     if (c.plan.convertFromCurrent) { const r = p.currentRegimen; const cv = convertOpioid({ fromDrug: r.drugId, fromRoute: r.route, total24h: r.dose * 24 / r.intervalH, toDrug: c.plan.drugId, toRoute: c.plan.route, reductionPct: 25 }); assert.ok(cv.ok, c.id); dose = cv.perDose; intervalH = cv.intervalH; }
     else if (!dose) dose = recommendStart(p, c.plan.drugId, c.plan.route).dose.value;
     const prn = c.plan.scheduled ? breakthroughDose(dose * 24 / intervalH, c.plan.drugId, c.plan.route).dose : dose;
-    assert.equal(s.approveRegimen({ ...c.plan, dose, intervalH, prnDose: prn }, OK).ok, true, c.id);
-    assert.equal(s.approveRegimen({ ...c.plan, dose, intervalH, prnDose: prn }, OK).ok, false, 'second regimen must go through review');
+    const reductionPct = c.plan.convertFromCurrent ? 25 : undefined; // the clinician's reduction, used for the conversion above
+    assert.equal(s.approveRegimen({ ...c.plan, dose, intervalH, prnDose: prn, reductionPct }, OK).ok, true, c.id);
+    assert.equal(s.approveRegimen({ ...c.plan, dose, intervalH, prnDose: prn, reductionPct }, OK).ok, false, 'second regimen must go through review');
     let guard = 0;
     while (s.state.tMin < 3 * 1440 && guard++ < 200) {
       s.step(3 * 1440 - s.state.tMin);

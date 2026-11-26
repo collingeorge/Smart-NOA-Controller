@@ -23,13 +23,13 @@ Question: do the rescue interventions the engine offers work in its scripted eme
 | no NaN / Infinity in vitals (NaN only on a faulted sensor channel; internal PaO2/PaCO2/SaO2 and drug states finite) | PASS |
 | vitals within plausible bounds (MAP 20–220, HR 20–250, SpO2 0–100, SBP 20–300, RR 0–60, EtCO2 0–150, index 0–100) | PASS |
 | every accepted dose ≤ every hard limit (per dose, per route, cumulative; label/guideline ceilings, interpretCeilings) and given exactly as ordered (no silent clamping) | PASS |
-| every refused dose logged "BLOCKED" with nothing given | PASS (324578 refusals) |
+| every refused dose logged "BLOCKED" with nothing given | PASS (324565 refusals) |
 | every accepted dose outside the sourced regimen range carries a warning | PASS (468 such doses, all in the aggressive arm) |
-| zero clinician-entered (manual or advisory) repeats accepted inside the label repeat interval (phenylephrine 60 s, glycopyrrolate 120 s outside emergence, IM/SC epinephrine 300 s): each is REFUSED, logged with the interval and time remaining | PASS (107097 refusals) |
+| zero clinician-entered (manual or advisory) repeats accepted inside the label repeat interval (phenylephrine 60 s, glycopyrrolate 120 s outside emergence, IM/SC epinephrine 300 s): each is REFUSED, logged with the interval and time remaining | PASS (107084 refusals) |
 | no accepted dose takes a total above a simulator teaching ceiling without the clinician's confirmation action (one dose per confirmation) | PASS (refused until confirmed: epinephrine IV 51948, glycopyrrolate 7992, crystalloid boluses 54525; confirmations 468: 468 the aggressive arm's single deliberate probe per run, 0 by the rescue-arm clinician (the rescue strategies stay below every ceiling: ≤ 4 × 500 mL, ≤ 0.4 mg IV epinephrine); 468 drug doses and 0 fluid boluses given after a confirmation; the control arm and the automatic runner never confirm) |
 | running rates ≤ label rate/dial ceilings every second; controlled infusions ≤ Python simulation ceilings while interlocks are on; direct state write re-validated | PASS |
 | interlock hold latches one control iteration after MAP < 60 / HR < 48 / unusable reading, held infusions stay at 0, never released without resume_hold | PASS (1369 runs latched a hold; resume_hold was never pressed by the driver) |
-| no vasopressor without an explicit accept in advisory runs (advisory doses = accepted advisories = "ADVISORY accepted" log lines; control arm: zero vasopressor doses, zero accepts) | PASS (776 accepted, 10254 shown) |
+| no vasopressor without an explicit accept in advisory runs (advisory doses = accepted advisories = "ADVISORY accepted" log lines; control arm: zero vasopressor doses, zero accepts) | PASS (771 accepted, 10260 shown) |
 | plan-safety check passes for every patient's plan | PASS |
 | fault / hold combinations: rescue path available (FiO2, fluids, rescue bolus accepted during the fault or hold), held infusions cannot restart | PASS (336 runs) |
 | **runs with any violation** | **0** |
@@ -42,7 +42,7 @@ Refusals by drug and reason (numbers masked as #):
 | phenylephrine:bolus:IV: Total bolus dose would exceed # mcg (label maximum) (already given # mcg) | 60372 |
 | epinephrine:bolus:IM: Repeat bolus refused — repeat epinephrine IM bolus # s after the previous one; waits # s more (label: IM/SC repeated every # to # min as necessary; minimum # s) [S#]; # s remaining | 55224 |
 | epinephrine:bolus:IV: Above the simulator teaching ceiling (not a clinical limit): epinephrine IV boluses # mg > # mg — confirm with "Confirm dose above the simulator teaching ceiling" (action confirm_teaching_ceiling:epinephrine_iv) to give it | 51948 |
-| glycopyrrolate:bolus:IV: Repeat bolus refused — repeat glycopyrrolate IV bolus # s after the previous one; waits # s more (label: intraoperative # mg IV repeated as needed at #–# min intervals; minimum # s) [S#]; # s remaining | 46699 |
+| glycopyrrolate:bolus:IV: Repeat bolus refused — repeat glycopyrrolate IV bolus # s after the previous one; waits # s more (label: intraoperative # mg IV repeated as needed at #–# min intervals; minimum # s) [S#]; # s remaining | 46686 |
 | epinephrine:bolus:IM: Single dose above # mg (label maximum) | 9828 |
 | epinephrine:bolus:IV: Single dose above # mg per IV bolus (guideline IV titration dose used as a per-bolus stop (simulator policy)) | 9828 |
 | glycopyrrolate:bolus:IV: Above the simulator teaching ceiling (not a clinical limit): glycopyrrolate boluses # mg > # mg — confirm with "Confirm dose above the simulator teaching ceiling" (action confirm_teaching_ceiling:glycopyrrolate) to give it | 7992 |

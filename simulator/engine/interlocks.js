@@ -111,6 +111,12 @@ export class InterlockCore {
     this.hardLockouts = [...hardLockouts];
     this.infusions = infusions || { Dexmedetomidine: 0, Ketamine: 0, Lidocaine: 0 };
     this.status = 'INITIALIZING';
+    /**
+     * HR/MAP threshold rules (hr_low / map_low). Always true in the Python port and the parity tests. The web
+     * simulator's "HR/MAP holds" setting turns only these off; the sensor fail-safe, rate faults, lockouts and
+     * any latched hold stay active in every mode (audit 2026-11-26, finding 3).
+     */
+    this.thresholdRulesEnabled = true;
     this.holdLatched = false;
     this.heldDrugs = new Set();
     /** Current hold instance (null when none): { id, latchedAtSec, reasons:[{tSec, reason}], triggers, drugs, acknowledgedBy, acknowledgedAtSec, acknowledgmentNote, longHoldNotices }. */
@@ -259,7 +265,7 @@ export class InterlockCore {
       if (modelUpdate) modelUpdate();
       const left = `(${clockText(this.suspensionRemainingSec)} left)`; const by = this.suspension ? this.suspension.by : '';
       let hrTrip = false; let mapTrip = false;
-      if (hr < thr.hr_critical_low) {
+      if (this.thresholdRulesEnabled && hr < thr.hr_critical_low) {
         const breach = `HR ${hr} < ${thr.hr_critical_low}`;
         if (this.suspended) step.push(['breach_suppressed', ['Dexmedetomidine'], `${breach} → interlock SUSPENDED by ${by} ${left}: no hold latched`]);
         else {
@@ -267,7 +273,7 @@ export class InterlockCore {
           step.push(['hr_low', ['Dexmedetomidine'], `${breach} → Dexmedetomidine set to zero; hold latched`]);
         }
       }
-      if (map < thr.map_critical_low) {
+      if (this.thresholdRulesEnabled && map < thr.map_critical_low) {
         const breach = `MAP ${map} < ${thr.map_critical_low}`;
         if (this.suspended) step.push(['breach_suppressed', ['Dexmedetomidine', 'Lidocaine'], `${breach} → interlock SUSPENDED by ${by} ${left}: no hold latched`]);
         else {

@@ -177,7 +177,7 @@ function stepPlan(box, main) {
     if (pl.prnDose === null || !(pl.prnDose >= 0)) problems.push('Enter a PRN dose (0 for none).');
     if (problems.length) { fill(out, h('p', { class: 'notice notice--warn', role: 'alert', id: 'pal-approve-err' }, problems.join(' '))); announce(problems.join(' '), true); return; }
     const sim = createPalliativeSim({ patient: p, caseDef: caseDef(), module: pal.module, seed: 1 });
-    const res = sim.approveRegimen({ drugId: pl.drugId, route: pl.route, dose: pl.dose, intervalH: pl.intervalH, scheduled: pl.scheduled, prnDose: pl.prnDose, bowel: pl.bowel }, { approved: true });
+    const res = sim.approveRegimen({ drugId: pl.drugId, route: pl.route, dose: pl.dose, intervalH: pl.intervalH, scheduled: pl.scheduled, prnDose: pl.prnDose, bowel: pl.bowel, reductionPct: pl.reductionPct, ivRatio: pl.ivRatio }, { approved: true });
     if (!res.ok) { fill(out, h('p', { class: 'notice notice--warn', role: 'alert', id: 'pal-approve-err' }, res.reason)); return; }
     pal.sim = sim; pal.step = 3; renderPalliative(main); announce('Regimen approved. Scheduled and PRN doses now run automatically; the daily review asks for your decisions.');
   });

@@ -108,8 +108,8 @@
     },
     {
       "path": "SAFETY_DESIGN.md",
-      "bytes": 35875,
-      "sha256": "97f8df7a086d3d89e88b037070b9eb6c9a4366626a4bc1c3b447e420625b4ee8"
+      "bytes": 36205,
+      "sha256": "6f76a16660d3b4b28e9fc3cedf29c4f93ca9e2648c74365dbd96056b543cef52"
     },
     {
       "path": "START_HERE.md",
@@ -123,8 +123,8 @@
     },
     {
       "path": "config.yaml",
-      "bytes": 2469,
-      "sha256": "704c7d4238a46ac8470d470c9ffcf448c01217c03a240138eb6a946785dfff68"
+      "bytes": 2766,
+      "sha256": "0c8a3940eb32034085f170db6a3026c3bb7ff8caaeb9b7305f0b83e8a0beddc7"
     },
     {
       "path": "example_walkthrough.py",

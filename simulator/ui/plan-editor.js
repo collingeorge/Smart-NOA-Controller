@@ -37,8 +37,13 @@ export function interlockExplanation(lib) {
       h('li', {}, `An unusable sensor reading → dexmedetomidine, ketamine and lidocaine infusions zeroed; status RED. Unusable = a fault (missing / not a number), outside the simulation plausibility limits (HR ${c.sensor_plausibility.hr_min}–${c.sensor_plausibility.hr_max}/min, MAP ${c.sensor_plausibility.map_min}–${c.sensor_plausibility.map_max} mmHg), or a sudden one-second drop (HR > ${c.sensor_plausibility.hr_max_drop_per_sec}/min, MAP > ${c.sensor_plausibility.map_max_drop_per_sec} mmHg; a sudden rise is not checked). These are simulation safeguards, not clinical standards.`),
       h('li', {}, `A latched hold never restarts automatically. Releasing it takes two logged steps — “Resume hold”, tick “I have reviewed the cause of this hold”, then “Release hold” (acknowledge, then release) — and held infusions stay at zero afterwards: restart them yourself if appropriate. A new trigger or a newly held agent while latched cancels an earlier acknowledgment, and each acknowledgment is used by one release only. The hold’s reasons stay shown until it is released; every ${c.interlock_long_hold_advisory_sec / 60} min while it stays latched a non-blocking long-hold note is logged (not an alarm).`),
       h('li', {}, `“Suspend interlocks…” (manual override, 1–${c.interlock_suspension_max_sec} s in the engine, offered here as 60, 120 or ${c.interlock_suspension_max_sec} s; reason required, logged, shown in a banner) stops only the HR/MAP holds from latching; each breach is still logged as suppressed. The sensor fail-safe, rate ceilings, lockouts and any hold already latched stay active, and it expires on its own. Starting it ends guided/automatic mode, and those modes cannot be started until it ends.`),
-      h('li', {}, `Simulation rate ceilings: dexmedetomidine ${c.simulation_rate_ceilings.Dexmedetomidine} mcg/kg/h, ketamine ${c.simulation_rate_ceilings.Ketamine} mg/kg/h, lidocaine ${c.simulation_rate_ceilings.Lidocaine} mg/kg/h. These are the Python simulation ceilings, not clinical maxima.`)),
-    h('p', { class: 'hint' }, 'When off, those rules are skipped. Label ceilings and contraindication lockouts still apply either way.'));
+      h('li', {}, `Simulation rate ceilings: dexmedetomidine ${c.simulation_rate_ceilings.Dexmedetomidine} mcg/kg/h, ketamine ${c.simulation_rate_ceilings.Ketamine} mg/kg/h, lidocaine ${c.simulation_rate_ceilings.Lidocaine} mg/kg/h. These are the Python simulation ceilings, not clinical maxima. Each is an independent teaching parameter: the lidocaine value uses total body weight and does not implement the 2021 lidocaine consensus, which uses ideal body weight, an absolute hourly ceiling and a duration limit.`)),
+    h('p', { class: 'hint' }, 'Unticking the box turns off only the HR and MAP holds, so the physiology can be watched without them. Everything else above stays on in every mode: the sensor fail-safe, the simulation rate ceilings, any hold already latched, label ceilings and contraindication lockouts.'),
+    h('h4', {}, 'What each control does'),
+    h('ul', { class: 'list list--tight', id: 'pl-control-kinds' },
+      h('li', {}, h('strong', {}, 'Blocks the dose: '), 'label and sourced ceilings, the Python simulation rate ceilings, contraindication lockouts, the sensor fail-safe, a latched hold (including any timed IV dose of a held drug, which is cancelled and logged), and the HR/MAP holds when ticked.'),
+      h('li', {}, h('strong', {}, 'Needs your confirmation: '), 'simulator teaching ceilings (cumulative guards where no source gives a maximum). Each confirmation covers one dose and is logged.'),
+      h('li', {}, h('strong', {}, 'Warns only: '), 'sourced dose-range checks, repeat-bolus conditions and the lidocaine overlap note. The dose is given and the warning is logged.')));
 }
 
 export function renderPlan(ctx, main) {
@@ -87,7 +92,7 @@ export function renderPlan(ctx, main) {
   // ---------- interlocks + seed
   const ilId = 'pl-interlocks';
   const ilBox = h('input', { type: 'checkbox', id: ilId, checked: store.interlocks });
-  ilBox.addEventListener('change', () => { store.interlocks = ilBox.checked; ctx.planChanged(); renderAll(); document.getElementById(ilId).focus(); announce(`Interlocks ${ilBox.checked ? 'on' : 'off'}.`); });
+  ilBox.addEventListener('change', () => { store.interlocks = ilBox.checked; ctx.planChanged(); renderAll(); document.getElementById(ilId).focus(); announce(`HR/MAP holds ${ilBox.checked ? 'on' : 'off'}. Rate ceilings and the sensor fail-safe stay on.`); });
   const seedIn = h('input', { type: 'number', id: 'pl-seed', class: 'input input--num', min: 1, max: 999999, step: 1, value: store.seed });
   seedIn.addEventListener('change', () => { const v = Math.round(Number(seedIn.value)); store.seed = isNum(v) && v >= 1 ? v : 1; seedIn.value = store.seed; ctx.planChanged(); });
 
@@ -285,12 +290,7 @@ export function renderPlan(ctx, main) {
               h('span', { class: 'hint block' }, m.note)));
           }
           const ic = interlockCeiling(drug, s.rateUnit, patient);
-          if (ic) lines.push(h('p', { class: 'hint' }, `Smart NOA simulation ceiling ${ic.pyValue} ${ic.pyUnit} — ${store.interlocks ? 'applies (interlocks on)' : 'not applied (interlocks off)'} `, srcTags([E.pythonConfig])));
-          if (!store.interlocks && s.prefillNote === undefined && isNum(s.labelDefault) && s.rate !== s.labelDefault && ic && s.rate === ic.value) {
-            const b = h('button', { type: 'button', class: 'btn btn--small' }, `Restore label default ${s.labelDefault}`);
-            b.addEventListener('click', () => { s.rate = s.labelDefault; const ri = document.getElementById(fid('r')); if (ri) ri.value = s.rate; update(); });
-            lines.push(h('p', {}, b));
-          }
+          if (ic) lines.push(h('p', { class: 'hint' }, `Smart NOA simulation ceiling ${ic.pyValue} ${ic.pyUnit} — applies in every mode `, srcTags([E.pythonConfig])));
         }
         if (rec.timing) lines.push(h('p', { class: 'hint' }, h('strong', {}, 'Timing (label/guideline): '), rec.timing));
         for (const n of rec.notes) lines.push(h('p', { class: 'note' }, h('strong', {}, 'Note: '), n, ' ', srcTags(sourcesInText(n))));
@@ -477,7 +477,7 @@ export function renderPlan(ctx, main) {
       h('p', {}, h('strong', {}, `${plan.steps.length} step(s)`), ' · ',
         iss.errors ? h('span', { class: 'error-text' }, `${iss.errors} blocking issue(s)`) : h('span', {}, 'no blocking issues'), ' · ',
         iss.warnings ? h('span', { class: 'warn-text' }, `${iss.warnings} warning(s)`) : 'no warnings',
-        ' · Interlocks ', h('strong', {}, store.interlocks ? 'ON' : 'OFF')));
+        ' · HR/MAP holds ', h('strong', {}, store.interlocks ? 'ON' : 'OFF')));
     contBtn.setAttribute('aria-disabled', iss.errors ? 'true' : 'false');
     ctx.refreshStepper();
     clear(notice);
@@ -525,7 +525,7 @@ export function renderPlan(ctx, main) {
     h('div', { class: 'grid grid--2' },
       h('section', { class: 'card' }, h('h3', {}, 'Technique & target'), modeBox, targetBox, abxField),
       h('section', { class: 'card' }, h('h3', {}, 'Simulation settings'),
-        h('div', { class: 'check check--block' }, ilBox, h('label', { for: ilId }, h('strong', {}, 'Interlocks (Smart NOA rules)'))),
+        h('div', { class: 'check check--block' }, ilBox, h('label', { for: ilId }, h('strong', {}, 'HR/MAP interlock holds (Smart NOA rules)'))),
         interlockExplanation(lib),
         h('div', { class: 'field field--sm' }, h('label', { class: 'label', for: 'pl-seed' }, 'Random seed'), seedIn, h('p', { class: 'hint' }, 'Same seed = same (illustrative) physiological noise.')),
         h('div', { class: 'inline-form' }, h('label', { class: 'label', for: 'pl-example' }, 'Example plan'), exSel, exBtn))),

@@ -207,9 +207,12 @@ test('clinical 6: dexmedetomidine at labelled procedural doses gives moderate se
   for (const id of ['healthy_adult', 'elderly_cad_ckd']) {
     const sim = createSimulation({ patient: EX(id), library: REAL, interlocks: false, seed: 1 });
     const w = sim.patient.weightKg; const hr0 = sim.patient.baseline.hr;
-    sim.administer({ drugId: 'dexmedetomidine', kind: 'bolus', amount: (id === 'healthy_adult' ? 1 : 0.5) * w, amountUnit: 'mcg', overSec: 600 });
+    assert.ok(sim.administer({ drugId: 'dexmedetomidine', kind: 'bolus', amount: (id === 'healthy_adult' ? 1 : 0.5) * w, amountUnit: 'mcg', overSec: 600 }).ok);
     runFor(sim, 600);
-    sim.administer({ drugId: 'dexmedetomidine', kind: 'infusion', rate: 1, rateUnit: 'mcg/kg/h' });
+    // The label's procedural range reaches 1 mcg/kg/h, but the Python simulation ceiling (0.5 mcg/kg/h) applies in
+    // every mode since audit 2026-11-26 (finding 3): 1 mcg/kg/h is refused; the physiology is checked at 0.5.
+    assert.equal(sim.administer({ drugId: 'dexmedetomidine', kind: 'infusion', rate: 1, rateUnit: 'mcg/kg/h' }).blocked, true);
+    assert.ok(sim.administer({ drugId: 'dexmedetomidine', kind: 'infusion', rate: 0.5, rateUnit: 'mcg/kg/h' }).ok);
     const m = minDepth(sim, 1800);
     assert.ok(m >= 65, `${id}: depth ${m} stays out of the general-anaesthesia range`);
     assert.notEqual(sim.state.vitals.sedationLevel, 'general');

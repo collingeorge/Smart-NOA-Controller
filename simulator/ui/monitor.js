@@ -193,7 +193,7 @@ export function renderMonitor(ctx, main) {
     if (on) { setText(susBannerTimer, fmtClock(sp.remainingSec)); setText(susBannerWho, `by ${sp.by}`); setText(susBannerText, `reason: ${sp.reason}`); }
     suspendBtn.disabled = !S.interlocks.enabled || on;
     if (suspendBtn.disabled && !ilSuspend.hidden) closeSuspend(false);
-    holdBanner.hidden = !(S.interlocks.enabled && S.interlocks.holdLatched);
+    holdBanner.hidden = !S.interlocks.holdLatched;
     if (!holdBanner.hidden) {
       const name = (id) => getDrugById(lib, id)?.name || id;
       const reasons = hd && hd.reasons.length ? hd.reasons.map((x) => `${x.reason} (${fmtClock(x.tSec)})`).join('; ') : 'not recorded';
@@ -795,11 +795,11 @@ export function renderMonitor(ctx, main) {
     // interlocks
     const st = S.interlocks.status;
     const suspended = !!(S.interlocks.suspension && S.interlocks.suspension.active);
-    ilBadge.className = `il-badge il-badge--${st.toLowerCase()}${suspended ? ' il-badge--suspended' : ''}`; setText(ilBadge, `Interlocks: ${st}${suspended ? ' · SUSPENDED' : ''}`);
+    ilBadge.className = `il-badge il-badge--${st.toLowerCase()}${suspended ? ' il-badge--suspended' : ''}`; setText(ilBadge, `Interlocks: ${st}${suspended ? ' · SUSPENDED' : ''}${S.interlocks.enabled ? '' : ' · HR/MAP holds off'}`);
     setText(ilStatus, INTERLOCK_TEXT[st] || st); ilStatus.className = `il-status il-status--${st.toLowerCase()}`;
     const hdr = S.interlocks.hold && S.interlocks.hold.reasons.length ? ` — reason(s): ${S.interlocks.hold.reasons.map((x) => x.reason).join('; ')}` : '';
     setText(ilHeld, S.interlocks.holdLatched ? `Held: ${S.interlocks.heldDrugs.map((id) => getDrugById(lib, id)?.name || id).join(', ') || 'none'}${hdr}` : 'No hold latched.');
-    resumeBtn.disabled = !(S.interlocks.enabled && S.interlocks.holdLatched);
+    resumeBtn.disabled = !S.interlocks.holdLatched;
     renderRelease(); renderSuspension();
     // alarms
     renderAlarms();

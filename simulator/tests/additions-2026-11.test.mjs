@@ -320,7 +320,8 @@ for (const t of TECHNIQUE_TEMPLATES) {
           if (s.kind === 'bolus' || s.kind === 'antibiotic') assert.equal(s.amount, s.loading ? rec.loading.value : rec.dose.value, `${ex.id}/${t.id}/${s.drugId}`);
           if (s.kind === 'infusion') {
             const pre = r.prefilled.find((x) => x.drugId === s.drugId);
-            if (pre) { assert.ok(interlocks); assert.equal(pre.from, rec.rate.value); } else assert.equal(s.rate, rec.rate.value);
+            if (pre) assert.equal(pre.from, rec.rate.value); // the ceiling is pre-filled in every mode (audit 2026-11-26)
+            else assert.equal(s.rate, rec.rate.value);
           }
           if (s.kind === 'inhaled') assert.ok(s.rate >= rec.rate.range.min && s.rate <= rec.rate.range.max);
         }
@@ -370,14 +371,15 @@ test('D5 MAC dexmedetomidine template: label procedural dosing, every target, op
     const inf = r.plan.steps.find((s) => s.drugId === 'dexmedetomidine' && s.kind === 'infusion');
     assert.equal(load.amount, p.weightKg * 1); assert.equal(load.overSec, 600);
     assert.equal(inf.rate, NOA_CONFIG.simulation_rate_ceilings.Dexmedetomidine, 'interlock ceiling pre-filled');
-    assert.equal(buildTemplatePlan('mac_dex', p, { library: REAL, sedationTarget: target, interlocks: false }).plan.steps.find((s) => s.kind === 'infusion').rate, 0.6);
+    // HR/MAP holds off: the simulation ceiling still applies (audit 2026-11-26), so it is still pre-filled
+    assert.equal(buildTemplatePlan('mac_dex', p, { library: REAL, sedationTarget: target, interlocks: false }).plan.steps.find((s) => s.kind === 'infusion').rate, NOA_CONFIG.simulation_rate_ceilings.Dexmedetomidine);
   }
   const rec = recommend(p, 'sedation_minimal', 'dexmedetomidine', REAL);
   assert.deepEqual([rec.rate.value, rec.rate.range.min, rec.rate.range.max], [0.6, 0.2, 1]);
   const keys = buildTemplatePlan('mac_dex', p, { library: REAL }).notes.map((n) => n.key);
   assert.deepEqual(keys, ['dexMac', 'dexInterlock']);
   assert.match(REAL.TEMPLATE_NOTES.dexMac.text, /Sedation beyond deep .* is general anaesthesia: use a GA template/);
-  assert.ok(!buildTemplatePlan('mac_dex', p, { library: REAL, interlocks: false }).notes.some((n) => n.key === 'dexInterlock'));
+  assert.ok(buildTemplatePlan('mac_dex', p, { library: REAL, interlocks: false }).notes.some((n) => n.key === 'dexInterlock'));
   // supplementation: propofol has no minimal regimen, midazolam has no deep regimen → skipped with reasons
   const deep = buildTemplatePlan('mac_dex', p, { library: REAL, sedationTarget: 'deep', include: { propofol: true, midazolam: true } });
   assert.ok(deep.plan.steps.some((s) => s.drugId === 'propofol' && s.kind === 'infusion'));
