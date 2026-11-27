@@ -5,7 +5,7 @@
 import { resolveLibrary, getDrug, listDrugs, findSourceId, getAntibiotic, getFluid, listFluids } from './library.js';
 import { evaluateWindow, redoseStatus, PROPHYLAXIS_CONFIG } from './prophylaxis.js';
 import { derivePatient, scalarWeight } from './patient.js';
-import { evaluateContraindications, interpretCeilings, recommend, convertRateSafe, evaluateWhen } from './dosing.js';
+import { evaluateContraindications, interpretCeilings, recommend, convertRateSafe, evaluateWhen, regimenLocks } from './dosing.js';
 import { createPkModel, isInhaled, isNitrous, referenceRegimen, ROUTE_KA_ILLUSTRATIVE, perfusionKaFactor } from './pk.js';
 import { combineEffects, patientModifiers, tofFromTwitches, SEDATION_RANK, PROFILES, PATIENT_MODS } from './pd.js';
 import { Physiology } from './physiology.js';
@@ -26,6 +26,8 @@ import { computeLockouts, MAINTENANCE_HYPNOTIC_CLASSES, maintenanceHypnoticGap }
 
 export const PHASES = ['premed', 'sedation', 'induction', 'maintenance', 'emergence'];
 export const MIN_FIO2_WITH_N2O = 0.30;
+/** Minimum "give over" for a propofol bolus in MAC for elderly/debilitated/ASA III–IV patients (label: 0.5 mg/kg over 3–5 min, S11). */
+export const PROPOFOL_MAC_MIN_GIVE_OVER_SEC = 180;
 // Molecular weights for 1:1 sugammadex–rocuronium encapsulation, from the US labels (DESCRIPTION):
 // rocuronium bromide 609.70 g/mol (S12); sugammadex sodium 2178.01 g/mol, and each mL holds
 // 100 mg sugammadex = 108.8 mg sugammadex sodium (S6), so doses in mg sugammadex convert with
@@ -340,6 +342,15 @@ class Simulation {
     if (noRegimen) return res(false, true, [noRegimen], []);
     if (this.state.interlocks.lockouts[drug.id]) return res(false, true, this.state.interlocks.lockouts[drug.id], []);
     if (kind === 'bolus' && this._isHeld(drug.id)) return res(false, true, [`${drug.name} is held by a latched interlock; use resume_hold first`], []);
+    // Regimen-scoped locks (regimen.notFor, e.g. analgesic IV lidocaine under 40 kg). A command without a regimen key
+    // is checked against every regimen of its kind, so an unlabelled dose cannot slip past (review 2026-11-27).
+    {
+      const regs = drug.regimens || {};
+      const cand = cmd.regimenKey && regs[cmd.regimenKey] ? [regs[cmd.regimenKey]]
+        : Object.values(regs).filter((r) => (kind === 'bolus' ? (r.kind === 'bolus' || r.loading) : r.kind === kind));
+      const rl = cand.flatMap((r) => regimenLocks(this.patient, r));
+      if (rl.length) return res(false, true, [...new Set(rl.map((x) => x.message))], []);
+    }
     for (const c of evaluateContraindications(this.patient, drug.id, this.lib)) if (c.severity === 'warn') warnings.push(c.message);
     const limits = this.ceilings[drug.id];
 
@@ -354,6 +365,12 @@ class Simulation {
       // "Give over" (IV only): blank/0 = push; ≥ 60 s = timed infusion of the bolus; anything else is rejected.
       const hasOver = cmd.overSec !== undefined && cmd.overSec !== null && cmd.overSec !== 0;
       if (hasOver && route === 'IV' && (!isFiniteNumber(cmd.overSec) || cmd.overSec < 60)) return res(false, true, [`"Give over" must be blank/0 (push) or at least 1 min (got ${String(cmd.overSec)} s); shorter timed injections are not modelled`], []);
+      // Propofol label (S11, section 2): in elderly, debilitated or ASA-PS III/IV patients, "rapid (single or repeated)
+      // bolus dose administration should not be used for MAC sedation"; MAC initiation is "approximately 0.5 mg/kg
+      // administered over 3 minutes to 5 minutes". In MAC, such a bolus must be given over ≥ 3 min (review 2026-11-27).
+      if (drug.id === 'propofol' && route === 'IV' && this.plan.mode === 'MAC' && this._propofolMacSlowOnly()) {
+        if (!(isFiniteNumber(cmd.overSec) && cmd.overSec >= PROPOFOL_MAC_MIN_GIVE_OVER_SEC)) return res(false, true, [`Propofol in MAC for an elderly, debilitated or ASA III–IV patient: a rapid (single or repeated) bolus should not be used (label, S11). Give it over at least ${PROPOFOL_MAC_MIN_GIVE_OVER_SEC / 60} min (label: over 3–5 min), or use an infusion.`], []);
+      }
       const pendingTimed = this.timed.filter((x) => x.drugId === drug.id).reduce((a, x) => a + x.remaining, 0);
       for (const L of limits) {
         if (L.route && L.route !== route) continue;
@@ -446,6 +463,12 @@ class Simulation {
   }
 
   /** Record a dose for the live timing checks (engine/timing.js liveTimingChecks). */
+  /** Propofol label MAC group: elderly, debilitated or ASA-PS III/IV (simulator flags elderly / asa3plus, or ASA ≥ 3). */
+  _propofolMacSlowOnly() {
+    const f = this.patient.flags || [];
+    return f.includes('elderly') || f.includes('asa3plus') || f.includes('debilitated') || this.patient.asa >= 3;
+  }
+
   /** True while `drugId` is held by a latched interlock (controlled agents only). */
   _isHeld(drugId) {
     const py = SIM_TO_PY_ID[drugId];

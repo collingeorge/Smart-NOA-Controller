@@ -140,7 +140,7 @@ test('ceilings are positive and sourced', () => {
     const c = d.ceiling;
     assert.ok(typeof c.value === 'number' && c.value > 0, `${d.id}.ceiling.value positive`);
     assert.ok(c.unit, `${d.id}.ceiling.unit`);
-    assert.ok(['label maximum', 'guideline maximum', 'label range upper bound', 'study protocol value'].includes(c.basis), `${d.id}.ceiling.basis`);
+    assert.ok(['label maximum', 'guideline maximum', 'label range upper bound', 'study protocol value', 'simulator limit based on the 2019 label'].includes(c.basis), `${d.id}.ceiling.basis`);
     checkSources(c.sources, `${d.id}.ceiling`);
     if (c.perKg) assert.ok(c.perKg.value > 0, `${d.id}.ceiling.perKg positive`);
   }
