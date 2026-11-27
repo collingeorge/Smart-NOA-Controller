@@ -39,6 +39,8 @@ S23–S45 are new (S40–S43 added later on 2026-11-05 for epinephrine, the Elev
   - Lidocaine with heart block (2nd/3rd degree, no pacemaker) or WPW is a LOCK (2026-11 audit), matching the IV lidocaine label CONTRAINDICATIONS (Stokes-Adams syndrome, WPW, severe sinoatrial/atrioventricular/intraventricular block). (SPEC §4 originally listed heart block as WARN.)
   - Ketorolac "prophylactic analgesic before any major surgery" (CONTRAINDICATIONS) and "peri-operative use should be avoided ... when hemostasis is critical" (WARNINGS) are runtime **warnings** keyed to the surgery timeline (before incision / during surgery) and shown at plan time for premed/induction/sedation and maintenance steps: the simulator cannot know whether surgery is "major" or whether haemostasis is critical. Bleeding-risk and peptic-ulcer/GI-bleed conditions are LOCKs.
   - Phenylephrine 200 mcg: the 2019 Biorphen label says "not to exceed a total dosage of 200 mcg"; some later copies say "additional boluses up to 200 mcg". The simulator applies the conservative reading: all boluses in the session together ≤ 200 mcg (`scope: 'cumulative boluses'`); the 200 mcg/min infusion limit is separate.
+  - Sugammadex: the BRIDION label advises against use in severe renal impairment defined by creatinine clearance below 30 mL/min. The simulator shows a caution for eGFR below 30 as a teaching proxy. The two measures are distinct.
+  - Propofol MAC: the DIPRIVAN label describes approximately 80% of usual adult dosing for elderly, debilitated or ASA III/IV patients, individualized to response. The exercise offers an optional lower starting example and flags ASA III or higher as a teaching convention. Published case plans retain their scripted values.
   - Ketorolac below eGFR 30: the label says "advanced renal impairment", and the numeric cut-off comes from S35.
   - Dexamethasone with a documented dexamethasone allergy is a LOCK by **simulator convention** (a safe default). The current label's only contraindication is systemic fungal infections (S30, full-page check 2026-11-07).
   - Acetaminophen at eGFR ≤ 30 is a WARNING: the label says use caution in severe renal impairment (creatinine clearance ≤ 30 mL/min, S16); using eGFR as the stand-in for creatinine clearance is a simulator convention.
@@ -87,11 +89,12 @@ Identifiers: doi:10.1097/00000542-199909000-00022; PMID 10485781
 Identifiers: doi:10.1097/ALN.0000000000004379; PMID 36520073
 
 - **Supports:** Quantitative monitoring; confirm TOFR ≥0.9 before extubation; sugammadex over neostigmine for deep, moderate and shallow rocuronium/vecuronium block; neostigmine reasonable at minimal depth (TOFR 0.4 to <0.9).
+- **Renal impairment:** Section 8.6 advises against use in severe renal impairment, defined by creatinine clearance below 30 mL/min. The simulator uses eGFR below 30 for a teaching warning.
 - **Used by:** sugammadex, neostigmine
 - **Verified via:** Copied from DOSING_SOURCES.md S10: WebSearch record of PubMed 36520073 and the APSF summary, 2026-11-05. (date 2026-11-05)
 
 ### S6
-**Sugammadex injection (BRIDION). Merck Sharp & Dohme LLC. FDA-approved prescribing information, revised 11/2022.** https://www.accessdata.fda.gov/drugsatfda_docs/label/2022/022225Orig1s012lbl.pdf  
+**Sugammadex injection (BRIDION). Merck Sharp & Dohme LLC. FDA-approved prescribing information.** https://dailymed.nlm.nih.gov/dailymed/drugInfo.cfm?setid=37276948-ff0f-e0ab-e063-6394a90a0973  
 Identifiers: NDA 022225
 
 - **Supports:** 2 mg/kg at reappearance of T2; 4 mg/kg at 1–2 post-tetanic counts with no TOF twitch; 16 mg/kg for immediate reversal about 3 min after rocuronium 1.2 mg/kg; dosing on actual body weight. Contraindication: known hypersensitivity to sugammadex or any of its components. DESCRIPTION: sugammadex sodium molecular weight 2178.01; each mL contains 100 mg sugammadex, equivalent to 108.8 mg sugammadex sodium (used for the 1:1 molar binding).

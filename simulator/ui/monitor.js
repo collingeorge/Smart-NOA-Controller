@@ -40,7 +40,7 @@ export function tofDepthText(count, ratio) {
 }
 
 export function newRunState() {
-  return { speed: 20, playing: false, hist: { t: [], hr: [], map: [], spo2: [], depth: [], mac: [], ce: {} }, lastSample: -Infinity, overrides: [], seenAlarms: new Set(), uiLog: [], auto: null, autoStart: null, autoListener: null };
+  return { speed: 20, playing: false, hist: { t: [], hr: [], map: [], spo2: [], depth: [], mac: [], ce: {} }, lastSample: -Infinity, overrides: [], seenAlarms: new Set(), uiLog: [], learningComparisons: [], auto: null, autoStart: null, autoListener: null };
 }
 
 export function renderMonitor(ctx, main) {
@@ -406,10 +406,16 @@ export function renderMonitor(ctx, main) {
       let v = ds.infusionRate > 0 ? ds.infusionRate : r ? r.value : '';
       const unit = r ? r.unit : ds.rateUnit;
       const ic = kind === 'infusion' ? interlockCeiling(d, unit, patient) : null;
-      if (store.interlocks && ic && isNum(v) && exceedsInterlockCeiling(d, v, unit, patient)) { v = ic.value; add(adInfo, h('p', { class: 'note note--interlock' }, interlockNote(rec, ic), ' ', srcTags([E.pythonConfig]))); }
+      if (ic && isNum(v) && exceedsInterlockCeiling(d, v, unit, patient)) { v = ic.value; add(adInfo, h('p', { class: 'note note--interlock' }, interlockNote(rec, ic), ' ', srcTags([E.pythonConfig]))); }
       adVal.value = v; adUnit.textContent = unit || '';
       if (r) add(adInfo, h('p', {}, `Sourced ${key} range ${r.range.min ?? 0}–${r.range.max} ${r.unit}${r.unit.includes('/kg') ? ` · ${rec.weightUsedKg} kg ${rec.scalar}` : ''} `, srcTags(rec.sources)));
       if (r && r.ageAdjustedMac) add(adInfo, h('p', { class: 'hint hint--hmi' }, `1.0 × age-adjusted MAC = ${r.ageAdjustedMac.value} % `, srcTags(r.ageAdjustedMac.sources)));
+    }
+    const lower = kind === 'bolus' ? rec?.lowerMacExample?.loading : rec?.lowerMacExample?.rate;
+    if (lower && lower.unit === adUnit.textContent) {
+      const choose = h('button', { type: 'button', class: 'btn btn--hmi btn--small', 'data-auto-safe': '' }, `Use lower teaching example (${lower.value} ${lower.unit})`);
+      choose.addEventListener('click', () => { adVal.value = lower.value; announce('Lower teaching example entered. Review it before giving the simulated dose.'); });
+      add(adInfo, h('p', {}, choose, ' ', srcTags(['S11'])));
     }
     if (rec) for (const w of rec.warnings) add(adInfo, h('p', { class: 'warn-text' }, 'Warning: ', w));
   }
@@ -474,6 +480,7 @@ export function renderMonitor(ctx, main) {
   const depthAuto = depthAdvisoryCard({ prefix: 'auto-dadv', live: false, onDismiss: depthDismiss });
 
   // ---------------- guided / automatic modes (engine/autorun.js; conditions in engine/autorun-config.js)
+  const nextGuidedAction = h('p', { class: 'hint hint--hmi', id: 'auto-next-action', hidden: true });
   const autoStatus = h('p', { class: 'auto-status', id: 'auto-status' });
   const autoBanner = h('p', { class: 'auto-banner', id: 'auto-banner', hidden: true });
   // Paused banner (2026-11 fix): shown the moment the runner pauses itself, with the reason and the exact
@@ -560,7 +567,7 @@ export function renderMonitor(ctx, main) {
   const autoPanel = h('section', { class: 'hmi-panel auto-panel', id: 'auto-panel', 'aria-labelledby': 'auto-h', 'data-auto-safe': 'auto-panel' },
     h('h3', { id: 'auto-h' }, 'Guided & automatic modes'), autoBanner,
     h('p', { class: 'hint hint--hmi', id: 'auto-intro' }, `Use the patient and plan already entered (doses are not changed) and start the case from 00:00. Guided mode runs each phase from your plan and waits for you at every transition; the full demonstration walks the same sequence on fixed timings. Both pause for an interlock hold or a HIGH-priority alarm (never clearing or acknowledging it), never extubate unless the readiness checklist is met, and end as soon as you use any manual control. Every step is logged (log kind "auto").`),
-    autoStartRow, autoSuspendNote, autoStatus, autoPaused, autoCtlRow, autoCountdown, decisionPrompt, autoGate, autoCk, autoUnmet, advAuto.el, depthAuto.el, autoTimingBox, autoSeq);
+    autoStartRow, autoSuspendNote, autoStatus, nextGuidedAction, autoPaused, autoCtlRow, autoCountdown, decisionPrompt, autoGate, autoCk, autoUnmet, advAuto.el, depthAuto.el, autoTimingBox, autoSeq);
   const startAuto = (mode) => {
     if (sim.core && sim.core.suspended) { feedback(SUSPENDED_START_MESSAGE, true); announce(SUSPENDED_START_MESSAGE, true); render(true); return; }
     if (sim.state.tSec > 0 || sim.state.phase !== 'premed') { ctx.restartSim(); store.run.autoStart = mode; ctx.rerender(); return; }
@@ -600,11 +607,13 @@ export function renderMonitor(ctx, main) {
     if (gateBusy || autoGate.disabled || !run.auto) return;
     const shownId = autoGate.dataset.gate; if (!shownId) return;
     gateBusy = true; autoGate.disabled = true; autoGate.dataset.busy = '1';
+    const checkpoint = { label: autoGate.textContent, before: learningVitals() };
     let r;
     try { r = run.auto.approve(shownId); } finally {
       if (gateTimer) clearTimeout(gateTimer);
       gateTimer = setTimeout(() => { gateBusy = false; gateTimer = null; delete autoGate.dataset.busy; if (alive) render(true); }, GATE_COOLDOWN_MS);
     }
+    if (r.ok) run.learningComparisons.push({ ...checkpoint, action: r.message, after: null });
     feedback(r.message, !r.ok);
     if (r.ok && run.auto.state === 'running' && !run.playing) setPlaying(true, true);
     render(true);
@@ -622,6 +631,7 @@ export function renderMonitor(ctx, main) {
     autoBanner.hidden = !st; if (st) setText(autoBanner, st.banner);
     autoPanel.classList.toggle('auto-panel--active', active);
     autoPanel.classList.toggle('auto-panel--paused', !!st && st.state === 'paused');
+    nextGuidedAction.hidden = !active || st.mode !== 'guided';
     if (!st) { setText(autoStatus, ''); autoGate.hidden = true; autoPaused.hidden = true; decisionPrompt.hidden = true; clear(autoUnmet); clear(autoSeq); return; }
     const stateText = { running: 'running', paused: 'PAUSED', completed: 'complete', stopped: 'STOPPED', manual: 'ended (manual control)' }[st.state] || st.state;
     setText(autoStatus, `${st.modeLabel} — ${stateText}. ${st.message}`);
@@ -639,6 +649,13 @@ export function renderMonitor(ctx, main) {
     }
     if (focusResume && paused) { focusResume = false; announce(autoPausedHead.textContent, true); if (!autoResume.disabled) autoResume.focus({ preventScroll: true }); }
     const c = st.current;
+    if (!nextGuidedAction.hidden) {
+      const detail = st.pauseDetails?.[0];
+      const next = st.state === 'paused' ? (detail?.action || 'Review the pause reason, then select Resume.')
+        : c?.gate && c.enabled ? c.gateLabel
+        : c?.unmet?.[0] || c?.label || 'Review the monitor while the model advances.';
+      setText(nextGuidedAction, `Next: ${next}`);
+    }
     const showGate = active && st.mode === 'guided' && c && c.gate;
     decisionPrompt.hidden = !showGate;
     if (decisionPrompt.dataset.gate !== (c?.id || '')) {
@@ -700,6 +717,7 @@ export function renderMonitor(ctx, main) {
   const logFilter = h('select', { id: 'log-filter', class: 'input input--hmi' }, ['all', 'dose', 'alarm', 'interlock', 'action', 'phase', 'event', 'auto', 'advisory'].map((k) => h('option', { value: k }, k === 'all' ? 'All entries' : k === 'auto' ? 'auto (guided / automatic steps)' : k === 'advisory' ? 'advisory (rescue suggestions)' : k)));
   const logList = h('ol', { class: 'log', id: 'mon-log', reversed: true });
   let logLen = -1;
+  const visibleEvents = [];
   logFilter.addEventListener('change', () => { logLen = -1; renderLog(); });
   const logPanel = h('section', { class: 'hmi-panel hmi-panel--wide', 'aria-labelledby': 'mon-log-h' }, h('h3', { id: 'mon-log-h' }, 'Event log'),
     h('div', { class: 'inline-form' }, h('label', { for: 'log-filter', class: 'label' }, 'Show'), logFilter), logList);
@@ -754,11 +772,18 @@ export function renderMonitor(ctx, main) {
     const cut = H.t.findIndex((t) => t >= S.tSec - WINDOW_SEC - 30);
     if (cut > 200) { for (const k of ['t', 'hr', 'map', 'spo2', 'depth', 'mac']) H[k].splice(0, cut); for (const k of Object.keys(H.ce)) H.ce[k].splice(0, cut); }
   }
+  function learningVitals() {
+    const { hr, map, spo2 } = sim.state.vitals;
+    return { tSec: sim.state.tSec, hr, map, spo2 };
+  }
   function advance(sec) {
     inAdvance = true;
     try {
       for (let i = 0; i < sec; i++) {
         sim.step(1); sample();
+        for (const decision of run.learningComparisons) {
+          if (!decision.after && sim.state.tSec >= decision.before.tSec + 30) decision.after = learningVitals();
+        }
         const A = run.auto;
         if (A && A.state === 'running') { A.tick(); if (A.state !== 'running') break; }
       }
@@ -970,9 +995,15 @@ export function renderMonitor(ctx, main) {
 
   function renderLog() {
     const log = sim.state.log;
-    if (log.length === logLen) return; logLen = log.length;
+    if (log.length === logLen) return;
+    if (logLen < 0 || log.length < logLen) visibleEvents.length = 0;
     const f = logFilter.value;
-    const items = log.filter((e) => f === 'all' || e.kind === f).slice(-200).reverse();
+    for (let i = Math.max(0, logLen > log.length ? 0 : logLen); i < log.length; i++) {
+      if (f === 'all' || log[i].kind === f) visibleEvents.push(log[i]);
+    }
+    logLen = log.length;
+    if (visibleEvents.length > 200) visibleEvents.splice(0, visibleEvents.length - 200);
+    const items = visibleEvents.slice().reverse();
     fill(logList, ...items.map((e) => h('li', { class: `log__item log__item--${e.kind}` }, h('span', { class: 'mono' }, fmtClock(e.tSec)), ' ', h('span', { class: 'log__kind' }, e.kind), ' ', e.message)));
   }
 

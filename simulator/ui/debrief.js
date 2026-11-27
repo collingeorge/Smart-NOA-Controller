@@ -22,6 +22,8 @@ export function renderDebrief(ctx, main) {
   const planStatus = sim.planStatus();
   const modelInfo = sim.modelInfo();
 
+  const learningComparisons = store.run.learningComparisons || [];
+  const monitorText = ({ hr, map, spo2 }) => `HR ${fmtNum(hr)} /min · MAP ${fmtNum(map)} mmHg · SpO₂ ${fmtNum(spo2)}%`;
   const teachingEvents = sim.state.log.filter((e) => ['learning', 'interlock', 'alarm', 'auto'].includes(e.kind) || /timed dose cancelled/.test(e.message));
   let buildRevision = null;
   const build = h('p', { class: 'hint' }, 'Build revision unavailable for this copy.');
@@ -44,7 +46,7 @@ export function renderDebrief(ctx, main) {
       plan: exportPlan(store.plan), planStatus,
       automaticMode: s.automatic,
       summary: s, fluidsCrystalloidMl: fl, extubationOverrides: overrides,
-      buildRevision, teachingEvents, modelInfo, log: sim.state.log,
+      buildRevision, teachingEvents, learningComparisons, modelInfo, log: sim.state.log,
     };
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
@@ -62,6 +64,14 @@ export function renderDebrief(ctx, main) {
       build,
       h('p', {}, 'Review the event sequence alongside the modeled monitor response and the linked sources in the timing and readiness sections.'),
       teachingEvents.length ? h('ol', { class: 'list list--tight' }, teachingEvents.slice(-12).map((e) => h('li', {}, `${fmtClock(e.tSec)} · ${e.message} `, srcTags([...new Set(e.message.match(/\bS\d+\b/g) || [])])))) : h('p', {}, 'No guided decisions, alarms, or interlock events recorded.'),
+      learningComparisons.length ? h('section', {},
+        h('h3', {}, 'Guided decisions and monitor response'),
+        h('p', { class: 'hint' }, 'Readings are sampled before approval and 30 simulated seconds later. Other events in the interval can affect the readings.'),
+        h('ol', { class: 'list list--tight' }, learningComparisons.map((decision) => h('li', {},
+          h('strong', {}, `${fmtClock(decision.before.tSec)} · ${decision.label}`),
+          h('p', {}, decision.action),
+          h('p', {}, `Before: ${monitorText(decision.before)}`),
+          h('p', {}, decision.after ? `30 s later: ${monitorText(decision.after)}` : 'Run ended or paused before the 30-second sample.'))))) : null,
       h('p', { class: 'hint' }, `End-of-run monitor: HR ${fmtNum(sim.state.vitals.hr)} /min · MAP ${fmtNum(sim.state.vitals.map)} mmHg · SpO₂ ${fmtNum(sim.state.vitals.spo2)}%.`),
       h('p', { class: 'hint' }, 'Download the session JSON for the full chronology and model details.')),
     autoCard(s.automatic),

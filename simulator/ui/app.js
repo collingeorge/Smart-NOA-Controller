@@ -289,7 +289,7 @@ function testLite() {
     auto: st ? { state: st.state, message: st.message, current: st.current, historyIds: a.history.map((x) => x.id) } : null }));
 }
 try {
-  if (new URLSearchParams(window.location.search).get('test') === '1') {
+  if (['localhost', '127.0.0.1', '[::1]'].includes(window.location.hostname) && new URLSearchParams(window.location.search).get('test') === '1') {
     window.__smartNoa = Object.freeze({
       snapshot: testSnapshot,
       /** Step-driven tests: true = the wall clock never advances simulated time (only advance() does). */

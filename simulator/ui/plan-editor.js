@@ -292,9 +292,26 @@ export function renderPlan(ctx, main) {
           const ic = interlockCeiling(drug, s.rateUnit, patient);
           if (ic) lines.push(h('p', { class: 'hint' }, `Smart NOA simulation ceiling ${ic.pyValue} ${ic.pyUnit} — applies in every mode `, srcTags([E.pythonConfig])));
         }
+        const lower = s.kind === 'bolus' && s.loading ? rec.lowerMacExample?.loading
+          : s.kind === 'infusion' ? rec.lowerMacExample?.rate : null;
+        if (lower) {
+          const field = s.kind === 'bolus' ? 'amount' : 'rate';
+          const unit = s.kind === 'bolus' ? s.amountUnit : s.rateUnit;
+          if (lower.unit === unit) {
+            const useLower = h('button', { type: 'button', class: 'btn btn--small' }, `Use lower teaching example (${lower.value} ${lower.unit})`);
+            useLower.addEventListener('click', () => {
+              s[field] = lower.value;
+              const input = document.getElementById(fid(field === 'amount' ? 'a' : 'r'));
+              if (input) input.value = lower.value;
+              update();
+              announce('Lower teaching example applied.');
+            });
+            lines.push(h('p', {}, useLower, ' ', srcTags(['S11'])));
+          }
+        }
         if (rec.timing) lines.push(h('p', { class: 'hint' }, h('strong', {}, 'Timing (label/guideline): '), rec.timing));
         for (const n of rec.notes) lines.push(h('p', { class: 'note' }, h('strong', {}, 'Note: '), n, ' ', srcTags(sourcesInText(n))));
-        for (const w of s.addWarnings || []) lines.push(h('p', { class: 'warn-text' }, h('strong', {}, 'Warning: '), w, ' ', srcTags(sourcesInText(w))));
+        for (const w of rec.warnings) lines.push(h('p', { class: 'warn-text' }, h('strong', {}, 'Warning: '), w, ' ', srcTags(sourcesInText(w))));
         if (s.prefillNote) lines.push(h('p', { class: 'note note--interlock' }, h('strong', {}, 'Interlock ceiling: '), s.prefillNote, ' ', srcTags([E.pythonConfig, ...(rec.sources || [])])));
         if (s.dialNote) lines.push(h('p', { class: 'hint' }, s.dialNote, ' ', srcTags(rec.rate ? rec.rate.ageAdjustedMac?.sources : [])));
         if (store.patientVersion !== s.filledFor) lines.push(h('p', { class: 'warn-text' }, 'Patient details changed after this dose was filled. Use “Re-fill all doses” to recompute.'));
