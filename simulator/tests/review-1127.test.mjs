@@ -55,7 +55,7 @@ test('IV lidocaine: analgesic loading dose and infusion are refused under 40 kg;
   assert.equal(recommend(small, 'pretreatment', 'lidocaine', REAL).locked, false);
   const sim = createSimulation({ patient: small, library: REAL, seed: 1 }); runFor(sim, 1);
   assert.equal(sim.administer({ drugId: 'lidocaine', kind: 'infusion', rate: 1, rateUnit: 'mg/kg/h' }).blocked, true);
-  assert.equal(sim.administer({ drugId: 'lidocaine', kind: 'bolus', amount: 40, amountUnit: 'mg' }).blocked, true, 'unlabelled bolus is treated as analgesic');
+  assert.equal(sim.administer({ drugId: 'lidocaine', kind: 'bolus', amount: 40, amountUnit: 'mg', overSec: 600 }).blocked, true, 'unlabelled loading is treated as analgesic');
   assert.ok(sim.administer({ drugId: 'lidocaine', kind: 'bolus', amount: 10, amountUnit: 'mg', regimenKey: 'pretreatment' }).ok);
   const ok = createSimulation({ patient: derivePatient(basePatient({ weightKg: 40 }), { library: REAL }), library: REAL, seed: 1 }); runFor(ok, 1);
   assert.ok(ok.administer({ drugId: 'lidocaine', kind: 'infusion', rate: 1, rateUnit: 'mg/kg/h' }).ok, '40 kg allowed');

@@ -9,7 +9,7 @@ import { getDrugById, isInhaledDrug, interlockCeiling, interlockNote, exceedsInt
 import { interlockExplanation } from './plan-editor.js';
 import { CASE_ACTIONS, surgeryState } from '../engine/case-actions.js';
 import { createAutoRunner, BANNERS, MODE_LABELS, SUSPENDED_START_MESSAGE } from '../engine/autorun.js';
-import { FLUID_MODEL } from '../engine/sim.js';
+import { FLUID_MODEL, LIDOCAINE_RULES, lidocaineLoadingDurationIssue } from '../engine/sim.js';
 import { selectProphylaxis } from '../engine/prophylaxis.js';
 import { TIMING_CONFIG, PREMED_TO_INDUCTION_MIN_SEC, premedStatus } from '../engine/timing.js';
 import { timingCheckItem, updateTimingCheckItem } from './timing-view.js';
@@ -359,7 +359,8 @@ export function renderMonitor(ctx, main) {
   const adVal = h('input', { type: 'number', step: 'any', min: 0, id: 'ad-value', class: 'input input--hmi input--num' });
   const adUnit = h('span', { class: 'unit', id: 'ad-unit' });
   const adOver = h('input', { type: 'number', step: 'any', min: 0, id: 'ad-over', class: 'input input--hmi input--num', placeholder: 'push' });
-  const adOverWrap = h('div', { class: 'field field--sm' }, h('label', { for: 'ad-over', class: 'label' }, 'Over (min)'), adOver, h('p', { class: 'hint hint--hmi', id: 'ad-over-hint' }, 'blank = push; ≥ 1 min'));
+  const adOverHint = h('p', { class: 'hint hint--hmi', id: 'ad-over-hint' }, 'blank = push; ≥ 1 min');
+  const adOverWrap = h('div', { class: 'field field--sm' }, h('label', { for: 'ad-over', class: 'label' }, 'Over (min)'), adOver, adOverHint);
   adOver.setAttribute('aria-describedby', 'ad-over-hint');
   const adInfo = h('div', { class: 'ad-info', id: 'ad-info' });
   const adGive = h('button', { type: 'button', class: 'btn btn--hmi btn--primary', id: 'ad-give' }, 'Give');
@@ -395,11 +396,14 @@ export function renderMonitor(ctx, main) {
     adCtx = { drug: d, kind, key, rec };
     clear(adInfo);
     adOverWrap.hidden = kind !== 'bolus' || (route && route !== 'IV'); adOver.value = '';
+    const lidoLoad = kind === 'bolus' && d.id === 'lidocaine' && key !== LIDOCAINE_RULES.PRETREATMENT_REGIMEN;
+    adOverHint.textContent = lidoLoad ? lidocaineLoadingDurationIssue() : 'blank = push; ≥ 1 min';
     const ds = sim.state.drugs[d.id];
     if (kind === 'bolus') {
       const dz = rec && (rec.kind === 'bolus' ? rec.dose : rec.loading);
       adVal.value = dz ? dz.value : ''; adUnit.textContent = d.amountUnit;
-      if (dz && dz.overSec) adOver.value = dz.overSec / 60;
+      if (lidoLoad) adOver.value = LIDOCAINE_RULES.MIN_LOAD_SEC / 60;
+      else if (dz && dz.overSec) adOver.value = dz.overSec / 60;
       if (dz) add(adInfo, h('p', {}, `Sourced ${key} range ${dz.range.min ?? 0}–${dz.range.max} ${dz.unit}${dz.perKg ? ` (${dz.perKg.min ?? dz.perKg.value}–${dz.perKg.max ?? dz.perKg.value} ${dz.perKg.unit} × ${rec.weightUsedKg} kg ${rec.scalar})` : ''} `, srcTags(rec.sources)));
     } else {
       const r = rec && rec.rate;

@@ -4,7 +4,7 @@
 import { recommend, interpretCeilings, convertRateSafe, regimenKeyForPhase, evaluateWhen } from '../engine/dosing.js';
 import { NOA_CONFIG, SIM_TO_PY_ID, CONTROLLED, PY_RATE_UNITS, aboveCeiling } from '../engine/interlocks.js';
 import { scalarWeight } from '../engine/patient.js';
-import { MIN_FIO2_WITH_N2O, FLUID_MODEL, LIDOCAINE_RULES, lidocainePretreatmentIssue, PROPOFOL_MAC_MIN_GIVE_OVER_SEC } from '../engine/sim.js';
+import { MIN_FIO2_WITH_N2O, FLUID_MODEL, LIDOCAINE_RULES, lidocaineLoadingDurationIssue, lidocainePretreatmentIssue, PROPOFOL_MAC_MIN_GIVE_OVER_SEC } from '../engine/sim.js';
 import { selectProphylaxis } from '../engine/prophylaxis.js';
 import { overSecFromTiming } from '../data/scenarios.js';
 import { convertAmount, roundSig } from '../engine/units.js';
@@ -231,6 +231,8 @@ export function checkStep(c, step, allSteps) {
       } catch (e) { errors.push({ text: e.message }); }
     }
     if (step.drugId === 'lidocaine' && step.regimenKey !== LIDOCAINE_RULES.PRETREATMENT_REGIMEN) {
+      const issue = lidocaineLoadingDurationIssue(step.overSec);
+      if (issue) errors.push({ text: issue, fix: { label: 'Set duration to 10 min', apply(s) { s.overSec = LIDOCAINE_RULES.MIN_LOAD_SEC; } } });
       const lr = recommend(c.patient, 'induction', 'lidocaine', c.lib);
       const lim = lr && lr.dose ? lr.dose.range.max : null;
       const total = allSteps.filter((s) => s.drugId === 'lidocaine' && s.kind === 'bolus' && s.regimenKey !== LIDOCAINE_RULES.PRETREATMENT_REGIMEN && isNum(s.amount)).reduce((a, s) => {
