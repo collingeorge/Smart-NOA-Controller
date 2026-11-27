@@ -383,6 +383,10 @@ class Simulation {
       if (drug.id === 'lidocaine' && cmd.regimenKey === LIDOCAINE_RULES.PRETREATMENT_REGIMEN) {
         const issue = lidocainePretreatmentIssue(drug, amt);
         if (issue) return res(false, true, [issue], []);
+        if (hasOver) return res(false, true, ['Lidocaine pretreatment is an IV injection before propofol in this exercise [S11].'], []);
+        if (this.lido.pretreatAt.length || this.doseLog.some((d) => d.drugId === 'propofol' && (d.kind === 'bolus' || d.rate > 0))) {
+          return res(false, true, ['Simulator rule: one lidocaine pretreatment per case, before the first propofol dose [S11].'], []);
+        }
       }
       const lidoLoad = drug.id === 'lidocaine' && route === 'IV' && cmd.regimenKey !== LIDOCAINE_RULES.PRETREATMENT_REGIMEN;
       if (lidoLoad) {
@@ -1193,7 +1197,7 @@ class Simulation {
     V.dbp = S.sensors.map === 'fault' ? NaN : out.dbp;
     V.spo2 = S.sensors.spo2 === 'fault' ? NaN : out.spo2;
     V.rr = out.rr; V.etco2 = out.etco2; V.depthIndex = out.depthIndex; V.sedationLevel = out.sedationLevel;
-    V.tofCount = tof.count; V.tofRatio = Math.round(tof.ratio * 100) / 100;
+    V.tofCount = tof.count; V.tofRatio = tof.ratio;
 
     // 10. statistics
     if (isFiniteNumber(V.map) && V.map < 65) this.stats.timeMapBelow65Sec += h;

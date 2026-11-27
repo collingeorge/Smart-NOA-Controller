@@ -159,6 +159,21 @@ test('simulator UI smoke', { skip, timeout: 900000 }, async (t) => {
     assert.equal(await page.evaluate(() => window.__smartNoa.testClock(true)), true, 'step-driven test clock on');
     assert.match(await page.textContent('.sim-banner'), /SIMULATION — fictional patient — educational use only\. Not a medical device\. Not medical advice\./);
 
+    await t.test('guided starter opens the learning case and provides an instructor export', async () => {
+      await page.click('#pf-start-guided');
+      await page.waitForSelector('#stepper-2[aria-current="step"]');
+      assert.match(await page.textContent('main'), /malignant hyperthermia/i);
+      await page.click('#stepper-3');
+      await page.getByText('Why this dose?', { exact: true }).first().waitFor();
+      await page.click('#stepper-4');
+      await page.waitForSelector('#auto-banner:not([hidden])');
+      await page.click('#mon-debrief');
+      await page.waitForSelector('#db-instructor');
+      await page.goto(URL_);
+      await page.waitForSelector('#pf-continue');
+      assert.equal(await page.evaluate(() => window.__smartNoa.testClock(true)), true);
+    });
+
     await t.test('validation shows inline messages', async () => {
       await page.fill('#pf-ageYears', '12');
       await page.click('#pf-continue');

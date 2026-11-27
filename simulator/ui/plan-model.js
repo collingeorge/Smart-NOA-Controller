@@ -223,6 +223,10 @@ export function checkStep(c, step, allSteps) {
         else if (step.regimenKey === LIDOCAINE_RULES.PRETREATMENT_REGIMEN) {
           const issue = lidocainePretreatmentIssue(drug, amount);
           if (issue) errors.push({ text: issue });
+          if (step.overSec) errors.push({ text: 'Lidocaine pretreatment is an IV injection before propofol in this exercise [S11].' });
+          if (allSteps.filter((s) => s.drugId === 'lidocaine' && s.kind === 'bolus' && s.regimenKey === LIDOCAINE_RULES.PRETREATMENT_REGIMEN).length > 1) {
+            errors.push({ text: 'Simulator rule: only one lidocaine pretreatment is allowed per case [S11].' });
+          }
         }
       } catch (e) { errors.push({ text: e.message }); }
     }

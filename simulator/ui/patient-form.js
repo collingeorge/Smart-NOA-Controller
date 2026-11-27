@@ -110,6 +110,8 @@ export function renderPatient(ctx, main) {
   function changed() { ctx.patientChanged(); updatePreview(); refreshErrors(); ctx.refreshStepper(); }
 
   // --- examples
+  const guided = h('button', { type: 'button', class: 'btn btn--primary', id: 'pf-start-guided' }, 'Start guided case');
+  guided.addEventListener('click', () => ctx.startGuidedExample());
   const exSel = h('select', { id: 'pf-example', class: 'input' },
     h('option', { value: '' }, 'Choose a fictional example…'),
     EXAMPLE_PATIENTS.map((e) => h('option', { value: e.id, selected: store.exampleId === e.id }, e.label)));
@@ -201,6 +203,8 @@ export function renderPatient(ctx, main) {
     h('section', { class: 'card card--accent' },
       h('h3', {}, 'Load an example case'),
       h('p', { class: 'muted' }, 'Loads a fictional patient and the matching example plan (doses are filled from the drug library at load time).'),
+      h('p', {}, 'Guided case: identify which agents are locked out for a fictional adult susceptible to malignant hyperthermia, then explain the plan.'),
+      guided,
       h('div', { class: 'inline-form' }, h('label', { for: 'pf-example', class: 'label' }, 'Example case'), exSel, exBtn)),
     form);
   updatePreview();

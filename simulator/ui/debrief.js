@@ -22,6 +22,16 @@ export function renderDebrief(ctx, main) {
   const planStatus = sim.planStatus();
   const modelInfo = sim.modelInfo();
 
+  const teachingEvents = sim.state.log.filter((e) => ['learning', 'interlock', 'alarm', 'auto'].includes(e.kind) || /timed dose cancelled/.test(e.message));
+  let buildRevision = null;
+  const build = h('p', { class: 'hint' }, 'Build revision unavailable for this copy.');
+  if (location.hostname === 'collinbgeorge.com') fetch('/source-pins.json').then((r) => r.ok ? r.json() : null).then((pins) => {
+    const revision = Array.isArray(pins) && pins.find((pin) => pin.name === 'Smart-NOA-Controller')?.sha;
+    if (typeof revision === 'string' && /^[a-f0-9]{40}$/.test(revision)) {
+      buildRevision = revision;
+      build.textContent = `Published Smart NOA revision ${revision.slice(0, 12)}.`;
+    }
+  }).catch(() => {});
   const assumptionsHost = h('div', {}, h('h4', {}, 'Model assumptions (from SOURCES.md)'), h('p', { class: 'hint' }, 'Loading…'));
   loadModelAssumptions().then((a) => { assumptionsHost.lastChild.replaceWith(assumptionsList(a)); });
   const dl = h('button', { type: 'button', class: 'btn btn--primary', id: 'db-download' }, 'Download session (JSON)');
@@ -34,7 +44,7 @@ export function renderDebrief(ctx, main) {
       plan: exportPlan(store.plan), planStatus,
       automaticMode: s.automatic,
       summary: s, fluidsCrystalloidMl: fl, extubationOverrides: overrides,
-      modelInfo, log: sim.state.log,
+      buildRevision, teachingEvents, modelInfo, log: sim.state.log,
     };
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
@@ -47,6 +57,13 @@ export function renderDebrief(ctx, main) {
   fill(main, 
     h('div', { class: 'step-head' }, h('h2', { id: 'step-title', tabindex: '-1' }, '5 · Debrief'),
       h('p', { class: 'muted' }, `Simulated duration ${fmtClock(s.durationSec)} · ${sim.plan.mode === 'GA' ? 'general anaesthesia' : `MAC (${sim.plan.sedationTarget})`} · interlocks ${store.interlocks ? 'on' : 'off'} · seed ${sim.seed}. ${s.modelNote}`)),
+    h('details', { class: 'card', open: true, id: 'db-instructor' },
+      h('summary', {}, 'Instructor debrief'),
+      build,
+      h('p', {}, 'Review the event sequence alongside the modeled monitor response and the linked sources in the timing and readiness sections.'),
+      teachingEvents.length ? h('ol', { class: 'list list--tight' }, teachingEvents.slice(-12).map((e) => h('li', {}, `${fmtClock(e.tSec)} · ${e.message} `, srcTags([...new Set(e.message.match(/\bS\d+\b/g) || [])])))) : h('p', {}, 'No guided decisions, alarms, or interlock events recorded.'),
+      h('p', { class: 'hint' }, `End-of-run monitor: HR ${fmtNum(sim.state.vitals.hr)} /min · MAP ${fmtNum(sim.state.vitals.map)} mmHg · SpO₂ ${fmtNum(sim.state.vitals.spo2)}%.`),
+      h('p', { class: 'hint' }, 'Download the session JSON for the full chronology and model details.')),
     autoCard(s.automatic),
     advisoryDebrief(s.advisories),
     depthAdvisoryDebrief(s.depthAdvisories, s.depthOutOfBandSec),

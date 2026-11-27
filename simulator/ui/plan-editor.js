@@ -279,7 +279,7 @@ export function renderPlan(ctx, main) {
           }
         } else if (rec.rate) {
           const abs = rec.rate.absolute ? ` (default ≈ ${rec.rate.absolute.value} ${rec.rate.absolute.unit})` : '';
-          lines.push(h('p', {}, h('strong', {}, 'Sourced range: '), `${rec.rate.range.min ?? 0}–${rec.rate.range.max} ${rec.rate.unit}; label default ${rec.rate.value}${abs}`,
+          lines.push(h('p', {}, h('strong', {}, 'Sourced range: '), `${rec.rate.range.min ?? 0}–${rec.rate.range.max} ${rec.rate.unit}; simulator default ${rec.rate.value}${abs}`,
             rec.rate.unit.includes('/kg') ? ` · weight ${wt} (${SCALAR_LABELS[rec.scalar]})` : '', ' ', srcTags(rec.sources)));
           if (rec.rate.ceiling) lines.push(h('p', { class: 'hint' }, `Label ceiling (hard stop): ${rec.rate.ceiling.label}`));
           if (rec.rate.ageAdjustedMac) {
@@ -298,11 +298,12 @@ export function renderPlan(ctx, main) {
         if (s.prefillNote) lines.push(h('p', { class: 'note note--interlock' }, h('strong', {}, 'Interlock ceiling: '), s.prefillNote, ' ', srcTags([E.pythonConfig, ...(rec.sources || [])])));
         if (s.dialNote) lines.push(h('p', { class: 'hint' }, s.dialNote, ' ', srcTags(rec.rate ? rec.rate.ageAdjustedMac?.sources : [])));
         if (store.patientVersion !== s.filledFor) lines.push(h('p', { class: 'warn-text' }, 'Patient details changed after this dose was filled. Use “Re-fill all doses” to recompute.'));
-        add(info, ...lines);
+        const explanation = h('details', { open: true }, h('summary', {}, 'Why this dose?'), ...lines);
+        add(info, explanation);
       } else if (s.kind === 'stop') {
         add(info, h('p', { class: 'hint' }, `Stops ${drug.name} (${isInhaledDrug(drug) ? 'dial to 0 %' : 'infusion to 0'}) at this time.`));
       }
-      for (const w of r.warnings) add(info, h('p', { class: 'warn-text', role: 'note' }, h('span', { class: 'badge badge--warn' }, 'Out of range'), ' ', w));
+      for (const w of r.warnings) add(info, h('p', { class: 'warn-text', role: 'note' }, h('span', { class: 'badge badge--warn' }, 'Warning only'), ' ', w));
       for (const e of r.errors) {
         const p = h('p', { class: 'error-text' }, h('span', { class: 'badge badge--lock' }, 'Blocked'), ' ', e.text);
         if (e.fix) {

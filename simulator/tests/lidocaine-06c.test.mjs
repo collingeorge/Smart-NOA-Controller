@@ -53,7 +53,7 @@ test('overlap warning: delivered and pending amounts, no double counting (immedi
   r = load(s, 60, { overSec: 600 });
   assert.match(msg(r), /delivered so far 10 mg; still to be delivered from timed doses 60 mg/);
   runFor(s, 120); s.administer({ drugId: 'lidocaine', kind: 'stop' });
-  const r2 = s.administer({ drugId: 'lidocaine', kind: 'bolus', amount: 10, amountUnit: 'mg', regimenKey: 'pretreatment' });
+  const r2 = load(s, 5);
   const m = msg(r2); assert.ok(m); assert.match(m, new RegExp(`delivered so far ${Math.round(lido(s))} mg; still to be delivered from timed doses 0 mg`));
 });
 
@@ -86,4 +86,26 @@ test('lidocaine pretreatment exemption requires the fixed dose after unit conver
   const b = { ...a, uid: 'b', amount: limit() / 2, amountUnit: 'mg' };
   assert.ok(!checkStep(c, a, [a, b]).errors.some((e) => /planned IV lidocaine loading/.test(e.text)));
   assert.ok(checkStep(c, a, [a, { ...b, amount: b.amount + 1 }]).errors.some((e) => /planned IV lidocaine loading/.test(e.text)));
+});
+
+test('pretreatment is refused on repeat or after propofol starts', { skip }, () => {
+  const opts = { regimenKey: 'pretreatment' };
+  const s = mk();
+  assert.ok(load(s, 10, opts).ok);
+  assert.match(load(s, 10, opts).reasons[0], /one lidocaine pretreatment/);
+  assert.equal(lido(s), 10);
+  const p = mk();
+  assert.ok(p.administer({ drugId: 'propofol', kind: 'bolus', amount: 10, amountUnit: 'mg' }).ok);
+  assert.match(load(p, 10, opts).reasons[0], /before the first propofol/);
+  const c = { lib: REAL, patient: pat(), interlocks: true };
+  const a = { uid: 'a', drugId: 'lidocaine', kind: 'bolus', phase: 'induction', atSec: 0, amount: 10, amountUnit: 'mg', ...opts };
+  assert.ok(checkStep(c, a, [a, { ...a, uid: 'b' }]).errors.some((e) => /one lidocaine pretreatment/.test(e.text)));
+});
+
+test('extubation compares the full precision train-of-four ratio', { skip }, () => {
+  const s = mk();
+  for (const [ratio, met] of [[0.899, false], [0.9, true], [0.901, true]]) {
+    s.state.vitals.tofRatio = ratio;
+    assert.equal(s.extubationReadiness().criteria.find((c) => c.id === 'tofr').met, met);
+  }
 });

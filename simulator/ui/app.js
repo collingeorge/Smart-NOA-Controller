@@ -80,6 +80,12 @@ function canGo(n) {
 let current = null;
 // Context passed to every view (functions below are hoisted declarations).
 const ctx = { store, lib, go, rerender, refreshStepper, getPatient, loadExample, ensureSim, restartSim, openExtubation, fluidsSupported,
+  startGuidedExample() {
+    loadExample('mh_susceptible');
+    store.guidedLesson = true;
+    go(2);
+    announce('Guided case loaded. Identify the locked agents, then continue to the plan and start guided mode.');
+  },
   patientChanged() { store.patientVersion += 1; },
   planChanged() { store.planVersion += 1; } };
 
@@ -88,6 +94,11 @@ function go(n) {
   if (!c.ok) { announce(c.why, true); refreshStepper(); return false; }
   if (current && current.leave) current.leave();
   current = null;
+  if (n === 4 && store.guidedLesson) {
+    ensureSim();
+    store.run.autoStart = 'guided';
+    store.guidedLesson = false;
+  }
   store.step = n;
   render();
   const t = document.getElementById('step-title');
