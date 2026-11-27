@@ -81,7 +81,12 @@ export function evaluateContraindications(patient, drugId, library = null, ctx =
   return out;
 }
 
-const KNOWN_REGIMEN_KEYS = new Set(['defaultRule', 'kind', 'perKg', 'fixed', 'rate', 'unit', 'scalar', 'scalarBasis', 'adjust', 'timing', 'sources', 'note', 'loading', 'notes', 'route', 'byDepth']);
+const KNOWN_REGIMEN_KEYS = new Set(['defaultRule', 'kind', 'perKg', 'fixed', 'rate', 'unit', 'scalar', 'scalarBasis', 'adjust', 'timing', 'sources', 'note', 'loading', 'notes', 'route', 'byDepth', 'notFor']);
+
+/** Regimen-scoped locks (`regimen.notFor: [{ when, message, sources }]`) that apply to this patient. */
+export function regimenLocks(patient, reg) {
+  return (reg && Array.isArray(reg.notFor) ? reg.notFor : []).filter((x) => evaluateWhen(x.when, patient).value).map((x) => ({ severity: 'lock', message: x.message, sources: x.sources || [], when: x.when }));
+}
 
 const defaultOf = (x) => (x && isFiniteNumber(x.default) ? x.default : Infinity);
 
@@ -116,7 +121,7 @@ export function recommend(patient, regimenKey, drugId, library = null) {
   if (!drug) throw new Error(`Unknown drug id '${drugId}'`);
   const reg = drug.regimens ? drug.regimens[regimenKey] : undefined;
   const cis = evaluateContraindications(patient, drugId, lib);
-  const locks = cis.filter((c) => c.severity === 'lock');
+  const locks = [...cis.filter((c) => c.severity === 'lock'), ...regimenLocks(patient, reg)];
   const result = {
     drugId, regimenKey, kind: reg ? reg.kind : null, scalar: null, weightUsedKg: null,
     dose: null, rate: null, loading: null, sources: [], notes: [], warnings: cis.filter((c) => c.severity === 'warn').map((c) => c.message),

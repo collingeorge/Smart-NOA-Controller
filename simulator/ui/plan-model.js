@@ -4,7 +4,7 @@
 import { recommend, interpretCeilings, convertRateSafe, regimenKeyForPhase, evaluateWhen } from '../engine/dosing.js';
 import { NOA_CONFIG, SIM_TO_PY_ID, CONTROLLED, PY_RATE_UNITS, aboveCeiling } from '../engine/interlocks.js';
 import { scalarWeight } from '../engine/patient.js';
-import { MIN_FIO2_WITH_N2O, FLUID_MODEL, LIDOCAINE_RULES } from '../engine/sim.js';
+import { MIN_FIO2_WITH_N2O, FLUID_MODEL, LIDOCAINE_RULES, PROPOFOL_MAC_MIN_GIVE_OVER_SEC } from '../engine/sim.js';
 import { selectProphylaxis } from '../engine/prophylaxis.js';
 import { overSecFromTiming } from '../data/scenarios.js';
 import { roundSig } from '../engine/units.js';
@@ -215,6 +215,11 @@ export function checkStep(c, step, allSteps) {
         }
       }
     }
+    // Propofol in MAC for elderly/debilitated/ASA III–IV: no rapid bolus (label S11); the engine refuses one given over < 3 min.
+    const isMac = step.phase === 'sedation' || allSteps.some((s) => s.phase === 'sedation');
+    const pf = c.patient.flags || [];
+    if (step.drugId === 'propofol' && isMac && (pf.includes('elderly') || pf.includes('asa3plus') || pf.includes('debilitated') || c.patient.asa >= 3) && (step.route || 'IV') === 'IV' && !(isNum(step.overSec) && step.overSec >= PROPOFOL_MAC_MIN_GIVE_OVER_SEC))
+      errors.push({ text: `Blocked: propofol in MAC for an elderly, debilitated or ASA III–IV patient must not be a rapid bolus (label). Give it over at least ${PROPOFOL_MAC_MIN_GIVE_OVER_SEC / 60} min (label: over 3–5 min).`, fix: { label: `Give over ${PROPOFOL_MAC_MIN_GIVE_OVER_SEC / 60} min`, apply: (s) => { s.overSec = PROPOFOL_MAC_MIN_GIVE_OVER_SEC; } } });
     if (step.overSec !== null && step.overSec !== undefined && (!isNum(step.overSec) || step.overSec < 0)) errors.push({ text: '“Give over” must be a number of minutes (blank or 0 = push).' });
     else if (isNum(step.overSec) && step.overSec > 0 && step.overSec < 60) errors.push({ text: '“Give over” under 1 min is not modelled: leave it blank for a push, or use 1 min or more.', fix: { label: 'Make it a push', apply: (s) => { s.overSec = null; } } });
   } else {

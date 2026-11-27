@@ -39,7 +39,7 @@ Refusals by drug and reason (numbers masked as #):
 | refusal | count |
 |---|---|
 | ephedrine:bolus:IV: Cumulative dose would exceed # mg (label maximum) | 74412 |
-| phenylephrine:bolus:IV: Total bolus dose would exceed # mcg (label maximum) (already given # mcg) | 60372 |
+| phenylephrine:bolus:IV: Total bolus dose would exceed # mcg (simulator limit based on the # label) (already given # mcg) | 60372 |
 | epinephrine:bolus:IM: Repeat bolus refused — repeat epinephrine IM bolus # s after the previous one; waits # s more (label: IM/SC repeated every # to # min as necessary; minimum # s) [S#]; # s remaining | 55224 |
 | epinephrine:bolus:IV: Above the simulator teaching ceiling (not a clinical limit): epinephrine IV boluses # mg > # mg — confirm with "Confirm dose above the simulator teaching ceiling" (action confirm_teaching_ceiling:epinephrine_iv) to give it | 51948 |
 | glycopyrrolate:bolus:IV: Repeat bolus refused — repeat glycopyrrolate IV bolus # s after the previous one; waits # s more (label: intraoperative # mg IV repeated as needed at #–# min intervals; minimum # s) [S#]; # s remaining | 46686 |

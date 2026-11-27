@@ -204,7 +204,11 @@ for (const { name, lib } of LIBS) {
     sim.action('set_fio2:0.3'); sim.setPhase('sedation'); runFor(sim, 1200);
     assert.ok(sim.state.vitals.depthIndex < 95);
     assert.ok(sim.state.drugs.propofol.cumulative > 0);
-    give(sim, 'propofol', 'induction'); runFor(sim, 120);
+    // ASA III patient in MAC: a rapid propofol bolus is refused (label S11; review 2026-11-27); the same dose
+    // given over 3 min still deepens sedation past the target.
+    const push = give(sim, 'propofol', 'induction');
+    assert.equal(push.blocked, true); assert.match(push.reasons[0], /rapid \(single or repeated\) bolus should not be used/);
+    assert.ok(give(sim, 'propofol', 'induction', { overSec: 180 }).ok); runFor(sim, 300);
     assert.ok(sim.state.alarms.some((a) => a.id === 'depth_over_target'));
     sim.action('jaw_thrust'); runFor(sim, 300); sim.setPhase('emergence'); runFor(sim, 900);
     const s = sim.summary(); assert.ok(s.durationSec > 2000);

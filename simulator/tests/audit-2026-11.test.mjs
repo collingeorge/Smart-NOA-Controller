@@ -30,6 +30,7 @@ test('code 1: a rate exactly at the Python ceiling never latches a hold (weight 
       assert.equal(convertRateSafe(ceil, unit, unit, weightKg), ceil, 'same-unit conversion is the identity');
       const sim = createSimulation({ patient: P({ weightKg }), library: REAL, seed: 1 });
       const r = sim.administer({ drugId: id, kind: 'infusion', rate: ceil, rateUnit: unit });
+      if (id === 'lidocaine' && weightKg < 40) { assert.equal(r.blocked, true, `lidocaine ${weightKg} kg: not for patients under 40 kg (S1; review 2026-11-27)`); continue; }
       assert.ok(r.ok, `${id} ${weightKg} kg admitted`);
       runFor(sim, 3);
       assert.equal(sim.state.interlocks.holdLatched, false, `${id} at ${weightKg} kg: no spurious hold`);
