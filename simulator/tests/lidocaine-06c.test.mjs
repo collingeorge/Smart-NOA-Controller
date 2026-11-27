@@ -71,3 +71,19 @@ test('planned and guided delivery: the plan editor blocks a planned second load;
   for (let i = 0; i < 3600 && run.state === 'running'; i++) { sim.step(1); run.tick(); }
   assert.ok(sim.lido.loadCharged <= recommend(pp, 'induction', 'lidocaine', REAL).dose.range.max + 1e-9);
 });
+
+test('lidocaine pretreatment exemption requires the fixed dose after unit conversion', { skip }, () => {
+  const s = mk();
+  assert.match(load(s, limit(), { regimenKey: 'pretreatment' }).reasons[0], /fixed simulator dose/);
+  assert.equal(lido(s), 0);
+  assert.ok(load(s, 10000, { regimenKey: 'pretreatment', amountUnit: 'mcg' }).ok);
+  assert.ok(load(s, limit()).ok);
+
+  const c = { lib: REAL, patient: pat(), interlocks: true };
+  const step = { uid: 'p', drugId: 'lidocaine', kind: 'bolus', phase: 'induction', atSec: 0, amount: 11, amountUnit: 'mg', regimenKey: 'pretreatment' };
+  assert.ok(checkStep(c, step, [step]).errors.some((e) => /fixed simulator dose/.test(e.text)));
+  const a = { ...step, uid: 'a', regimenKey: 'induction', amount: limit() * 500, amountUnit: 'mcg' };
+  const b = { ...a, uid: 'b', amount: limit() / 2, amountUnit: 'mg' };
+  assert.ok(!checkStep(c, a, [a, b]).errors.some((e) => /planned IV lidocaine loading/.test(e.text)));
+  assert.ok(checkStep(c, a, [a, { ...b, amount: b.amount + 1 }]).errors.some((e) => /planned IV lidocaine loading/.test(e.text)));
+});

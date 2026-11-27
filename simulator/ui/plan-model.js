@@ -4,10 +4,10 @@
 import { recommend, interpretCeilings, convertRateSafe, regimenKeyForPhase, evaluateWhen } from '../engine/dosing.js';
 import { NOA_CONFIG, SIM_TO_PY_ID, CONTROLLED, PY_RATE_UNITS, aboveCeiling } from '../engine/interlocks.js';
 import { scalarWeight } from '../engine/patient.js';
-import { MIN_FIO2_WITH_N2O, FLUID_MODEL, LIDOCAINE_RULES, PROPOFOL_MAC_MIN_GIVE_OVER_SEC } from '../engine/sim.js';
+import { MIN_FIO2_WITH_N2O, FLUID_MODEL, LIDOCAINE_RULES, lidocainePretreatmentIssue, PROPOFOL_MAC_MIN_GIVE_OVER_SEC } from '../engine/sim.js';
 import { selectProphylaxis } from '../engine/prophylaxis.js';
 import { overSecFromTiming } from '../data/scenarios.js';
-import { roundSig } from '../engine/units.js';
+import { convertAmount, roundSig } from '../engine/units.js';
 import { loadingPairs } from '../engine/timing.js';
 import { maintenanceHypnoticGap, tivaMaintenanceSteps, isMaintenanceHypnoticStep } from '../engine/plan-safety.js';
 
@@ -216,10 +216,25 @@ export function checkStep(c, step, allSteps) {
       }
     }
     // IV lidocaine analgesic loading: planned total ≤ 1.5 mg/kg IBW per case (S1; one allowance per case is a simulator convention).
+    if (step.drugId === 'lidocaine' && isNum(step.amount) && step.amount > 0) {
+      try {
+        const amount = convertAmount(step.amount, step.amountUnit || drug.amountUnit, drug.amountUnit);
+        if (!isNum(amount) || amount <= 0) errors.push({ text: 'Lidocaine dose is unusable after unit conversion.' });
+        else if (step.regimenKey === LIDOCAINE_RULES.PRETREATMENT_REGIMEN) {
+          const issue = lidocainePretreatmentIssue(drug, amount);
+          if (issue) errors.push({ text: issue });
+        }
+      } catch (e) { errors.push({ text: e.message }); }
+    }
     if (step.drugId === 'lidocaine' && step.regimenKey !== LIDOCAINE_RULES.PRETREATMENT_REGIMEN) {
       const lr = recommend(c.patient, 'induction', 'lidocaine', c.lib);
       const lim = lr && lr.dose ? lr.dose.range.max : null;
-      const total = allSteps.filter((s) => s.drugId === 'lidocaine' && s.kind === 'bolus' && s.regimenKey !== LIDOCAINE_RULES.PRETREATMENT_REGIMEN && isNum(s.amount)).reduce((a, s) => a + s.amount, 0);
+      const total = allSteps.filter((s) => s.drugId === 'lidocaine' && s.kind === 'bolus' && s.regimenKey !== LIDOCAINE_RULES.PRETREATMENT_REGIMEN && isNum(s.amount)).reduce((a, s) => {
+        try {
+          const amount = convertAmount(s.amount, s.amountUnit || drug.amountUnit, drug.amountUnit);
+          return isNum(amount) && amount > 0 ? a + amount : a;
+        } catch { return a; } // The invalid step reports its own unit error.
+      }, 0);
       if (isNum(lim) && total > lim + 1e-9) errors.push({ text: `Blocked: planned IV lidocaine loading totals ${roundSig(total)} mg, above the consensus limit of 1.5 mg/kg ideal body weight = ${roundSig(lim)} mg for this patient (one loading allowance per case is a simulator convention).` });
     }
     // Propofol in MAC for elderly/debilitated/ASA III–IV: no rapid bolus (label S11); the engine refuses one given over < 3 min.

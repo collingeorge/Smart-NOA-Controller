@@ -67,6 +67,12 @@ const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
 // bolus or infusion) within this time of a pretreatment dose gives a warning (LOW alarm + log).
 // 4 h is the Foo 2021 separation between local-anaesthetic interventions and IV lidocaine (S1),
 // applied here to pretreatment — a simulator mapping of the guideline rule.
+export function lidocainePretreatmentIssue(drug, amountMg) {
+  const fixed = drug.regimens?.pretreatment?.fixed;
+  if (fixed && Math.abs(amountMg - convertAmount(fixed.default, fixed.unit, drug.amountUnit)) <= 1e-9) return null;
+  return fixed ? `Lidocaine pretreatment requires the fixed simulator dose of ${fixed.default} ${fixed.unit} [S11].`
+    : 'No fixed lidocaine pretreatment dose is available.';
+}
 export const LIDOCAINE_RULES = Object.freeze({ OVERLAP_WINDOW_SEC: 4 * 3600, OVERLAP_ALARM_PRIORITY: 'low', PRETREATMENT_REGIMEN: 'pretreatment' });
 
 // Simulator alarm thresholds (SPEC §5.2 'Additional simulator alarms'; author/SPEC choices, not
@@ -374,6 +380,10 @@ class Simulation {
       // IV lidocaine analgesic loading (review 2026-11-27): the consensus loading dose is "no more than 1.5 mg/kg,
       // calculated using the patient's ideal body weight" (S1). Delivered + pending analgesic loading in this case may
       // not exceed it. The consensus gives no repeat interval: one loading allowance per case is a simulator convention.
+      if (drug.id === 'lidocaine' && cmd.regimenKey === LIDOCAINE_RULES.PRETREATMENT_REGIMEN) {
+        const issue = lidocainePretreatmentIssue(drug, amt);
+        if (issue) return res(false, true, [issue], []);
+      }
       const lidoLoad = drug.id === 'lidocaine' && route === 'IV' && cmd.regimenKey !== LIDOCAINE_RULES.PRETREATMENT_REGIMEN;
       if (lidoLoad) {
         const lim = this._lidocaineLoadLimit();
