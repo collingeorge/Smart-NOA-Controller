@@ -483,8 +483,29 @@ export function renderMonitor(ctx, main) {
   // "Continue with hold latched (this hold only)" (owner-approved): explicit clinician choice, logged; never a default.
   const autoHoldContinue = h('button', { type: 'button', class: 'btn btn--hmi btn--warn', id: 'auto-hold-continue', hidden: true }, 'Continue with hold latched (this hold only)');
   const autoHoldHint = h('p', { class: 'hint hint--hmi', id: 'auto-hold-hint', hidden: true }, 'Continues with the held infusions at zero. It does not release the hold or acknowledge any alarm; a new hold or a new HIGH alarm pauses again.');
+  const replayGuided = h('button', { type: 'button', class: 'btn btn--hmi btn--small', id: 'auto-replay-checkpoint' }, 'Replay guided case from start');
+  replayGuided.addEventListener('click', () => {
+    if (!window.confirm('Restart the same case and seed in guided mode? Download the current session first if you want to keep it.')) return;
+    ctx.restartSim();
+    store.run.autoStart = 'guided';
+    ctx.rerender();
+  });
   const autoPaused = h('div', { class: 'auto-paused', id: 'auto-paused', role: 'alert', hidden: true }, autoPausedHead, autoPausedList, autoHoldHint, autoHoldContinue);
   const autoGate = h('button', { type: 'button', class: 'btn btn--hmi btn--primary auto-gate', id: 'auto-gate', hidden: true });
+  const decisionPrompt = h('details', { id: 'auto-learning', hidden: true },
+    h('summary', {}, 'Decision checkpoint'),
+    h('p', {}, 'Which monitor reading or checklist item matters most for the next transition? Say what you would wait for before checking the rationale.'));
+  const decisionRationale = h('p', { hidden: true });
+  const revealDecision = h('button', { type: 'button', class: 'btn btn--hmi btn--small' }, 'Reveal rationale');
+  revealDecision.addEventListener('click', () => {
+    const current = run.auto?.status().current;
+    if (!current) return;
+    const reason = current.unmet?.length ? current.unmet.join(' · ') : 'The modeled prerequisites for this transition are met. Review the checklist and decide whether to proceed.';
+    setText(decisionRationale, reason);
+    decisionRationale.hidden = false;
+    sim.logNote('learning', `Decision checkpoint: ${current.gateLabel || current.label}. ${reason}`);
+  });
+  add(decisionPrompt, revealDecision, decisionRationale, replayGuided);
   const autoUnmet = h('ul', { class: 'auto-unmet', id: 'auto-unmet' });
   // Countdown for time-gated transitions (pre-op holding → OR → preoxygenation → induction).
   const autoCountdown = h('p', { class: 'auto-countdown', id: 'auto-countdown', 'aria-live': 'off', hidden: true });
@@ -539,7 +560,7 @@ export function renderMonitor(ctx, main) {
   const autoPanel = h('section', { class: 'hmi-panel auto-panel', id: 'auto-panel', 'aria-labelledby': 'auto-h', 'data-auto-safe': 'auto-panel' },
     h('h3', { id: 'auto-h' }, 'Guided & automatic modes'), autoBanner,
     h('p', { class: 'hint hint--hmi', id: 'auto-intro' }, `Use the patient and plan already entered (doses are not changed) and start the case from 00:00. Guided mode runs each phase from your plan and waits for you at every transition; the full demonstration walks the same sequence on fixed timings. Both pause for an interlock hold or a HIGH-priority alarm (never clearing or acknowledging it), never extubate unless the readiness checklist is met, and end as soon as you use any manual control. Every step is logged (log kind "auto").`),
-    autoStartRow, autoSuspendNote, autoStatus, autoPaused, autoCtlRow, autoCountdown, autoGate, autoCk, autoUnmet, advAuto.el, depthAuto.el, autoTimingBox, autoSeq);
+    autoStartRow, autoSuspendNote, autoStatus, autoPaused, autoCtlRow, autoCountdown, decisionPrompt, autoGate, autoCk, autoUnmet, advAuto.el, depthAuto.el, autoTimingBox, autoSeq);
   const startAuto = (mode) => {
     if (sim.core && sim.core.suspended) { feedback(SUSPENDED_START_MESSAGE, true); announce(SUSPENDED_START_MESSAGE, true); render(true); return; }
     if (sim.state.tSec > 0 || sim.state.phase !== 'premed') { ctx.restartSim(); store.run.autoStart = mode; ctx.rerender(); return; }
@@ -601,7 +622,7 @@ export function renderMonitor(ctx, main) {
     autoBanner.hidden = !st; if (st) setText(autoBanner, st.banner);
     autoPanel.classList.toggle('auto-panel--active', active);
     autoPanel.classList.toggle('auto-panel--paused', !!st && st.state === 'paused');
-    if (!st) { setText(autoStatus, ''); autoGate.hidden = true; autoPaused.hidden = true; clear(autoUnmet); clear(autoSeq); return; }
+    if (!st) { setText(autoStatus, ''); autoGate.hidden = true; autoPaused.hidden = true; decisionPrompt.hidden = true; clear(autoUnmet); clear(autoSeq); return; }
     const stateText = { running: 'running', paused: 'PAUSED', completed: 'complete', stopped: 'STOPPED', manual: 'ended (manual control)' }[st.state] || st.state;
     setText(autoStatus, `${st.modeLabel} — ${stateText}. ${st.message}`);
     autoPause.disabled = st.state !== 'running'; autoResume.disabled = st.state !== 'paused';
@@ -619,6 +640,12 @@ export function renderMonitor(ctx, main) {
     if (focusResume && paused) { focusResume = false; announce(autoPausedHead.textContent, true); if (!autoResume.disabled) autoResume.focus({ preventScroll: true }); }
     const c = st.current;
     const showGate = active && st.mode === 'guided' && c && c.gate;
+    decisionPrompt.hidden = !showGate;
+    if (decisionPrompt.dataset.gate !== (c?.id || '')) {
+      decisionPrompt.dataset.gate = c?.id || '';
+      decisionPrompt.open = false;
+      decisionRationale.hidden = true;
+    }
     autoGate.hidden = !showGate;
     if (showGate) { setText(autoGate, c.gateLabel); autoGate.disabled = !c.enabled || gateBusy; autoGate.dataset.gate = c.id; }
     else delete autoGate.dataset.gate;
@@ -786,7 +813,7 @@ export function renderMonitor(ctx, main) {
     const noEt = noBreaths || !isNum(V.etco2); // engine reports null without exhaled gas (no capnography signal)
     setTile('etco2', noEt ? '—' : String(V.etco2), noEt ? '(no breaths)' : 'illustrative');
     setTile('depth', String(V.depthIndex), `${V.sedationLevel} · GA band ${GA_BAND[0]}–${GA_BAND[1]}: ${V.depthIndex < GA_BAND[0] ? 'below band' : V.depthIndex > GA_BAND[1] ? 'above band' : 'in band'} · simulated`);
-    setTile('tof', `${V.tofCount}/4`, V.tofCount === 4 ? `TOFR ${V.tofRatio.toFixed(2)} · ${tofDepthText(V.tofCount, V.tofRatio)}` : `TOFR n/a · ${tofDepthText(V.tofCount, V.tofRatio)}`);
+    setTile('tof', `${V.tofCount}/4`, V.tofCount === 4 ? `TOFR ${(V.tofRatio < 0.9 && V.tofRatio.toFixed(2) === '0.90' ? '<0.90' : V.tofRatio.toFixed(2))} · ${tofDepthText(V.tofCount, V.tofRatio)}` : `TOFR n/a · ${tofDepthText(V.tofCount, V.tofRatio)}`);
     let mac = 0; const agents = [];
     for (const d of lib.DRUGS) if (isInhaledDrug(d)) { const ds = S.drugs[d.id]; if (ds && (ds.unitConc > 0.005 || ds.infusionRate > 0)) { mac += ds.unitConc; agents.push(`${d.name} Et ${fmtNum(ds.cp, 1)} % (${fmtNum(ds.unitConc, 2)})`); } }
     setTile('mac', agents.length ? mac.toFixed(2) : '—', agents.length ? `${agents.join(' + ')} · age-adjusted, summed (illustrative)` : 'no inhaled agent');
@@ -999,7 +1026,7 @@ function updateStatusRow(it, met, text) {
 }
 function readinessItem() { return statusRow(); }
 function updateReadinessItem(it, c) {
-  const v = c.value && typeof c.value === 'object' ? Object.entries(c.value).map(([k, x]) => `${k.toUpperCase()} ${isNum(x) ? x : 'FAULT'}`).join(', ') : isNum(c.value) ? String(c.value) : 'FAULT';
+  const v = c.value && typeof c.value === 'object' ? Object.entries(c.value).map(([k, x]) => `${k.toUpperCase()} ${isNum(x) ? x : 'FAULT'}`).join(', ') : isNum(c.value) ? (c.id === 'tofr' ? (c.value < 0.9 && c.value.toFixed(3) === '0.900' ? '<0.900' : c.value.toFixed(3)) : String(c.value)) : 'FAULT';
   updateStatusRow(it, c.met, `${c.label} — ${v} `);
   const real = c.source && c.source !== 'illustrative';
   setChildrenIf(it.src, real ? `src:${c.source}` : 'illustrative', () => (real ? srcTags([c.source]) : h('span', { class: 'badge badge--illustrative' }, 'illustrative')));

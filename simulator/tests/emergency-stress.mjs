@@ -236,7 +236,7 @@ function makeMonitor(ctx) {
   const S = []; // per-second samples after onset
   const M = { holdEver: false, clampSec: { map: 0, hr: 0, spo2: 0 } };
   let prev = { latched: sim.core.holdLatched, resume: 0, critical: false };
-  const controlledHeld = () => (sim.state.interlocks.enabled ? sim.state.interlocks.heldDrugs : []);
+  const controlledHeld = () => sim.state.interlocks.heldDrugs; // holds can latch in every mode (audit 2026-11-26)
   M.run = (n) => {
     for (let i = 0; i < n; i++) {
       sim.step(1);
@@ -255,14 +255,14 @@ function makeMonitor(ctx) {
       for (const [id, ds] of Object.entries(st.drugs)) if (!fin(ds.cumulative) || !fin(ds.infusionRate) || !fin(ds.ce) || !fin(ds.cp)) V_(`t=${t}: ${id} state not finite`);
       if (ctx.onset !== null) for (const k of ['map', 'hr', 'spo2']) if (fin(tr[k]) && (tr[k] <= MODEL_CLAMPS[k][0] + 1e-9 || (k !== 'spo2' && tr[k] >= MODEL_CLAMPS[k][1] - 1e-9))) M.clampSec[k]++;
       // 2. interlocks: latch within one control iteration of MAP < 60 / HR < 48 / unusable reading; never auto-release
-      if (st.interlocks.enabled) {
+      {
         const latched = sim.core.holdLatched;
         if (prev.latched && !latched && ctx.resumeCalls === prev.resume) V_(`t=${t}: hold released without resume_hold`);
         if (prev.critical && !latched) V_(`t=${t}: previous reading critical (MAP<60 / HR<48 / unusable) but the hold is not latched`);
         if (latched) M.holdEver = true;
         for (const id of controlledHeld()) if (st.drugs[id] && st.drugs[id].infusionRate !== 0) V_(`t=${t}: held ${id} running at ${st.drugs[id].infusionRate}`);
         const thr = NOA_CONFIG.hemodynamic_thresholds;
-        prev = { latched, resume: ctx.resumeCalls, critical: !fin(v.map) || !fin(v.hr) || v.map < thr.map_critical_low || v.hr < thr.hr_critical_low };
+        prev = { latched, resume: ctx.resumeCalls, critical: !fin(v.map) || !fin(v.hr) || (st.interlocks.enabled && (v.map < thr.map_critical_low || v.hr < thr.hr_critical_low)) }; // HR/MAP holds off: only an unusable reading must latch
       }
       // 3. lockouts and rate ceilings re-checked every second
       for (const id of Object.keys(st.interlocks.lockouts)) if (st.drugs[id] && st.drugs[id].infusionRate !== 0) V_(`t=${t}: locked-out ${id} running`);
@@ -271,7 +271,7 @@ function makeMonitor(ctx) {
         if (!(ds.infusionRate > 0)) continue;
         if (!sim._withinLabelRate(d, ds.infusionRate, ds.rateUnit)) V_(`t=${t}: ${d.id} ${ds.infusionRate} ${ds.rateUnit} above the label rate ceiling`);
         const py = SIM_TO_PY_ID[d.id];
-        if (st.interlocks.enabled && py && CONTROLLED.includes(py)) { const r = convertRateSafe(ds.infusionRate, ds.rateUnit, PY_RATE_UNITS[py], sim.rateWeight[d.id]); if (r === null || aboveCeiling(r, NOA_CONFIG.simulation_rate_ceilings[py])) V_(`t=${t}: ${d.id} above the Python simulation ceiling`); }
+        if (py && CONTROLLED.includes(py)) { const r = convertRateSafe(ds.infusionRate, ds.rateUnit, PY_RATE_UNITS[py], sim.rateWeight[d.id]); if (r === null || aboveCeiling(r, NOA_CONFIG.simulation_rate_ceilings[py])) V_(`t=${t}: ${d.id} above the Python simulation ceiling`); }
         for (const L of sim.ceilings[d.id]) if (L.type === 'cumulative' && !L.bolusOnly && ds.cumulative > L.absolute + 1e-6) V_(`t=${t}: ${d.id} cumulative ${ds.cumulative} above ${L.label}`);
       }
       if (ctx.onset !== null) S.push({ t, map: v.map, hr: v.hr, spo2: v.spo2, paco2: tr.paco2, depth: v.depthIndex });
@@ -397,7 +397,7 @@ function probeRescuePath(ctx, o, during) {
     // legitimate refusals: a cumulative label maximum, or the label repeat interval since the policy's own last dose
     if (!r.ok && !r.repeatRefused && !/Cumulative|cumulative|label maximum|Total bolus/.test(r.reasons.join(' '))) ctx.V_(`${during}: rescue ${cmd.drugId} refused: ${r.reasons.join('; ')}`);
   }
-  if (ctx.sim.state.interlocks.enabled && ctx.sim.core.holdLatched) {
+  if (ctx.sim.core.holdLatched) {
     // held infusions stay held: a restart attempt is refused
     for (const id of ctx.sim.state.interlocks.heldDrugs) {
       const d = getDrug(LIB, id); const rr = ctx.rec('maintenance', id);

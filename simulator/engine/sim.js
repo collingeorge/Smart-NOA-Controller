@@ -67,6 +67,12 @@ const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
 // bolus or infusion) within this time of a pretreatment dose gives a warning (LOW alarm + log).
 // 4 h is the Foo 2021 separation between local-anaesthetic interventions and IV lidocaine (S1),
 // applied here to pretreatment — a simulator mapping of the guideline rule.
+export function lidocainePretreatmentIssue(drug, amountMg) {
+  const fixed = drug.regimens?.pretreatment?.fixed;
+  if (fixed && Math.abs(amountMg - convertAmount(fixed.default, fixed.unit, drug.amountUnit)) <= 1e-9) return null;
+  return fixed ? `Lidocaine pretreatment requires the fixed simulator dose of ${fixed.default} ${fixed.unit} [S11].`
+    : 'No fixed lidocaine pretreatment dose is available.';
+}
 export const LIDOCAINE_RULES = Object.freeze({ OVERLAP_WINDOW_SEC: 4 * 3600, OVERLAP_ALARM_PRIORITY: 'low', PRETREATMENT_REGIMEN: 'pretreatment' });
 
 // Simulator alarm thresholds (SPEC §5.2 'Additional simulator alarms'; author/SPEC choices, not
@@ -148,7 +154,7 @@ class Simulation {
     this.maskVentSec = 0;
     this.depots = [];
     this.fluid = { retainedMl: 0, pendingMl: 0, sepsisNoteLogged: false, cautionsLogged: new Set() };
-    this.lido = { pretreatAt: [], analgesicAt: [], warned: false };
+    this.lido = { pretreatAt: [], analgesicAt: [], warned: false, loadCharged: 0 };
     // Simulator teaching ceilings (engine/teaching-ceilings.js): running totals, one-shot clinician confirmations, refusals.
     this.teaching = { given: Object.fromEntries(TEACHING_GUARDS.filter((g) => g.drugId).map((g) => [g.key, 0])), confirm: {}, confirmations: [], refusals: Object.fromEntries(TEACHING_GUARDS.map((g) => [g.key, 0])) };
     this.checklist = { antibiotic: null };
@@ -371,6 +377,25 @@ class Simulation {
       if (drug.id === 'propofol' && route === 'IV' && this.plan.mode === 'MAC' && this._propofolMacSlowOnly()) {
         if (!(isFiniteNumber(cmd.overSec) && cmd.overSec >= PROPOFOL_MAC_MIN_GIVE_OVER_SEC)) return res(false, true, [`Propofol in MAC for an elderly, debilitated or ASA III–IV patient: a rapid (single or repeated) bolus should not be used (label, S11). Give it over at least ${PROPOFOL_MAC_MIN_GIVE_OVER_SEC / 60} min (label: over 3–5 min), or use an infusion.`], []);
       }
+      // IV lidocaine analgesic loading (review 2026-11-27): the consensus loading dose is "no more than 1.5 mg/kg,
+      // calculated using the patient's ideal body weight" (S1). Delivered + pending analgesic loading in this case may
+      // not exceed it. The consensus gives no repeat interval: one loading allowance per case is a simulator convention.
+      if (drug.id === 'lidocaine' && cmd.regimenKey === LIDOCAINE_RULES.PRETREATMENT_REGIMEN) {
+        const issue = lidocainePretreatmentIssue(drug, amt);
+        if (issue) return res(false, true, [issue], []);
+        if (hasOver) return res(false, true, ['Lidocaine pretreatment is an IV injection before propofol in this exercise [S11].'], []);
+        if (this.lido.pretreatAt.length || this.doseLog.some((d) => d.drugId === 'propofol' && (d.kind === 'bolus' || d.rate > 0))) {
+          return res(false, true, ['Simulator rule: one lidocaine pretreatment per case, before the first propofol dose [S11].'], []);
+        }
+      }
+      const lidoLoad = drug.id === 'lidocaine' && route === 'IV' && cmd.regimenKey !== LIDOCAINE_RULES.PRETREATMENT_REGIMEN;
+      if (lidoLoad) {
+        const lim = this._lidocaineLoadLimit();
+        if (lim !== null && this.lido.loadCharged + amt > lim + 1e-9) {
+          const pend = this.timed.filter((x) => x.drugId === 'lidocaine' && x.lidoLoad).reduce((a, x) => a + x.remaining, 0);
+          return res(false, true, [`IV lidocaine loading would total ${roundSig(this.lido.loadCharged + amt)} mg in this case (delivered ${roundSig(this.lido.loadCharged - pend)} mg, pending ${roundSig(pend)} mg, this dose ${roundSig(amt)} mg), above the consensus loading limit of 1.5 mg/kg ideal body weight = ${roundSig(lim)} mg for this patient [S1]. One loading allowance per case is a simulator convention (the consensus gives no repeat interval); continue with the infusion instead.`], []);
+        }
+      }
       const pendingTimed = this.timed.filter((x) => x.drugId === drug.id).reduce((a, x) => a + x.remaining, 0);
       for (const L of limits) {
         if (L.route && L.route !== route) continue;
@@ -405,8 +430,9 @@ class Simulation {
       this.bolusGiven[drug.id] = (this.bolusGiven[drug.id] || 0) + amt;
       if (tg) { this.teaching.given[tg.key] += amt; if (tgUse) { tgUse.used = { tSec: this.state.tSec, amount: amt, totalAfter: this.teaching.given[tg.key] }; warnings.push(`Given above the simulator teaching ceiling ${tg.value} ${tg.unit} (${tg.label}; total now ${roundSig(this.teaching.given[tg.key])} ${tg.unit}) after the clinician's confirmation`); } }
       if (route !== 'IV') { this.depots.push({ drugId: drug.id, remaining: amt, ka: ROUTE_KA_ILLUSTRATIVE[route] ?? ROUTE_KA_ILLUSTRATIVE.IM, route }); ds.cumulative += amt; }
-      else if (overSec) this.timed.push({ drugId: drug.id, perMin: amt / (overSec / 60), remaining: amt, total: amt, startedSec: this.state.tSec, teachingKey: tg ? tg.key : null });
+      else if (overSec) this.timed.push({ drugId: drug.id, perMin: amt / (overSec / 60), remaining: amt, total: amt, startedSec: this.state.tSec, teachingKey: tg ? tg.key : null, lidoLoad: !!lidoLoad });
       else { model.model.bolus(amt); ds.cumulative += amt; }
+      if (lidoLoad) this.lido.loadCharged += amt;
       if (drug.id === 'rocuronium') this.lastRocBolus = { tSec: this.state.tSec, perKg: amt / this.patient.weightKg };
       this._doseLog(drug, { kind: 'bolus', regimenKey: cmd.regimenKey || null, amount: amt, route, overSec, tierWarning: rtw.find((x) => /tier for the current block/.test(x)) || null }, meta);
       if (drug.id === 'lidocaine') { const w = this._lidocaineOverlap(cmd.regimenKey === LIDOCAINE_RULES.PRETREATMENT_REGIMEN ? 'pretreatment' : 'analgesic', amt); if (w) warnings.push(w); }
@@ -469,6 +495,12 @@ class Simulation {
     return f.includes('elderly') || f.includes('asa3plus') || f.includes('debilitated') || this.patient.asa >= 3;
   }
 
+  /** Consensus IV lidocaine loading limit for this patient (1.5 mg/kg IBW via recommend(); mg) or null. */
+  _lidocaineLoadLimit() {
+    const r = recommend(this.patient, 'induction', 'lidocaine', this.lib);
+    return r && r.dose && isFiniteNumber(r.dose.range.max) ? r.dose.range.max : null;
+  }
+
   /** True while `drugId` is held by a latched interlock (controlled agents only). */
   _isHeld(drugId) {
     const py = SIM_TO_PY_ID[drugId];
@@ -490,6 +522,7 @@ class Simulation {
       // credit back what was never delivered, so a later dose is judged on what the patient received.
       this.bolusGiven[drugId] = Math.max(0, (this.bolusGiven[drugId] || 0) - undelivered);
       if (x.teachingKey) this.teaching.given[x.teachingKey] = Math.max(0, this.teaching.given[x.teachingKey] - undelivered);
+      if (x.lidoLoad) this.lido.loadCharged = Math.max(0, this.lido.loadCharged - undelivered);
       const rec = { tSec: this.state.tSec, drugId, reason, total: x.total, delivered, undelivered, unit: drug.amountUnit };
       this.stats.timedCancellations.push(rec);
       this.doseLog.push({ tSec: this.state.tSec, drugId, phase: this.state.phase, source: 'engine', kind: 'timed_cancelled', reason, total: x.total, delivered, undelivered });
@@ -521,7 +554,7 @@ class Simulation {
     (type === 'pretreatment' ? L.pretreatAt : L.analgesicAt).push({ tSec: t, amount: amt });
     const other = type === 'pretreatment' ? L.analgesicAt : L.pretreatAt;
     if (!other.some((x) => Math.abs(t - x.tSec) <= LIDOCAINE_RULES.OVERLAP_WINDOW_SEC + 1e-9)) return null;
-    const msg = `Lidocaine pretreatment and IV lidocaine analgesic dosing within ${LIDOCAINE_RULES.OVERLAP_WINDOW_SEC / 3600} h: every dose counts toward the cumulative lidocaine total (now ${roundSig(this.state.drugs.lidocaine.cumulative + (amt || 0))} mg incl. this dose; Foo 2021 loading ≤ 1.5 mg/kg IBW, infusion ≤ 1.5 mg/kg/h IBW, ≤ 120 mg/h) [S1]`;
+    const msg = `Lidocaine pretreatment and IV lidocaine analgesic dosing within ${LIDOCAINE_RULES.OVERLAP_WINDOW_SEC / 3600} h: every dose counts toward the cumulative lidocaine total (delivered so far ${roundSig(this.state.drugs.lidocaine.cumulative)} mg; still to be delivered from timed doses ${roundSig(this.timed.filter((x) => x.drugId === 'lidocaine').reduce((s0, x) => s0 + x.remaining, 0))} mg; Foo 2021 loading ≤ 1.5 mg/kg IBW, infusion ≤ 1.5 mg/kg/h IBW, ≤ 120 mg/h) [S1]`;
     this.alarmMgr.pulse(t, 'lidocaine_overlap', LIDOCAINE_RULES.OVERLAP_ALARM_PRIORITY, 'Lidocaine pretreatment + IV lidocaine analgesic dosing overlap (Foo 2021): check the cumulative dose');
     L.warned = true;
     return msg;
@@ -1164,7 +1197,7 @@ class Simulation {
     V.dbp = S.sensors.map === 'fault' ? NaN : out.dbp;
     V.spo2 = S.sensors.spo2 === 'fault' ? NaN : out.spo2;
     V.rr = out.rr; V.etco2 = out.etco2; V.depthIndex = out.depthIndex; V.sedationLevel = out.sedationLevel;
-    V.tofCount = tof.count; V.tofRatio = Math.round(tof.ratio * 100) / 100;
+    V.tofCount = tof.count; V.tofRatio = tof.ratio;
 
     // 10. statistics
     if (isFiniteNumber(V.map) && V.map < 65) this.stats.timeMapBelow65Sec += h;
