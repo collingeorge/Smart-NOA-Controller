@@ -31,10 +31,11 @@ test('finding 1: a hold cancels the pending timed IV dose of every held drug; th
     assert.ok(sim.state.log.some((l) => l.kind === 'dose' && /timed dose cancelled \(interlock hold\).*not delivered\. It does not restart/.test(l.message)), `${id}: logged`);
     assert.equal(sim.timed.filter((x) => x.drugId === id).length, 0);
     // a new dose of the held drug is refused until the hold is released; afterwards it needs a fresh action
-    assert.equal(sim.administer({ drugId: id, kind: 'bolus', amount: amt / 10, amountUnit: unit }).blocked, true);
+    const retry = { drugId: id, kind: 'bolus', amount: amt / 10, amountUnit: unit, overSec: id === 'lidocaine' ? 600 : 60 };
+    assert.equal(sim.administer(retry).blocked, true);
     assert.ok(sim.action('acknowledge_hold').ok); assert.ok(sim.action('resume_hold').ok);
     runFor(sim, 60); assert.equal(cum(sim, id), before, `${id}: nothing restarts after release`);
-    assert.ok(sim.administer({ drugId: id, kind: 'bolus', amount: amt / 10, amountUnit: unit, overSec: 60 }).ok, `${id}: new dose after release`);
+    assert.ok(sim.administer(retry).ok, `${id}: new dose after release`);
     runFor(sim, 61); assert.ok(cum(sim, id) > before);
   }
 });

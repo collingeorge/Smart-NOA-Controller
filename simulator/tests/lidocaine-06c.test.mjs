@@ -14,10 +14,24 @@ const skip = !REAL && 'default library not available';
 const pat = () => derivePatient(EXAMPLE_PATIENTS.find((p) => p.id === 'healthy_adult').patient, { library: REAL });
 const mk = () => { const s = createSimulation({ patient: pat(), library: REAL, seed: 1 }); runFor(s, 1); return s; };
 const limit = () => recommend(pat(), 'induction', 'lidocaine', REAL).dose.range.max; // 1.5 mg/kg IBW
-const load = (s, amount, extra = {}) => s.administer({ drugId: 'lidocaine', kind: 'bolus', amount, amountUnit: 'mg', regimenKey: 'induction', ...extra });
+const load = (s, amount, extra = {}) => s.administer({ drugId: 'lidocaine', kind: 'bolus', amount, amountUnit: 'mg', regimenKey: 'induction', overSec: extra.regimenKey === 'pretreatment' ? undefined : 600, ...extra });
 const lido = (s) => s.state.drugs.lidocaine.cumulative;
 
-test('a second full IV lidocaine load is refused (timed, push, and unlabelled manual); delivered and pending shown separately', { skip }, () => {
+test('analgesic lidocaine requires a ten-minute minimum in the engine and plan editor', { skip }, () => {
+  const c = { lib: REAL, patient: pat(), interlocks: true };
+  const step = { uid: 'a', drugId: 'lidocaine', kind: 'bolus', phase: 'induction', atSec: 0, amount: 30, amountUnit: 'mg', regimenKey: 'induction' };
+  const s = mk();
+  for (const overSec of [undefined, 0, 60, 599]) {
+    assert.match(load(s, 30, { overSec, regimenKey: undefined }).reasons[0], /at least 10 minutes/);
+    assert.ok(checkStep(c, { ...step, overSec }, [step]).errors.some((e) => /at least 10 minutes/.test(e.text)));
+  }
+  assert.equal(lido(s), 0);
+  assert.ok(load(s, 30, { regimenKey: undefined }).ok);
+  assert.equal(lido(s), 0, 'the timed dose is not delivered as a push');
+  assert.ok(!checkStep(c, { ...step, overSec: 600 }, [step]).errors.some((e) => /at least 10 minutes/.test(e.text)));
+});
+
+test('a second full IV lidocaine load is refused; delivered and pending shown separately', { skip }, () => {
   const L = limit();
   for (const first of [{ overSec: 600 }, {}]) {
     const s = mk();
@@ -44,17 +58,17 @@ test('cancelling a timed load credits only the undelivered part; pretreatment do
   assert.ok(load(p, L).ok, 'pretreatment is outside the analgesic loading allowance');
 });
 
-test('overlap warning: delivered and pending amounts, no double counting (immediate, timed, cancelled)', { skip }, () => {
+test('overlap warning: delivered and pending amounts, no double counting (timed and cancelled)', { skip }, () => {
   const msg = (r) => r.warnings.find((w) => /pretreatment and IV lidocaine analgesic dosing/.test(w));
   let s = mk(); s.administer({ drugId: 'lidocaine', kind: 'bolus', amount: 10, amountUnit: 'mg', regimenKey: 'pretreatment' });
   let r = load(s, 30);
-  assert.equal(lido(s), 40); assert.match(msg(r), /delivered so far 40 mg; still to be delivered from timed doses 0 mg/);
+  assert.equal(lido(s), 10); assert.match(msg(r), /delivered so far 10 mg; still to be delivered from timed doses 30 mg/);
   s = mk(); s.administer({ drugId: 'lidocaine', kind: 'bolus', amount: 10, amountUnit: 'mg', regimenKey: 'pretreatment' });
   r = load(s, 60, { overSec: 600 });
   assert.match(msg(r), /delivered so far 10 mg; still to be delivered from timed doses 60 mg/);
   runFor(s, 120); s.administer({ drugId: 'lidocaine', kind: 'stop' });
   const r2 = load(s, 5);
-  const m = msg(r2); assert.ok(m); assert.match(m, new RegExp(`delivered so far ${Math.round(lido(s))} mg; still to be delivered from timed doses 0 mg`));
+  const m = msg(r2); assert.ok(m); assert.match(m, new RegExp(`delivered so far ${Math.round(lido(s))} mg; still to be delivered from timed doses 5 mg`));
 });
 
 test('planned and guided delivery: the plan editor blocks a planned second load; the shipped opioid-free plan stays within the limit', { skip }, () => {

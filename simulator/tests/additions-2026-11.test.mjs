@@ -60,13 +60,15 @@ test('A3 Foo 2021 overlap: pretreatment + IV lidocaine infusion within the windo
   assert.equal(s.summary().lidocaine.totalMg >= 10, true);
   // analgesic loading bolus first, then pretreatment → also warns
   const s2 = sim0();
-  s2.administer({ drugId: 'lidocaine', kind: 'bolus', amount: 50, amountUnit: 'mg', regimenKey: 'induction' });
+  assert.ok(s2.administer({ drugId: 'lidocaine', kind: 'bolus', amount: 50, amountUnit: 'mg', regimenKey: 'induction', overSec: 600 }).ok);
   assert.ok(s2.administer({ drugId: 'lidocaine', kind: 'bolus', amount: 10, amountUnit: 'mg', regimenKey: 'pretreatment' }).warnings.some((w) => /Foo 2021/.test(w)));
   // outside the window: no warning
   const s3 = sim0();
   s3.administer({ drugId: 'lidocaine', kind: 'bolus', amount: 10, amountUnit: 'mg', regimenKey: 'pretreatment' });
   runFor(s3, LIDOCAINE_RULES.OVERLAP_WINDOW_SEC + 2);
-  assert.ok(!s3.administer({ drugId: 'lidocaine', kind: 'bolus', amount: 50, amountUnit: 'mg', regimenKey: 'induction' }).warnings.some((w) => /Foo 2021/.test(w)));
+  const later = s3.administer({ drugId: 'lidocaine', kind: 'bolus', amount: 50, amountUnit: 'mg', regimenKey: 'induction', overSec: 600 });
+  assert.ok(later.ok);
+  assert.ok(!later.warnings.some((w) => /Foo 2021/.test(w)));
   assert.equal(LIDOCAINE_RULES.OVERLAP_WINDOW_SEC, 4 * 3600);
   assert.match(REAL.SOURCES.S1.supports, /about 4 h separation/);
 });
