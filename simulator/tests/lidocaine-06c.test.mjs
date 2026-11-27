@@ -71,3 +71,48 @@ test('planned and guided delivery: the plan editor blocks a planned second load;
   for (let i = 0; i < 3600 && run.state === 'running'; i++) { sim.step(1); run.tick(); }
   assert.ok(sim.lido.loadCharged <= recommend(pp, 'induction', 'lidocaine', REAL).dose.range.max + 1e-9);
 });
+
+// ------------------------------------------------------------------ review of PR #23: the pretreatment exemption is validated
+test('a dose labelled pretreatment is exempt only if it is the single fixed 10 mg dose (after unit conversion)', { skip }, () => {
+  const L = limit();
+  // the reproduced bypass: full load, then 300 mg and 0.3 g labelled pretreatment
+  const s = mk(); assert.ok(load(s, L).ok);
+  for (const [amount, amountUnit] of [[300, 'mg'], [0.3, 'g'], [11, 'mg']]) {
+    const r = s.administer({ drugId: 'lidocaine', kind: 'bolus', amount, amountUnit, regimenKey: 'pretreatment' });
+    assert.equal(r.blocked, true, `${amount} ${amountUnit}`); assert.match(r.reasons[0], /IV lidocaine loading would total/);
+  }
+  assert.ok(Math.abs(lido(s) - L) < 1e-6, 'nothing beyond the loading limit was given');
+  // the genuine 10 mg pretreatment (also as 0.01 g) is exempt once; a second one counts as loading
+  const p = mk();
+  const first = p.administer({ drugId: 'lidocaine', kind: 'bolus', amount: 0.01, amountUnit: 'g', regimenKey: 'pretreatment' });
+  assert.ok(first.ok); assert.ok(!first.warnings.some((w) => /counted as IV lidocaine loading/.test(w)));
+  assert.ok(load(p, L).ok, 'full loading allowance still available');
+  const again = p.administer({ drugId: 'lidocaine', kind: 'bolus', amount: 10, amountUnit: 'mg', regimenKey: 'pretreatment' });
+  assert.equal(again.blocked, true, 'second pretreatment counts toward the exhausted allowance');
+  // a mislabelled dose within the allowance is given but counted, with a warning
+  const q = mk(); const r = q.administer({ drugId: 'lidocaine', kind: 'bolus', amount: 50, amountUnit: 'mg', regimenKey: 'pretreatment' });
+  assert.ok(r.ok); assert.ok(r.warnings.some((w) => /counted as IV lidocaine loading/.test(w)));
+  assert.equal(q.lido.loadCharged, 50);
+});
+
+test('the pretreatment label cannot bypass the under-40-kg analgesic lock', { skip }, () => {
+  const small = derivePatient({ ...EXAMPLE_PATIENTS.find((p) => p.id === 'healthy_adult').patient, weightKg: 38, heightCm: 150, sex: 'female' }, { library: REAL });
+  const s = createSimulation({ patient: small, library: REAL, seed: 1 }); runFor(s, 1);
+  const r = s.administer({ drugId: 'lidocaine', kind: 'bolus', amount: 100, amountUnit: 'mg', regimenKey: 'pretreatment' });
+  assert.equal(r.blocked, true); assert.match(r.reasons[0], /not for patients under 40 kg/);
+  assert.ok(s.administer({ drugId: 'lidocaine', kind: 'bolus', amount: 10, amountUnit: 'mg', regimenKey: 'pretreatment' }).ok, 'the real pretreatment is still allowed');
+});
+
+test('plan editor: same validated exemption, units converted before summing', { skip }, () => {
+  const p = pat(); const L = limit(); const c = { lib: REAL, patient: p, interlocks: true };
+  const loadStep = { uid: 'a', drugId: 'lidocaine', kind: 'bolus', phase: 'induction', atSec: 0, amount: L, amountUnit: 'mg', overSec: 600, regimenKey: 'induction' };
+  const bigPre = { uid: 'b', drugId: 'lidocaine', kind: 'bolus', phase: 'induction', atSec: 0, amount: 0.3, amountUnit: 'g', overSec: null, regimenKey: 'pretreatment' };
+  const errs = checkStep(c, bigPre, [loadStep, bigPre]).errors.map((e) => e.text).join(' ');
+  assert.match(errs, /planned IV lidocaine loading totals .*mg, above the consensus limit/);
+  const realPre = { ...bigPre, uid: 'c', amount: 10, amountUnit: 'mg' };
+  assert.ok(!checkStep(c, realPre, [loadStep, realPre]).errors.length, 'real 10 mg pretreatment + full load is fine');
+  const twoPre = { ...realPre, uid: 'd' };
+  assert.ok(checkStep(c, twoPre, [loadStep, realPre, twoPre]).errors.some((e) => /planned IV lidocaine loading totals/.test(e.text)), 'a second pretreatment counts');
+  const gramLoad = { ...loadStep, uid: 'e', amount: L / 1000 + 0.01, amountUnit: 'g' };
+  assert.ok(checkStep(c, gramLoad, [gramLoad]).errors.some((e) => /planned IV lidocaine loading totals/.test(e.text)), 'grams are converted before comparing');
+});

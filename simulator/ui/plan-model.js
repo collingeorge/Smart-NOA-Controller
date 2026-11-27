@@ -1,13 +1,13 @@
 // Plan model helpers for the plan editor: step creation from recommend(), validation
 // against sourced ranges, label ceilings and (when enabled) Smart NOA simulation ceilings.
 // No DOM.
-import { recommend, interpretCeilings, convertRateSafe, regimenKeyForPhase, evaluateWhen } from '../engine/dosing.js';
+import { recommend, interpretCeilings, convertRateSafe, regimenKeyForPhase, evaluateWhen, regimenLocks } from '../engine/dosing.js';
 import { NOA_CONFIG, SIM_TO_PY_ID, CONTROLLED, PY_RATE_UNITS, aboveCeiling } from '../engine/interlocks.js';
 import { scalarWeight } from '../engine/patient.js';
 import { MIN_FIO2_WITH_N2O, FLUID_MODEL, LIDOCAINE_RULES, PROPOFOL_MAC_MIN_GIVE_OVER_SEC } from '../engine/sim.js';
 import { selectProphylaxis } from '../engine/prophylaxis.js';
 import { overSecFromTiming } from '../data/scenarios.js';
-import { roundSig } from '../engine/units.js';
+import { roundSig, convertAmount } from '../engine/units.js';
 import { loadingPairs } from '../engine/timing.js';
 import { maintenanceHypnoticGap, tivaMaintenanceSteps, isMaintenanceHypnoticStep } from '../engine/plan-safety.js';
 
@@ -215,12 +215,27 @@ export function checkStep(c, step, allSteps) {
         }
       }
     }
-    // IV lidocaine analgesic loading: planned total ≤ 1.5 mg/kg IBW per case (S1; one allowance per case is a simulator convention).
-    if (step.drugId === 'lidocaine' && step.regimenKey !== LIDOCAINE_RULES.PRETREATMENT_REGIMEN) {
-      const lr = recommend(c.patient, 'induction', 'lidocaine', c.lib);
-      const lim = lr && lr.dose ? lr.dose.range.max : null;
-      const total = allSteps.filter((s) => s.drugId === 'lidocaine' && s.kind === 'bolus' && s.regimenKey !== LIDOCAINE_RULES.PRETREATMENT_REGIMEN && isNum(s.amount)).reduce((a, s) => a + s.amount, 0);
-      if (isNum(lim) && total > lim + 1e-9) errors.push({ text: `Blocked: planned IV lidocaine loading totals ${roundSig(total)} mg, above the consensus limit of 1.5 mg/kg ideal body weight = ${roundSig(lim)} mg for this patient (one loading allowance per case is a simulator convention).` });
+    // IV lidocaine analgesic loading: planned total ≤ 1.5 mg/kg IBW per case (S1; one allowance per case is a simulator
+    // convention). Same rule as the engine: amounts are converted to mg before summing, and only the first
+    // pretreatment-labelled step of at most the fixed pretreatment dose is exempt; any other counts as loading.
+    if (step.drugId === 'lidocaine' && step.kind === 'bolus') {
+      const toMg = (s) => { try { return convertAmount(s.amount, s.amountUnit || 'mg', 'mg'); } catch { return NaN; } };
+      const pre = recommend(c.patient, LIDOCAINE_RULES.PRETREATMENT_REGIMEN, 'lidocaine', c.lib);
+      const preMg = pre && pre.dose ? pre.dose.value : 0;
+      const lido = allSteps.filter((s) => s.drugId === 'lidocaine' && s.kind === 'bolus');
+      const exempt = lido.find((s) => s.regimenKey === LIDOCAINE_RULES.PRETREATMENT_REGIMEN && toMg(s) <= preMg + 1e-9) || null;
+      if (step.regimenKey === LIDOCAINE_RULES.PRETREATMENT_REGIMEN && step !== exempt) {
+        errors.push(...regimenLocks(c.patient, (drug.regimens || {}).induction).map((x) => ({ text: `Blocked: ${x.message}` })));
+        warnings.push(`Labelled pretreatment but not the single fixed ${roundSig(preMg)} mg pretreatment dose: counted as IV lidocaine loading.`);
+      }
+      if (step !== exempt) {
+        const lr = recommend(c.patient, 'induction', 'lidocaine', c.lib);
+        const lim = lr && lr.dose ? lr.dose.range.max : null;
+        const amounts = lido.filter((s) => s !== exempt).map(toMg);
+        const total = amounts.reduce((x, v) => x + (isNum(v) ? v : 0), 0);
+        if (amounts.some((v) => !isNum(v))) errors.push({ text: 'Blocked: a lidocaine dose has a unit that cannot be converted to mg.' });
+        else if (isNum(lim) && total > lim + 1e-9) errors.push({ text: `Blocked: planned IV lidocaine loading totals ${roundSig(total)} mg, above the consensus limit of 1.5 mg/kg ideal body weight = ${roundSig(lim)} mg for this patient (one loading allowance per case is a simulator convention).` });
+      }
     }
     // Propofol in MAC for elderly/debilitated/ASA III–IV: no rapid bolus (label S11); the engine refuses one given over < 3 min.
     const isMac = step.phase === 'sedation' || allSteps.some((s) => s.phase === 'sedation');

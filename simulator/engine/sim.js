@@ -148,7 +148,7 @@ class Simulation {
     this.maskVentSec = 0;
     this.depots = [];
     this.fluid = { retainedMl: 0, pendingMl: 0, sepsisNoteLogged: false, cautionsLogged: new Set() };
-    this.lido = { pretreatAt: [], analgesicAt: [], warned: false, loadCharged: 0 };
+    this.lido = { pretreatAt: [], analgesicAt: [], warned: false, loadCharged: 0, pretreatExemptUsed: false };
     // Simulator teaching ceilings (engine/teaching-ceilings.js): running totals, one-shot clinician confirmations, refusals.
     this.teaching = { given: Object.fromEntries(TEACHING_GUARDS.filter((g) => g.drugId).map((g) => [g.key, 0])), confirm: {}, confirmations: [], refusals: Object.fromEntries(TEACHING_GUARDS.map((g) => [g.key, 0])) };
     this.checklist = { antibiotic: null };
@@ -374,8 +374,15 @@ class Simulation {
       // IV lidocaine analgesic loading (review 2026-11-27): the consensus loading dose is "no more than 1.5 mg/kg,
       // calculated using the patient's ideal body weight" (S1). Delivered + pending analgesic loading in this case may
       // not exceed it. The consensus gives no repeat interval: one loading allowance per case is a simulator convention.
-      const lidoLoad = drug.id === 'lidocaine' && route === 'IV' && cmd.regimenKey !== LIDOCAINE_RULES.PRETREATMENT_REGIMEN;
+      // The pretreatment exemption is validated here, not taken from the label: only one dose per case of at most the
+      // fixed pretreatment dose (10 mg, after unit conversion) is exempt; any other dose labelled pretreatment counts as
+      // analgesic loading (review of PR #23, 2026-11-27).
+      const pretreatExempt = drug.id === 'lidocaine' && cmd.regimenKey === LIDOCAINE_RULES.PRETREATMENT_REGIMEN && this._lidocainePretreatmentOk(amt);
+      const lidoLoad = drug.id === 'lidocaine' && route === 'IV' && !pretreatExempt;
+      if (drug.id === 'lidocaine' && cmd.regimenKey === LIDOCAINE_RULES.PRETREATMENT_REGIMEN && !pretreatExempt) warnings.push(`Labelled pretreatment but not the single fixed ${roundSig(this._lidocainePretreatmentDose())} mg pretreatment dose for this case: counted as IV lidocaine loading`);
       if (lidoLoad) {
+        const anaLocks = regimenLocks(this.patient, (drug.regimens || {}).induction);
+        if (anaLocks.length) return res(false, true, anaLocks.map((x) => x.message), []);
         const lim = this._lidocaineLoadLimit();
         if (lim !== null && this.lido.loadCharged + amt > lim + 1e-9) {
           const pend = this.timed.filter((x) => x.drugId === 'lidocaine' && x.lidoLoad).reduce((a, x) => a + x.remaining, 0);
@@ -419,9 +426,10 @@ class Simulation {
       else if (overSec) this.timed.push({ drugId: drug.id, perMin: amt / (overSec / 60), remaining: amt, total: amt, startedSec: this.state.tSec, teachingKey: tg ? tg.key : null, lidoLoad: !!lidoLoad });
       else { model.model.bolus(amt); ds.cumulative += amt; }
       if (lidoLoad) this.lido.loadCharged += amt;
+      if (pretreatExempt) this.lido.pretreatExemptUsed = true;
       if (drug.id === 'rocuronium') this.lastRocBolus = { tSec: this.state.tSec, perKg: amt / this.patient.weightKg };
       this._doseLog(drug, { kind: 'bolus', regimenKey: cmd.regimenKey || null, amount: amt, route, overSec, tierWarning: rtw.find((x) => /tier for the current block/.test(x)) || null }, meta);
-      if (drug.id === 'lidocaine') { const w = this._lidocaineOverlap(cmd.regimenKey === LIDOCAINE_RULES.PRETREATMENT_REGIMEN ? 'pretreatment' : 'analgesic', amt); if (w) warnings.push(w); }
+      if (drug.id === 'lidocaine') { const w = this._lidocaineOverlap(pretreatExempt ? 'pretreatment' : 'analgesic', amt); if (w) warnings.push(w); }
       this._onDrugGiven(drug);
       this._log('dose', `${drug.name} ${roundSig(amt)} ${drug.amountUnit} ${route === 'IV' ? 'bolus' : `${route} injection (illustrative absorption)`}${overSec ? ` over ${Math.round(overSec / 60)} min` : ''}${meta.source === 'plan' ? ' (plan)' : ''}${warnings.length ? ` — warnings: ${warnings.join('; ')}` : ''}`);
       return res(true, false, [], warnings);
@@ -479,6 +487,17 @@ class Simulation {
   _propofolMacSlowOnly() {
     const f = this.patient.flags || [];
     return f.includes('elderly') || f.includes('asa3plus') || f.includes('debilitated') || this.patient.asa >= 3;
+  }
+
+  /** Fixed lidocaine pretreatment dose (mg; propofol label: 1 mL of a 1% solution) from the library. */
+  _lidocainePretreatmentDose() {
+    const r = recommend(this.patient, LIDOCAINE_RULES.PRETREATMENT_REGIMEN, 'lidocaine', this.lib);
+    return r && r.dose && isFiniteNumber(r.dose.value) ? r.dose.value : 0;
+  }
+
+  /** A pretreatment-labelled dose is exempt from the loading allowance only if it is the first one and ≤ the fixed dose. */
+  _lidocainePretreatmentOk(amtMg) {
+    return !this.lido.pretreatExemptUsed && isFiniteNumber(amtMg) && amtMg <= this._lidocainePretreatmentDose() + 1e-9;
   }
 
   /** Consensus IV lidocaine loading limit for this patient (1.5 mg/kg IBW via recommend(); mg) or null. */
