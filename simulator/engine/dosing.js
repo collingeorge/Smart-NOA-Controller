@@ -206,6 +206,10 @@ export function recommend(patient, regimenKey, drugId, library = null) {
       result.rate = r;
     }
     applyCeilingToRecommendation(drug, patient, result, sw.weightKg);
+    if (drugId === 'propofol' && /^sedation_(moderate|deep)$/.test(regimenKey) && matched.length) {
+      const example = (dose) => dose ? { value: roundSig(dose.value * 0.8), unit: dose.unit } : null;
+      result.lowerMacExample = { loading: example(result.loading), rate: example(result.rate) };
+    }
   }
   return result;
 }

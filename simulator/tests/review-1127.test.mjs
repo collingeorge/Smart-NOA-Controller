@@ -68,3 +68,28 @@ test('phenylephrine: the cumulative bolus refusal names the limit as a simulator
   const r = sim.administer({ drugId: 'phenylephrine', kind: 'bolus', amount: 50, amountUnit: 'mcg' });
   assert.equal(r.blocked, true); assert.match(r.reasons[0], /simulator limit based on the 2019 label/);
 });
+
+test('higher-risk MAC exposes a lower teaching option without changing scripted defaults', { skip }, () => {
+  const healthy = EX('healthy_adult');
+  const elderly = EX('elderly_cad_ckd');
+  for (const regimen of ['sedation_moderate', 'sedation_deep']) {
+    const a = recommend(healthy, regimen, 'propofol', REAL);
+    const b = recommend(elderly, regimen, 'propofol', REAL);
+    assert.equal(b.rate.value, a.rate.value);
+    assert.equal(b.lowerMacExample.rate.value, b.rate.value * 0.8);
+    assert.ok(Math.abs(b.lowerMacExample.loading.value - b.loading.value * 0.8) < 0.02);
+    assert.equal(a.lowerMacExample, undefined);
+    assert.ok(b.warnings.some((x) => /teaching conventions/.test(x)));
+  }
+});
+
+test('sugammadex renal caution appears in plan and manual dosing', { skip }, () => {
+  const p = derivePatient({ ...basePatient(), egfr: 10 }, { library: REAL });
+  const r = recommend(p, 'emergence', 'sugammadex', REAL);
+  assert.ok(r.warnings.some((x) => /eGFR and creatinine clearance are different/.test(x)));
+  const sim = createSimulation({ patient: p, library: REAL });
+  const dose = sim.administer({ drugId: 'sugammadex', kind: 'bolus', amount: r.dose.value, amountUnit: 'mg' });
+  assert.ok(dose.warnings.some((x) => /eGFR and creatinine clearance are different/.test(x)));
+  const normal = recommend(EX('healthy_adult'), 'emergence', 'sugammadex', REAL);
+  assert.ok(!normal.warnings.some((x) => /severe renal impairment/.test(x)));
+});
