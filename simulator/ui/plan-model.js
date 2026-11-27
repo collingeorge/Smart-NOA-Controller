@@ -215,6 +215,13 @@ export function checkStep(c, step, allSteps) {
         }
       }
     }
+    // IV lidocaine analgesic loading: planned total ≤ 1.5 mg/kg IBW per case (S1; one allowance per case is a simulator convention).
+    if (step.drugId === 'lidocaine' && step.regimenKey !== LIDOCAINE_RULES.PRETREATMENT_REGIMEN) {
+      const lr = recommend(c.patient, 'induction', 'lidocaine', c.lib);
+      const lim = lr && lr.dose ? lr.dose.range.max : null;
+      const total = allSteps.filter((s) => s.drugId === 'lidocaine' && s.kind === 'bolus' && s.regimenKey !== LIDOCAINE_RULES.PRETREATMENT_REGIMEN && isNum(s.amount)).reduce((a, s) => a + s.amount, 0);
+      if (isNum(lim) && total > lim + 1e-9) errors.push({ text: `Blocked: planned IV lidocaine loading totals ${roundSig(total)} mg, above the consensus limit of 1.5 mg/kg ideal body weight = ${roundSig(lim)} mg for this patient (one loading allowance per case is a simulator convention).` });
+    }
     // Propofol in MAC for elderly/debilitated/ASA III–IV: no rapid bolus (label S11); the engine refuses one given over < 3 min.
     const isMac = step.phase === 'sedation' || allSteps.some((s) => s.phase === 'sedation');
     const pf = c.patient.flags || [];
