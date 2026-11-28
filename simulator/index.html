@@ -33,6 +33,7 @@
       </div>
       <div class="app-panels">
         <button type="button" class="btn btn--ghost" id="open-sources" aria-haspopup="dialog">Sources</button>
+        <button type="button" class="btn btn--ghost" id="open-case-files" aria-haspopup="dialog">Case files</button>
         <button type="button" class="btn btn--ghost" id="open-model" aria-haspopup="dialog">Model card</button>
         <button type="button" class="btn btn--ghost" id="open-about" aria-haspopup="dialog">About &amp; limitations</button>
         <button type="button" class="btn btn--ghost" id="open-ethics" aria-haspopup="dialog" hidden>Ethics, law &amp; communication</button>
@@ -99,5 +100,20 @@
   <footer class="site-foot">
     <p>Smart NOA web simulator &middot; educational simulation with fictional patients &middot; not a medical device, not clinical decision support, not medical advice. No data leaves this page.</p>
   </footer>
+  <dialog id="case-files-dialog" class="panel-dialog panel-dialog--narrow" aria-labelledby="case-files-title">
+    <h2 id="case-files-title">Case files</h2>
+    <p>Use fictional patient information only. Case files stay on this device. Edit the JSON in a plain-text editor and save it as UTF-8. Open the text debrief in a word processor for class review.</p>
+    <div class="actions">
+      <button type="button" class="btn" id="case-file-template">Download example template</button>
+      <button type="button" class="btn" id="case-file-export">Export current case</button>
+      <button type="button" class="btn" id="case-file-review" hidden>Export readable debrief</button>
+    </div>
+    <p>Import replaces the setup and run for the file’s module. Review the patient and plan before starting.</p>
+    <label for="case-file-input">Smart NOA case file (JSON)</label>
+    <input id="case-file-input" type="file" accept=".json,application/json">
+    <button type="button" class="btn btn--primary" id="case-file-import">Import case</button>
+    <p id="case-file-status" role="status"></p>
+    <button type="button" class="btn" data-close-dialog>Close</button>
+  </dialog>
 </body>
 </html>

@@ -14,7 +14,10 @@ import { renderDebrief } from './debrief.js';
 import { exportPlan, planIssues, stepsFromBuiltPlan, setLockoutRemoved } from './plan-model.js';
 import { notModeled } from './labels.js';
 import { renderModelCard, loadModelAssumptions, assumptionsList, AI_DISCLOSURE, TOOL_DESCRIPTION } from './model-card.js';
-import { pal, renderPalliative, setPalModule, stop as stopPalliative, renderEthics, palSnapshot } from './palliative.js';
+import { pal, renderPalliative, setPalModule, stop as stopPalliative, renderEthics, palSnapshot, palliativeCaseDraft, defaultPalliativePlan } from './palliative.js';
+import { PALLIATIVE_CASES } from '../data/palliative.js';
+import { derivePalliative } from '../engine/palliative.js';
+import { decodeCase, downloadText, encodeCase, MAX_CASE_BYTES } from './case-files.js';
 
 const lib = LIB;
 const STEPS = [
@@ -166,6 +169,80 @@ function loadExample(id) {
   store.planVersion += 1;
 }
 
+function openCaseFiles(button) {
+  const dialog = document.getElementById('case-files-dialog');
+  const status = document.getElementById('case-file-status');
+  const picker = document.getElementById('case-file-input');
+  const importButton = document.getElementById('case-file-import');
+  const sample = document.getElementById('case-file-template');
+  const exportButton = document.getElementById('case-file-export');
+  const report = document.getElementById('case-file-review');
+  const module = store.module;
+  picker.value = '';
+  status.textContent = '';
+  report.hidden = module === 'periop' ? store.step !== 5 : pal.step !== 4;
+  const send = (name, setup) => {
+    try {
+      const text = encodeCase(setup);
+      if (new Blob([text]).size > MAX_CASE_BYTES) throw new Error('The case exceeds the 256 KiB file limit.');
+      decodeCase(text, lib);
+      downloadText(`smart-noa-${name}.json`, text, 'application/json');
+      status.textContent = 'Case file downloaded.';
+    } catch (error) { status.textContent = error.message; }
+  };
+  sample.onclick = () => {
+    if (module !== 'periop') {
+      const example = PALLIATIVE_CASES.find((item) => item.module === module);
+      send(`${module}-template`, { module, patient: example.patient, plan: defaultPalliativePlan(derivePalliative(example.patient), example.plan), exampleId: example.id });
+      return;
+    }
+    const example = EXAMPLE_PATIENTS[0];
+    const template = EXAMPLE_PLANS.find((item) => item.patientId === example.id);
+    const plan = template ? buildPlan(template, derivePatient(example.patient, { library: lib }), lib).plan : { mode: 'GA', steps: [] };
+    send('periop-template', { module, patient: example.patient, plan });
+  };
+  exportButton.onclick = () => send(`${module}-case`, module === 'periop'
+    ? { module, patient: store.patientInput, plan: exportPlan(store.plan) }
+    : palliativeCaseDraft());
+  report.onclick = () => {
+    const review = document.getElementById('main').innerText;
+    downloadText(`smart-noa-${module}-debrief.txt`, `Smart NOA educational simulation — fictional patient\n\n${review}\n`);
+    status.textContent = 'Debrief downloaded.';
+  };
+  importButton.onclick = async () => {
+    const file = picker.files?.[0];
+    if (!file || file.size > MAX_CASE_BYTES) {
+      status.textContent = 'Choose a Smart NOA JSON file no larger than 256 KiB.';
+      return;
+    }
+    importButton.disabled = true;
+    try {
+      const imported = decodeCase(await file.text(), lib);
+      if (!dialog.open || picker.files?.[0] !== file) return;
+      if (imported.module === 'periop') {
+        const patient = derivePatient(imported.patient, { library: lib });
+        const version = store.patientVersion + 1;
+        const steps = stepsFromBuiltPlan({ lib, patient, interlocks: true, patientVersion: version }, imported.plan);
+        store.patientInput = imported.patient;
+        store.patientVersion = version;
+        store.plan = { ...imported.plan, steps, stepsByMode: { [imported.plan.mode]: steps },
+          prophylaxisByMode: { [imported.plan.mode]: imported.plan.prophylaxisIndicated } };
+        Object.assign(store, { interlocks: true, planVersion: store.planVersion + 1, exampleId: null, sim: null,
+          simKey: null, guidedLesson: false, planNotice: 'Imported case. Review the patient, doses, and timing before running.', step: 3 });
+      } else {
+        Object.assign(pal, { module: imported.module, input: imported.patient, caseId: imported.exampleId, sim: null,
+          plan: imported.plan, derived: derivePalliative(imported.patient), step: 2 });
+      }
+      dialog.close();
+      setModule(imported.module);
+      announce('Case imported. Review the patient and plan before starting a new run.');
+    } catch (error) { status.textContent = error.message; }
+    finally { importButton.disabled = false; }
+  };
+  dialog.addEventListener('close', () => button.focus(), { once: true });
+  dialog.showModal();
+}
+
 // ---------------------------------------------------------------- extubation dialog
 /**
  * Extubation dialog. `opts.pause()` is called when it opens and `opts.resume()` when it closes, so
@@ -255,6 +332,8 @@ async function renderModel() {
 
 function init() {
   initSources(lib);
+  const caseFiles = document.getElementById('open-case-files');
+  caseFiles.addEventListener('click', () => openCaseFiles(caseFiles));
   document.getElementById('loading')?.remove();
   document.getElementById('open-sources').addEventListener('click', (e) => { document.getElementById('sources-dialog').showModal(); const r = e.currentTarget; document.getElementById('sources-dialog').addEventListener('close', () => r.focus(), { once: true }); });
   document.getElementById('open-about').addEventListener('click', async (e) => { const r = e.currentTarget; await renderAbout(); const d = document.getElementById('about-dialog'); d.showModal(); d.addEventListener('close', () => r.focus(), { once: true }); });
