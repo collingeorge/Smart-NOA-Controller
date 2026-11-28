@@ -4,7 +4,7 @@
 import { h, clear, announce, setText, reconcileKeyed, setChildrenIf, fill, add } from './dom.js';
 import { srcTags } from './sources.js';
 import { PALLIATIVE_CASES, PALLIATIVE_OPIOIDS, PALLIATIVE_RULES as R, SEDATION_MIDAZOLAM as SM, ETHICS_PANEL, GOC_PROMPTS, TREATMENTS_TRIED, EXCLUSIONS_TEXT, OPTIONS, PALLIATIVE_BANNER } from '../data/palliative.js';
-import { validatePalliative, derivePalliative, recommendStart, breakthroughDose, convertOpioid, createPalliativeSim, midazolamPolicy, mmePerDay, fmtDay } from '../engine/palliative.js';
+import { validatePalliative, derivePalliative, recommendStart, breakthroughDose, convertOpioid, createPalliativeSim, isSedationReduction, midazolamPolicy, mmePerDay, fmtDay } from '../engine/palliative.js';
 
 const STEPS = [{ n: 1, label: 'Case' }, { n: 2, label: 'Assess & plan' }, { n: 3, label: 'Run' }, { n: 4, label: 'Debrief' }];
 const SPEEDS = [[60, '1 h/s'], [360, '6 h/s'], [1440, '24 h/s']];
@@ -395,11 +395,18 @@ function eolPanels(sim, say, refresh) {
   const symSel = h('select', { id: 'pal-sed-symptom', class: 'input' }, ['agitation', 'dyspnoea', 'pain'].map((v) => h('option', { value: v, selected: st.sedation.symptom === v }, v)));
   const routeSel = h('select', { id: 'pal-sed-route', class: 'input' }, [['sc', 'SC'], ['iv', 'IV']].map(([v, t]) => h('option', { value: v }, t)));
   const policy = midazolamPolicy(pal.derived);
-  const rate = h('input', { id: 'pal-sed-rate', class: 'input input--num', type: 'number', min: '0', max: String(R.MIDAZOLAM_MAX_SIM_MG_H.value), step: '0.5', value: st.sedation.infusionMgH || policy.startMgH });
+  const rate = h('input', { id: 'pal-sed-rate', class: 'input input--num', type: 'number', min: '0', max: String(R.MIDAZOLAM_MAX_SIM_MG_H.value), step: 'any', value: st.sedation.infusionMgH || policy.startMgH });
   const sAct = (id, label, fn) => { const b = h('button', { type: 'button', class: 'btn btn--small', id }, label); b.addEventListener('click', () => { const r = sim.sedationAction(fn(), { approved: true }); if (!r.ok) say(r.reasons.join(' '), true); else say(`${label}: approved and logged.`); refresh(); }); return b; };
   const ctrls = [sAct('pal-sed-set', 'Approve target', () => ({ type: 'set_target', targetRass: Number(target.value), symptom: symSel.value })),
     sAct('pal-sed-bolus', 'Approve starting bolus', () => ({ type: 'bolus', route: routeSel.value })), sAct('pal-sed-repeat', 'Approve repeat (half bolus)', () => ({ type: 'repeat' })),
     sAct('pal-sed-apply', 'Approve infusion rate', () => ({ type: 'infusion', rateMgH: rate.valueAsNumber })), sAct('pal-sed-stop', 'Approve stop', () => ({ type: 'stop' }))];
+  const [targetButton, bolusButton, repeatButton, applyRateButton, stopButton] = ctrls;
+  function updateSedationControls(complete = sim.gateStatus().complete) {
+    for (const button of [targetButton, bolusButton, repeatButton]) button.disabled = !complete;
+    applyRateButton.disabled = !complete && !isSedationReduction({ type: 'infusion', rateMgH: rate.valueAsNumber }, st.sedation);
+    stopButton.disabled = !st.sedation.active && st.sedation.infusionMgH === 0;
+  }
+  rate.addEventListener('input', () => updateSedationControls());
   const sedState = h('p', { id: 'pal-sed-state', class: 'hint' });
   add(sed, h('p', { class: 'hint' }, `Midazolam (step 1, revised EAPC framework): light — ${SM.bolus.light.sc.value} mg SC / ${SM.bolus.light.iv.value} mg IV; deep — ${SM.bolus.deep.sc.min}–${SM.bolus.deep.sc.max} mg SC / ${SM.bolus.deep.iv.min}–${SM.bolus.deep.iv.max} mg IV; half the starting bolus may be repeated after ${SM.repeatAfterMin.sc} min SC / ${SM.repeatAfterMin.iv} min IV; infusion starts at ${SM.infusionStartMgH} mg/h then adjust; above ${R.MIDAZOLAM_MAX_SIM_MG_H.value} mg/h consider adding/changing medication ${SM.notSimulated} Light/deep ↔ RASS mapping: ${SM.depthMapping}. `, srcTags(['S101', 'S120'])),
     h('p', { class: 'hint' }, `For this fictional patient: start infusion at ${policy.startMgH} mg/h and wait at least ${policy.increaseWaitMin / 60} simulated hours between increases. ${policy.risks.length ? `Initial doses are halved for ${policy.risks.join(', ')}.` : ''}`),
@@ -418,8 +425,8 @@ function eolPanels(sim, say, refresh) {
   const wrap = h('div', { class: 'pal-eol' }, sym, doc, sed, hyd);
   wrap.refresh = () => {
     const g = sim.gateStatus();
-    fill(gate, g.complete ? h('p', { class: 'notice', id: 'pal-gate-ok' }, 'All six documentation items are complete.') : h('div', { class: 'notice notice--warn', id: 'pal-gate-missing' }, h('strong', {}, 'Sedation controls disabled — missing:'), h('ul', {}, g.missing.map((m) => h('li', {}, m)))));
-    for (const b of ctrls) b.disabled = !g.complete;
+    fill(gate, g.complete ? h('p', { class: 'notice', id: 'pal-gate-ok' }, 'All six documentation items are complete.') : h('div', { class: 'notice notice--warn', id: 'pal-gate-missing' }, h('strong', {}, 'Complete these items before starting or increasing sedation. An active infusion can still be reduced or stopped.'), h('ul', {}, g.missing.map((m) => h('li', {}, m)))));
+    updateSedationControls(g.complete);
     const s = sim.state.sedation; sedState.textContent = `Sedation ${s.active ? 'active' : 'not active'}; target ${s.targetRass === null ? 'not set' : `RASS ${s.targetRass} for ${s.symptom}`}; infusion ${s.infusionMgH} mg/h; approved titrations ${s.titrations.length}.`;
   };
   return wrap;
