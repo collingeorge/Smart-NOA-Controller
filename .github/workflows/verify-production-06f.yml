@@ -1,4 +1,4 @@
-name: Audit 06j browser and PDF
+name: Verify clinical sources page
 on:
   pull_request:
     paths:
@@ -12,84 +12,33 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: bb000b2a24c08b88191a8a066a836f1423b1597c
+          ref: b15255c91fe4b6280778f9ddace00ba0285fd700
           persist-credentials: false
       - run: npm install --no-save --ignore-scripts playwright@1.57.0
       - run: npx playwright install chromium
-      - name: Exercise the case-file browser workflows
+      - name: Verify registry links, entries and filtering
         run: |
-          cat > case-files-audit.cjs <<'EOF'
+          python3 -m http.server 8173 --bind 127.0.0.1 --directory simulator &
+          node - <<'JS'
           const assert = require('node:assert/strict');
-          const fs = require('node:fs/promises');
-          const http = require('node:http');
-          const path = require('node:path');
-          const { chromium } = require('playwright');
-          
-          const root = path.resolve('simulator');
-          const server = http.createServer(async (req, res) => {
-            const url = new URL(req.url, 'http://localhost');
-            const file = path.resolve(root, '.' + (url.pathname === '/' ? '/index.html' : url.pathname));
-            if (!file.startsWith(root + path.sep)) { res.writeHead(404).end(); return; }
-            try {
-              const content = await fs.readFile(file);
-              res.setHeader('Content-Type', { '.js': 'text/javascript', '.html': 'text/html', '.css': 'text/css' }[path.extname(file)] || 'text/plain');
-              res.end(content);
-            } catch { res.writeHead(404).end(); }
-          });
-          
+          const {chromium} = require('playwright');
           (async () => {
-            let browser;
+            const browser = await chromium.launch();
             try {
-              await new Promise((resolve, reject) => server.once('error', reject).listen(0, '127.0.0.1', resolve));
-              browser = await chromium.launch();
-              const page = await browser.newPage();
-              const errors = [];
-              page.on('pageerror', (error) => errors.push(error.message));
-              await page.goto(`http://127.0.0.1:${server.address().port}/`);
-              for (const module of ['Perioperative', 'Palliative pain management', 'End-of-life care']) {
-                await page.getByRole('button', { name: module, exact: true }).click();
-                await page.getByRole('button', { name: 'Case files', exact: true }).click();
-                const [download] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'Download example template' }).click()]);
-                const originalFile = await download.path();
-                const setup = JSON.parse(await fs.readFile(originalFile, 'utf8'));
-                setup.patient.ageYears = 55;
-                await page.locator('#case-file-input').setInputFiles({ name: 'edited.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(setup)) });
-                await page.getByRole('button', { name: 'Import case', exact: true }).click();
-                await page.locator(module === 'Perioperative' ? '#stepper-3[aria-current="step"]' : '#pal-root[data-step="2"]').waitFor();
-                await page.getByRole('button', { name: 'Case files', exact: true }).click();
-                const [exported] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'Export current case' }).click()]);
-                assert.equal(JSON.parse(await fs.readFile(await exported.path(), 'utf8')).patient.ageYears, 55);
-                await page.getByRole('button', { name: 'Close', exact: true }).click();
-                console.log(module + ' template, import, and export passed');
-              }
-              await page.locator('#pal-stepper-1').click();
-              await page.getByRole('combobox', { name: 'Example case' }).selectOption({ label: 'Refractory terminal delirium / agitation (palliative-sedation teaching case)' });
-              await page.getByRole('button', { name: 'Load example case', exact: true }).click();
-              await page.getByRole('button', { name: 'Continue to assessment & plan' }).click();
-              await page.getByRole('button', { name: 'Approve & start regimen' }).click();
-              await page.getByRole('button', { name: 'Go to debrief' }).click();
-              const [report] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'Download debrief (PDF)' }).click()]);
-              assert.match(report.suggestedFilename(), /\.pdf$/);
-              const pdf = await fs.readFile(await report.path(), 'ascii');
-              assert.match(pdf, /^%PDF-1\.4/);
-              assert.match(pdf, /Fictional patient/);
-              assert.match(pdf, /Reviewer feedback/);
-              assert.deepEqual(errors, []);
-              console.log('Debrief PDF and browser error checks passed');
-            } finally {
-              if (browser) await browser.close();
-              server.close();
-            }
-          })().catch((error) => { console.error(error); process.exitCode = 1; });
-          EOF
-          node case-files-audit.cjs
-      - name: Run the full browser smoke suite
-        run: |
-          python3 - <<'PY'
-          from pathlib import Path
-          p = Path('simulator/tests/ui.smoke.mjs')
-          s = p.read_text()
-          s = s.replace('assert.equal(e.sim.sedation.infusionMgH, 1', 'assert.equal(e.sim.sedation.infusionMgH, 0.5')
-          p.write_text(s)
-          PY
-          node --test simulator/tests/ui.smoke.mjs
+              const page = await browser.newPage({viewport:{width:390,height:844}});
+              await page.goto('http://127.0.0.1:8173/');
+              await page.getByRole('link',{name:'Clinical sources',exact:true}).click();
+              await page.locator('#src-S101').waitFor();
+              assert.equal(await page.locator('article[data-text]').count(),77);
+              assert.match(await page.locator('#src-S101 a[href^="https"]').getAttribute('href'), /journals\.sagepub\.com/);
+              await page.getByRole('searchbox',{name:'Filter sources'}).fill('Surges');
+              assert.ok(await page.locator('#src-S101').isVisible());
+              assert.ok(await page.locator('#src-S1').isHidden());
+              assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
+              await page.getByRole('link',{name:'Back to Smart NOA Simulator'}).click();
+              await page.getByRole('button',{name:'Sources',exact:true}).click();
+              assert.ok(await page.getByRole('link',{name:'Open the clinical sources page'}).isVisible());
+              console.log('77 references, primary link, mobile layout, filter, back navigation, and dialog link passed');
+            } finally { await browser.close(); }
+          })().catch(error=>{console.error(error);process.exitCode=1;});
+          JS
