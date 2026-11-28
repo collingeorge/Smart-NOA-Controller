@@ -17,6 +17,38 @@ const limit = () => recommend(pat(), 'induction', 'lidocaine', REAL).dose.range.
 const load = (s, amount, extra = {}) => s.administer({ drugId: 'lidocaine', kind: 'bolus', amount, amountUnit: 'mg', regimenKey: 'induction', overSec: extra.regimenKey === 'pretreatment' ? undefined : 600, ...extra });
 const lido = (s) => s.state.drugs.lidocaine.cumulative;
 
+test('lidocaine loading and maintenance cannot overlap in either direction, with or without HR/MAP holds', { skip }, () => {
+  const maintenance = { drugId: 'lidocaine', kind: 'infusion', rate: 1, rateUnit: 'mg/kg/h' };
+  for (const interlocks of [true, false]) {
+    const s = createSimulation({ patient: pat(), library: REAL, interlocks });
+    runFor(s, 1);
+    assert.ok(load(s, 30).ok);
+    assert.match(s.administer(maintenance).reasons[0], /must wait/);
+    runFor(s, 600);
+    assert.equal(s.isLidocaineLoading(), false);
+    assert.ok(s.administer(maintenance).ok);
+    assert.match(load(s, 10).reasons[0], /maintenance is running/);
+    assert.ok(s.administer({ drugId: 'lidocaine', kind: 'stop' }).ok);
+    assert.ok(load(s, 10).ok);
+    runFor(s, 60);
+    assert.ok(s.administer({ drugId: 'lidocaine', kind: 'stop' }).ok);
+    assert.ok(s.administer(maintenance).ok, 'cancelled loading is no longer pending');
+  }
+});
+
+test('a scheduled lidocaine maintenance step waits for a manually started load', { skip }, () => {
+  const plan = { mode: 'GA', steps: [{ id: 'maintenance', phase: 'premed', atSec: 60, drugId: 'lidocaine', kind: 'infusion', rate: 1, rateUnit: 'mg/kg/h', regimenKey: 'maintenance' }] };
+  const s = createSimulation({ patient: pat(), library: REAL, plan });
+  runFor(s, 1);
+  assert.ok(load(s, 30).ok);
+  runFor(s, 90);
+  assert.equal(s.executed.has('maintenance'), false);
+  runFor(s, 520);
+  assert.ok(s.executed.has('maintenance'));
+  assert.ok(s.state.drugs.lidocaine.infusionRate > 0);
+  assert.equal(s.isLidocaineLoading(), false);
+});
+
 test('analgesic lidocaine requires a ten-minute minimum in the engine and plan editor', { skip }, () => {
   const c = { lib: REAL, patient: pat(), interlocks: true };
   const step = { uid: 'a', drugId: 'lidocaine', kind: 'bolus', phase: 'induction', atSec: 0, amount: 30, amountUnit: 'mg', regimenKey: 'induction' };

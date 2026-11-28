@@ -398,6 +398,7 @@ class Simulation {
       if (lidoLoad) {
         const issue = lidocaineLoadingDurationIssue(cmd.overSec);
         if (issue) return res(false, true, [issue], []);
+        if (ds.infusionRate > 0) return res(false, true, ['IV lidocaine loading cannot start while maintenance is running. Stop maintenance and reassess before giving another dose [S1].'], []);
         const lim = this._lidocaineLoadLimit();
         if (lim !== null && this.lido.loadCharged + amt > lim + 1e-9) {
           const pend = this.timed.filter((x) => x.drugId === 'lidocaine' && x.lidoLoad).reduce((a, x) => a + x.remaining, 0);
@@ -452,6 +453,9 @@ class Simulation {
     if (kind === 'infusion' || kind === 'inhaled') {
       const rate = cmd.rate; const unit = cmd.rateUnit || ds.rateUnit;
       if (!isFiniteNumber(rate) || rate < 0) return res(false, true, ['Rate must be a non-negative number'], []);
+      if (drug.id === 'lidocaine' && rate > 0 && this.isLidocaineLoading()) {
+        return res(false, true, ['IV lidocaine maintenance must wait until the loading infusion finishes. If loading is stopped early, review the amount delivered before starting maintenance [S1].'], []);
+      }
       const inh = isInhaled(drug);
       if (inh !== (kind === 'inhaled')) return res(false, true, [`${drug.name} is ${inh ? 'an inhaled agent (use kind "inhaled", %)' : 'not an inhaled agent'}`], []);
       if (inh) {
@@ -501,6 +505,10 @@ class Simulation {
   _propofolMacSlowOnly() {
     const f = this.patient.flags || [];
     return f.includes('elderly') || f.includes('asa3plus') || f.includes('debilitated') || this.patient.asa >= 3;
+  }
+
+  isLidocaineLoading() {
+    return this.timed.some((dose) => dose.lidoLoad);
   }
 
   /** Consensus IV lidocaine loading limit for this patient (1.5 mg/kg IBW via recommend(); mg) or null. */
@@ -966,6 +974,7 @@ class Simulation {
       .filter((x) => x.at !== null && t >= x.at - 1e-9).sort((a, b) => a.at - b.at || a.s.order - b.s.order).map((x) => x.s);
     const premedBusy = (s) => ['induction', 'sedation'].includes(s.phase) && ['bolus', 'infusion', 'inhaled'].includes(s.kind) && this._premedBolusBusy(t);
     for (const s of due) {
+      if (s.drugId === 'lidocaine' && s.kind === 'infusion' && s.rate > 0 && this.isLidocaineLoading()) continue;
       if (premedBusy(s)) {
         // Never overlap premedication with induction/sedation drugs: wait until every premed bolus has run and ended.
         if (!this.waiting.has(s.id)) this._log('dose', `Plan step held: ${getDrug(lib, s.drugId) ? getDrug(lib, s.drugId).name : s.drugId} waits until the premedication bolus has finished (no overlap of premedication and ${s.phase})`);

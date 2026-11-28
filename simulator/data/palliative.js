@@ -132,7 +132,7 @@ export const PALLIATIVE_SOURCES = {
   S114: {
     id: 'S114', type: 'FDA label',
     citation: 'Hydromorphone hydrochloride tablets (DILAUDID; and generic hydromorphone hydrochloride tablets). FDA-approved prescribing information.',
-    url: 'https://www.drugs.com/dosage/dilaudid.html',
+    url: 'https://dailymed.nlm.nih.gov/dailymed/drugInfo.cfm?setid=d6b40e39-a57e-402c-b4f6-7041e832f837',
     identifiers: 'none',
     supports: 'Initiate DILAUDID tablets in a dosing range of 2 mg to 4 mg orally every 4 to 6 hours as needed (lowest effective dose). Renal and hepatic impairment: initiate with one-fourth to one-half of the usual starting dose depending on the degree of impairment (exposure about 2-fold higher in moderate and 4-fold higher in severe renal impairment).',
     verifiedVia: `${V} drugs.com DILAUDID dosage page (January 2024 record) for 2–4 mg every 4–6 h; generic hydromorphone tablet label copy at medlibrary.org for "one-fourth to one-half the usual … starting dose depending on the degree of impairment" and the 2-fold/4-fold exposure data; the archived 2006 DILAUDID PI (FDA MedWatch copy) for lower starting doses in severe renal impairment. The renal wording was not seen in a current DILAUDID-brand tablet label.`,

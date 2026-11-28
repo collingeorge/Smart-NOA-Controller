@@ -712,12 +712,12 @@ Identifiers: none (NDA/ANDA numbers not re-verified)
 - **Verified via:** Verified 2026-11-05 through WebSearch records only (direct page fetches were not possible from the build environment: DNS blocked for publisher, NCBI, CDC and DailyMed hosts). Starting range copied from DOSING_SOURCES.md S20 (DailyMed listing + drugs.com reproductions) and re-seen in an oxycodone oral solution label excerpt. "Initiate therapy in these patients with a lower than usual dosage … and titrate carefully" (hepatic and renal) in medlibrary.org Roxicodone page excerpts; CrCl <60 statement in an oxycodone tablet label excerpt. The "one-third to one-half" reduction was NOT found and is not used.
 
 ### S114
-**Hydromorphone hydrochloride tablets (DILAUDID; and generic hydromorphone hydrochloride tablets). FDA-approved prescribing information.** https://www.drugs.com/dosage/dilaudid.html
+**Hydromorphone hydrochloride tablets (DILAUDID). FDA-approved prescribing information.** https://dailymed.nlm.nih.gov/dailymed/drugInfo.cfm?setid=d6b40e39-a57e-402c-b4f6-7041e832f837
 Identifiers: none
 
 - **Supports:** Initiate DILAUDID tablets in a dosing range of 2 mg to 4 mg orally every 4 to 6 hours as needed (lowest effective dose). Renal and hepatic impairment: initiate with one-fourth to one-half of the usual starting dose depending on the degree of impairment (exposure about 2-fold higher in moderate and 4-fold higher in severe renal impairment).
 - **Used by:** oral hydromorphone starting dose 2–4 mg every 4–6 h; one-fourth to one-half in renal/hepatic impairment
-- **Verified via:** Verified 2026-11-05 through WebSearch records only (direct page fetches were not possible from the build environment: DNS blocked for publisher, NCBI, CDC and DailyMed hosts). drugs.com DILAUDID dosage page (January 2024 record) for 2–4 mg every 4–6 h; generic hydromorphone tablet label copy at medlibrary.org for "one-fourth to one-half the usual … starting dose depending on the degree of impairment" and the 2-fold/4-fold exposure data; the archived 2006 DILAUDID PI (FDA MedWatch copy) for lower starting doses in severe renal impairment. The renal wording was not seen in a current DILAUDID-brand tablet label.
+- **Verified via:** Current DILAUDID prescribing information on DailyMed, sections 2.3–2.5, 8.6–8.7 and 12.3, checked 2026-11-27. The tablet starting range is distinct from the oral solution range. The label provides separate hepatic and renal adjustment instructions.
 
 ### S115
 **Hydromorphone hydrochloride injection, USP. Hospira, Inc. (Pfizer) and Fresenius Kabi labels (labeling.pfizer.com ShowLabeling id 4472; DailyMed setid e034eb96-03e0-46e1-8b92-5e1f94555e7b).** https://dailymed.nlm.nih.gov/dailymed/drugInfo.cfm?setid=e034eb96-03e0-46e1-8b92-5e1f94555e7b
