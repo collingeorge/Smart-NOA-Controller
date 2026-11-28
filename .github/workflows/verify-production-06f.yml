@@ -20,4 +20,12 @@ jobs:
             echo "$path"
             curl -sS --max-time 15 -o /dev/null -D - "https://collinbgeorge.com$path" | grep -Ei '^(HTTP/|content-security-policy:|strict-transport-security:|x-content-type-options:|x-frame-options:|cf-mitigated:)'
           done
+      - name: Compare live runtime files byte for byte
+        run: |
+          set -euo pipefail
+          for path in engine/sim.js ui/plan-model.js ui/app.js ui/monitor.js ui/debrief.js engine/palliative.js data/palliative.js; do
+            curl --fail --silent --show-error --max-time 15 "https://collinbgeorge.com/simulator/$path" -o "$RUNNER_TEMP/public-asset"
+            cmp "simulator/$path" "$RUNNER_TEMP/public-asset"
+            echo "MATCH $path"
+          done
       - run: node simulator/tools/verify-live.mjs 6e48d8026cf365e056816c7d74b59a56cfb2133c
