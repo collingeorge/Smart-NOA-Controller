@@ -62,11 +62,11 @@ export const SOURCES = {
   S1: {
     id: 'S1',
     citation: 'Foo I, Macfarlane AJR, Srivastava D, et al. The use of intravenous lidocaine for postoperative pain and recovery: international consensus statement on efficacy and safety. Anaesthesia. 2021;76(2):238-250.',
-    url: 'https://read.qxmd.com/read/33141959',
+    url: 'https://onlinelibrary.wiley.com/doi/10.1111/anae.15270',
     identifiers: 'doi:10.1111/anae.15270; PMID 33141959',
     type: 'consensus statement',
     supports: 'Lidocaine loading dose ≤1.5 mg/kg over about 10 min; infusion ≤1.5 mg/kg/h; dosing on ideal body weight; hourly ceiling 120 mg/h for any patient; not for patients under 40 kg; not given concurrently with other local-anaesthetic interventions (nerve blocks, wound infiltration) or while their effect is still active; about 4 h separation between a block and IV lidocaine. IV lidocaine for analgesia is not an FDA-labelled indication.',
-    verifiedVia: 'Copied from DOSING_SOURCES.md S1: WebSearch record of the abstract and full-text excerpts (Nottingham and Glasgow repository copies; read.qxmd.com/read/33141959), 2026-11-05.',
+    verifiedVia: "Publisher full text checked directly for the loading duration, ideal body weight, infusion limits, and separation from other local anesthetic interventions.",
   },
   S2: {
     id: 'S2',
@@ -107,7 +107,7 @@ export const SOURCES = {
   S6: {
     id: 'S6',
     citation: 'Sugammadex injection (BRIDION). Merck Sharp & Dohme LLC. FDA-approved prescribing information, renal impairment section checked against the current DailyMed label.',
-    url: 'https://dailymed.nlm.nih.gov/dailymed/drugInfo.cfm?setid=37276948-ff0f-e0ab-e063-6394a90a0973',
+    url: 'https://dailymed.nlm.nih.gov/dailymed/drugInfo.cfm?setid=5171d883-fe8f-482c-97ab-40b00975b64a',
     identifiers: 'NDA 022225',
     type: 'FDA label',
     supports: '2 mg/kg at reappearance of T2; 4 mg/kg at 1–2 post-tetanic counts with no TOF twitch; 16 mg/kg for immediate reversal about 3 min after rocuronium 1.2 mg/kg; dosing on actual body weight. Contraindication: known hypersensitivity to sugammadex or any of its components. Severe renal impairment: not recommended (section 8.6). DESCRIPTION: sugammadex sodium molecular weight 2178.01; each mL contains 100 mg sugammadex, equivalent to 108.8 mg sugammadex sodium (used for the 1:1 molar binding).',
@@ -151,12 +151,12 @@ export const SOURCES = {
   },
   S11: {
     id: 'S11',
-    citation: 'Propofol injectable emulsion (DIPRIVAN). Fresenius Kabi USA. FDA-approved prescribing information, 2022 revision; and generic propofol injectable emulsion labels (medlibrary.org copies).',
-    url: 'https://www.accessdata.fda.gov/drugsatfda_docs/Label/2022/019627s069lbl.pdf',
+    citation: 'Propofol injectable emulsion (DIPRIVAN). Fresenius Kabi USA. FDA-approved prescribing information (2026 FDA posting, NDA 019627).',
+    url: 'https://www.accessdata.fda.gov/drugsatfda_docs/label/2026/019627Orig1s077lbl.pdf',
     identifiers: 'NDA 019627',
     type: 'FDA label',
     supports: 'Pain on injection: may be reduced by using the larger veins of the forearm or antecubital fossa, and by prior injection of IV lidocaine (1 mL of a 1% solution); lidocaine should be given before propofol or added immediately before use (≤ 20 mg lidocaine per 200 mg propofol). DESCRIPTION: isotonic, pH 7 to 8.5. Induction <55 y about 2–2.5 mg/kg; elderly/debilitated/ASA III–IV about 1–1.5 mg/kg. Maintenance 100–200 mcg/kg/min (<55 y); 50–100 mcg/kg/min (elderly/ASA III–IV). MAC sedation initiation: 100–150 mcg/kg/min for 3–5 min or slow injection about 0.5 mg/kg over 3–5 min; slow infusion/injection preferable to rapid bolus; maintenance 25–75 mcg/kg/min during the first 10–15 min, then 25–50 mcg/kg/min; no rapid bolus for MAC sedation in elderly/debilitated/ASA III–IV. Onset: hypnosis usually within 40 s from start of injection. Contraindications include hypersensitivity to propofol or its components and a history of anaphylaxis to egg or soy products (DIPRIVAN label, revised November 2025, section 4). Sequence (label): MAC sedation initiation over 3–5 min, then a maintenance infusion (rates stated for the first 10–15 min of sedation maintenance).',
-    verifiedVia: 'Induction/maintenance copied from DOSING_SOURCES.md S16 (WebSearch record of the FDA-hosted 2022 label and the medlibrary.org label copy, 2026-11-05). MAC-sedation rates, slow-injection 0.5 mg/kg and the elderly no-rapid-bolus wording confirmed in WebSearch records of medlibrary.org propofol and Diprivan label copies (medlibrary.org/lib/rx/meds/propofol/, /diprivan/page/2/), 2026-11-05. 40 s onset confirmed in a WebSearch record of an ndclist.com label copy and the FDA-hosted 2014 label (019627s062). Contraindication wording checked against section 4 of the FDA DIPRIVAN label revised November 2025 (019627Orig1s077). Additions (2026-11-05): injection-pain wording ("pain during intravenous injection may also be reduced by prior injection of IV lidocaine (1 mL of a 1% solution)"; larger veins of the forearm or antecubital fossa; boluses via small veins if pretreated with lidocaine; lidocaine given before propofol or added immediately before use, not exceeding 20 mg lidocaine per 200 mg propofol) and DESCRIPTION wording ("isotonic and has a pH of 7 to 8.5") confirmed in WebSearch records of medlibrary.org Diprivan label copies, drugs.com/pro/diprivan, guidelinecentral.com Diprivan listings and an FDA-archived Diprivan PI (webarchive.library.unt.edu). One trial-protocol copy of the lidocaine sentence was garbled; the medlibrary/drugs.com wording is used. Timing review (2026-11-05): "maintenance rates of 25 to 75 mcg/kg/min … during the first 10 to 15 minutes of sedation maintenance" after initiation over 3 to 5 minutes confirmed in WebSearch records of medlibrary.org propofol/Diprivan label copies and drugs.com/rxlist dosage summaries; no label sentence with the words "followed immediately" was found for MAC sedation, so the sequence is taken from the initiation/maintenance headings.',
+    verifiedVia: "Current FDA prescribing information, section 2.4, checked directly for adult MAC and higher-risk administration. Other uses retain their earlier source review noted in SOURCES.md.",
   },
   S12: {
     id: 'S12',
