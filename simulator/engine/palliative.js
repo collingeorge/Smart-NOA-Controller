@@ -87,6 +87,12 @@ export function deliriumRisk(p, dynamic = {}) {
   return { score: factors.length, level, factors, provenance: 'author_estimate_unvalidated', note: 'Illustrative count of factors (ESMO 2018 delirium guideline names advanced disease and the last hours–days as common settings; the count itself is not a validated tool).', sources: ['S119'] };
 }
 
+export function isSedationReduction(action, sedation) {
+  if (action.type === 'stop') return true;
+  return action.type === 'infusion' && Number.isFinite(action.rateMgH) &&
+    action.rateMgH >= 0 && action.rateMgH < sedation.infusionMgH;
+}
+
 export function midazolamPolicy(p) {
   const risks = [];
   if (p.ageYears > 60) risks.push('age over 60');
@@ -506,7 +512,9 @@ export function createPalliativeSim({ patient, caseDef = {}, module = 'pain', se
   function sedationAction(a, { approved } = {}) {
     if (approved !== true) return { ok: false, blocked: true, reasons: ['Clinician approval is required for every titration.'] };
     if (module !== 'eol') return { ok: false, blocked: true, reasons: ['Palliative sedation is only available in the end-of-life module.'] };
-    const g = gateStatus(); if (!g.complete) return { ok: false, blocked: true, reasons: g.missing.map((m) => `Missing: ${m}`) };
+    const g = gateStatus();
+    const reducing = isSedationReduction(a, st.sedation);
+    if (!reducing && !g.complete) return { ok: false, blocked: true, reasons: g.missing.map((m) => `Missing: ${m}`) };
     const sd = st.sedation; const rec = (text) => { sd.titrations.push({ tMin: st.tMin, action: a.type, text, rass: st.rass, target: sd.targetRass, symptomScore: sd.symptom ? st.symptoms[sd.symptom] : null }); log('sedation', `Clinician-approved: ${text}`); };
     if (a.type === 'set_target') {
       if (!(Number.isInteger(a.targetRass) && a.targetRass >= -5 && a.targetRass <= -1)) return { ok: false, blocked: true, reasons: ['Target RASS must be −1 to −5.'] };
@@ -514,7 +522,7 @@ export function createPalliativeSim({ patient, caseDef = {}, module = 'pain', se
       if (a.targetRass <= -4 && p.prognosis !== 'hours_days') return { ok: false, blocked: true, reasons: ['Continuous deep sedation is only considered in the last hours–days (prognosis category). Choose a lighter, proportionate target.'] };
       sd.targetRass = a.targetRass; sd.symptom = a.symptom; rec(`target RASS ${a.targetRass} for ${a.symptom} (lowest level that relieves the symptom)`); return { ok: true };
     }
-    if (sd.targetRass === null) return { ok: false, blocked: true, reasons: ['Document the target RASS and symptom first.'] };
+    if (!reducing && sd.targetRass === null) return { ok: false, blocked: true, reasons: ['Document the target RASS and symptom first.'] };
     const level = sd.targetRass <= -4 ? 'deep' : 'light';
     if (a.type === 'bolus') {
       if (!['sc', 'iv'].includes(a.route)) return { ok: false, blocked: true, reasons: ['Route SC or IV.'] };

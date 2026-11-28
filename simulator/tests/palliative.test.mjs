@@ -170,6 +170,25 @@ test('palliative sedation gate: all six documentation items required; approval r
   assert.match(deep.sedationAction({ type: 'set_target', targetRass: -4, symptom: 'agitation' }, OK).reasons[0], /hours–days/);
 });
 
+test('clearing documentation blocks starts and increases while allowing approved reductions and stops', () => {
+  const s = sim('refractory_delirium');
+  fullDocs(s);
+  assert.ok(s.sedationAction({ type: 'set_target', targetRass: -2, symptom: 'agitation' }, OK).ok);
+  assert.ok(s.sedationAction({ type: 'infusion', rateMgH: 0.5 }, OK).ok);
+  s.setDoc('goals', null);
+  assert.equal(s.gateStatus().complete, false);
+  for (const action of [{ type: 'infusion', rateMgH: 1 }, { type: 'bolus', route: 'sc' }, { type: 'repeat' }]) {
+    assert.match(s.sedationAction(action, OK).reasons[0], /Missing:/);
+  }
+  assert.equal(s.state.sedation.infusionMgH, 0.5);
+  assert.ok(s.sedationAction({ type: 'stop' }).blocked, 'explicit approval still required');
+  assert.ok(s.sedationAction({ type: 'infusion', rateMgH: 0.25 }, OK).ok);
+  assert.equal(s.state.sedation.infusionMgH, 0.25);
+  assert.ok(s.sedationAction({ type: 'stop' }, OK).ok);
+  assert.equal(s.state.sedation.infusionMgH, 0);
+  assert.match(s.sedationAction({ type: 'infusion', rateMgH: 0.5 }, OK).reasons[0], /Missing:/);
+});
+
 test('higher-risk sedation blocks a repeated starting bolus and premature increases, even after a stop', () => {
   const s = sim('refractory_delirium', { ageYears: 75 });
   fullDocs(s);
