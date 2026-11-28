@@ -14,4 +14,10 @@ jobs:
         with:
           ref: 6e48d8026cf365e056816c7d74b59a56cfb2133c
           persist-credentials: false
+      - name: Record security headers independently for each route
+        run: |
+          for path in /simulator/ /about /source-pins.json /simulator/engine/sim.js /simulator/ui/plan-model.js /simulator/ui/app.js /simulator/ui/monitor.js /simulator/ui/debrief.js; do
+            echo "$path"
+            curl -sS --max-time 15 -o /dev/null -D - "https://collinbgeorge.com$path" | grep -Ei '^(HTTP/|content-security-policy:|strict-transport-security:|x-content-type-options:|x-frame-options:|cf-mitigated:)'
+          done
       - run: node simulator/tools/verify-live.mjs 6e48d8026cf365e056816c7d74b59a56cfb2133c
