@@ -1,4 +1,4 @@
-name: Verify case files
+name: Verify case files and PDF
 on:
   pull_request:
     paths:
@@ -12,7 +12,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: 2e7d722f6829e7ba83bbc614778aad1208ea5f03
+          ref: 234ddbda1dd7e02aa53275c4eb393bc168873f6b
           persist-credentials: false
       - run: npm install --no-save --ignore-scripts playwright@1.57.0
       - run: npx playwright install chromium
@@ -68,11 +68,14 @@ jobs:
               await page.getByRole('button', { name: 'Continue to assessment & plan' }).click();
               await page.getByRole('button', { name: 'Approve & start regimen' }).click();
               await page.getByRole('button', { name: 'Go to debrief' }).click();
-              await page.getByRole('button', { name: 'Case files', exact: true }).click();
-              const [report] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'Export readable debrief' }).click()]);
-              assert.match(await fs.readFile(await report.path(), 'utf8'), /fictional patient[\s\S]*Debrief/i);
+              const [report] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'Download debrief (PDF)' }).click()]);
+              assert.match(report.suggestedFilename(), /\.pdf$/);
+              const pdf = await fs.readFile(await report.path(), 'ascii');
+              assert.match(pdf, /^%PDF-1\.4/);
+              assert.match(pdf, /Fictional patient/);
+              assert.match(pdf, /Reviewer feedback/);
               assert.deepEqual(errors, []);
-              console.log('Readable debrief and browser error checks passed');
+              console.log('Debrief PDF and browser error checks passed');
             } finally {
               if (browser) await browser.close();
               server.close();
