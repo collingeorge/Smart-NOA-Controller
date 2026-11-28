@@ -306,6 +306,9 @@ export function loadingOverlapWarning(step, allSteps, drug) {
   if (!p) return null;
   const end = (p.loading.atSec || 0) + (p.loading.overSec || 0);
   const mmss = (v) => `${Math.floor(v / 60)}:${String(Math.round(v % 60)).padStart(2, '0')}`;
+  if (drug.id === 'lidocaine' && ((p.samePhase && p.overlapSec > 0) || (!p.samePhase && !p.anchored))) {
+    return 'Timing: IV lidocaine maintenance waits until any running loading infusion has finished [S1]. Schedule maintenance after loading in the plan.';
+  }
   if (p.samePhase && p.overlapSec > 0) return `Timing: the ${drug.name} maintenance infusion (+${mmss(step.atSec || 0)}) overlaps its loading dose, which runs until +${mmss(end)}. Label sequence: loading dose, then maintenance — set the infusion to +${mmss(end)}.`;
   if (!p.samePhase && !p.anchored) return `Timing: the ${drug.name} loading dose is in another phase; this infusion may start before the loading dose ends.`;
   return null;

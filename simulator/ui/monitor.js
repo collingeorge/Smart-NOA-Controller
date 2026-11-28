@@ -395,6 +395,8 @@ export function renderMonitor(ctx, main) {
     const rec = key ? recommend(patient, key, d.id, lib) : null;
     adCtx = { drug: d, kind, key, rec };
     clear(adInfo);
+    if (d.id === 'lidocaine') add(adInfo, h('p', { class: 'hint hint--hmi' },
+      'Finish the loading infusion before starting maintenance. Loading is unavailable while maintenance is running. ', srcTags(['S1'])));
     adOverWrap.hidden = kind !== 'bolus' || (route && route !== 'IV'); adOver.value = '';
     const lidoLoad = kind === 'bolus' && d.id === 'lidocaine' && key !== LIDOCAINE_RULES.PRETREATMENT_REGIMEN;
     adOverHint.textContent = lidoLoad ? lidocaineLoadingDurationIssue() : 'blank = push; ≥ 1 min';
