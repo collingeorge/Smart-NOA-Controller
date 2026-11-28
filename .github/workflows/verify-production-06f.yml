@@ -1,0 +1,44 @@
+name: Verify clinical sources page
+on:
+  pull_request:
+    paths:
+      - .github/workflows/verify-production-06f.yml
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: b15255c91fe4b6280778f9ddace00ba0285fd700
+          persist-credentials: false
+      - run: npm install --no-save --ignore-scripts playwright@1.57.0
+      - run: npx playwright install chromium
+      - name: Verify registry links, entries and filtering
+        run: |
+          python3 -m http.server 8173 --bind 127.0.0.1 --directory simulator &
+          node - <<'JS'
+          const assert = require('node:assert/strict');
+          const {chromium} = require('playwright');
+          (async () => {
+            const browser = await chromium.launch();
+            try {
+              const page = await browser.newPage({viewport:{width:390,height:844}});
+              await page.goto('http://127.0.0.1:8173/');
+              await page.getByRole('link',{name:'Clinical sources',exact:true}).click();
+              await page.locator('#src-S101').waitFor();
+              assert.equal(await page.locator('article[data-text]').count(),77);
+              assert.match(await page.locator('#src-S101 a[href^="https"]').getAttribute('href'), /journals\.sagepub\.com/);
+              await page.getByRole('searchbox',{name:'Filter sources'}).fill('Surges');
+              assert.ok(await page.locator('#src-S101').isVisible());
+              assert.ok(await page.locator('#src-S1').isHidden());
+              assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
+              await page.getByRole('link',{name:'Back to Smart NOA Simulator'}).click();
+              await page.getByRole('button',{name:'Sources',exact:true}).click();
+              assert.ok(await page.getByRole('link',{name:'Open the clinical sources page'}).isVisible());
+              console.log('77 references, primary link, mobile layout, filter, back navigation, and dialog link passed');
+            } finally { await browser.close(); }
+          })().catch(error=>{console.error(error);process.exitCode=1;});
+          JS
