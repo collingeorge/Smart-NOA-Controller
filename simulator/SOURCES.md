@@ -608,6 +608,7 @@ Identifiers: doi:10.1177/0269216309107024; PMID 19858355
 - **Verified via:** Verified 2026-11-05 through WebSearch records only (direct page fetches were not possible from the build environment: DNS blocked for publisher, NCBI, CDC and DailyMed hosts). Citation, DOI and PMID: PubMed 19858355, McMaster and Bar-Ilan research-portal records, eapcnet.org project page. Abuse / injudicious-use categories and "inappropriate medications to achieve sedation, such as opioids" seen in search excerpts of the SAGE reader page. "Closeness to death only relevant for continuous deep sedation" seen in a review comparing guidelines; the framework's own time-frame sentence was NOT found and is not quoted. Its Appendix 2 dose table was not seen; doses are taken from the 2024 revision (S101).
 
 ### S101
+Table 5 was checked directly against the published EAPC framework. The simulator halves initial bolus and starting infusion amounts when a listed risk factor is present and uses the lower endpoints of the framework's maintenance increase intervals (1 hour standard, 6 hours higher risk). eGFR below 30 is a simulator flag for severe renal impairment. The one-starting-bolus rule and carrying the increase timer across stops are simulator safeguards.
 **Surges SM, Brunsch H, Jaspers B, et al. Revised European Association for Palliative Care (EAPC) recommended framework on palliative sedation: an international Delphi study. Palliat Med. 2024;38(2):213-228.** https://pubmed.ncbi.nlm.nih.gov/38297460/
 Identifiers: doi:10.1177/02692163231220225; PMID 38297460
 

@@ -4,7 +4,7 @@
 import { h, clear, announce, setText, reconcileKeyed, setChildrenIf, fill, add } from './dom.js';
 import { srcTags } from './sources.js';
 import { PALLIATIVE_CASES, PALLIATIVE_OPIOIDS, PALLIATIVE_RULES as R, SEDATION_MIDAZOLAM as SM, ETHICS_PANEL, GOC_PROMPTS, TREATMENTS_TRIED, EXCLUSIONS_TEXT, OPTIONS, PALLIATIVE_BANNER } from '../data/palliative.js';
-import { validatePalliative, derivePalliative, recommendStart, breakthroughDose, convertOpioid, createPalliativeSim, mmePerDay, fmtDay } from '../engine/palliative.js';
+import { validatePalliative, derivePalliative, recommendStart, breakthroughDose, convertOpioid, createPalliativeSim, midazolamPolicy, mmePerDay, fmtDay } from '../engine/palliative.js';
 
 const STEPS = [{ n: 1, label: 'Case' }, { n: 2, label: 'Assess & plan' }, { n: 3, label: 'Run' }, { n: 4, label: 'Debrief' }];
 const SPEEDS = [[60, '1 h/s'], [360, '6 h/s'], [1440, '24 h/s']];
@@ -46,6 +46,7 @@ function readForm(box) {
   const p = { ...pal.input,
     sex: v('pc-sex').value, ageYears: num('pc-age'), weightKg: num('pc-weight'), egfr: num('pc-egfr'), baselineRr: num('pc-rr'), medicationCount: num('pc-meds'),
     liverDisease: v('pc-liver').checked, severeHepatic: v('pc-severe-liver').checked, hypoxaemic: v('pc-hypox').checked,
+    veryLowAlbumin: v('pc-low-albumin').checked, sedatingCoMedication: v('pc-sedating-med').checked,
     setting: v('pc-setting').value, diagnosis: v('pc-diagnosis').value, opioidStatus: v('pc-opioid').value, goals: v('pc-goals').value, prognosis: v('pc-prognosis').value,
     capacity: v('pc-capacity').checked, surrogateDocumented: v('pc-surrogate').checked, advanceDirective: v('pc-ad').checked, priorAdverse: v('pc-adverse').value.slice(0, 300) };
   p.currentRegimen = p.opioidStatus === 'tolerant' ? { drugId: v('pc-cur-drug').value, route: v('pc-cur-route').value, dose: num('pc-cur-dose'), intervalH: num('pc-cur-int') } : null;
@@ -75,7 +76,8 @@ function stepCase(box, main) {
       field('pc-age', 'Age (years)', p.ageYears, { min: '18', max: '90' }), field('pc-weight', 'Weight (kg)', p.weightKg, { min: '35', max: '250' }),
       field('pc-egfr', 'eGFR (mL/min/1.73 m²)', p.egfr, { min: '5', max: '150' }), field('pc-rr', 'Baseline respiratory rate (/min)', p.baselineRr, { min: '8', max: '30' }),
       field('pc-meds', 'Number of regular medicines', p.medicationCount, { min: '0', max: '30' })),
-    h('div', { class: 'check-grid' }, chk('pc-liver', 'Hepatic impairment', p.liverDisease), chk('pc-severe-liver', 'Severe hepatic impairment', p.severeHepatic), chk('pc-hypox', 'Hypoxaemic (SpO2 ≤90%)', p.hypoxaemic))),
+    h('div', { class: 'check-grid' }, chk('pc-liver', 'Hepatic impairment', p.liverDisease), chk('pc-severe-liver', 'Severe hepatic impairment', p.severeHepatic), chk('pc-hypox', 'Hypoxaemic (SpO2 ≤90%)', p.hypoxaemic),
+      chk('pc-low-albumin', 'Very low serum albumin', p.veryLowAlbumin), chk('pc-sedating-med', 'Other medication that increases sedation', p.sedatingCoMedication))),
     h('section', { class: 'card' }, h('h3', {}, 'Setting, diagnosis and opioid status'), h('div', { class: 'grid grid--3' },
       h('div', { class: 'field' }, ...optSel('pc-setting', OPTIONS.setting, p.setting, 'Setting')),
       h('div', { class: 'field' }, ...optSel('pc-diagnosis', OPTIONS.diagnosis, p.diagnosis, 'Diagnosis category')),
@@ -392,13 +394,15 @@ function eolPanels(sim, say, refresh) {
   const target = h('select', { id: 'pal-sed-target', class: 'input' }, [-1, -2, -3, -4, -5].map((v) => h('option', { value: String(v), selected: st.sedation.targetRass === v }, `RASS ${v}`)));
   const symSel = h('select', { id: 'pal-sed-symptom', class: 'input' }, ['agitation', 'dyspnoea', 'pain'].map((v) => h('option', { value: v, selected: st.sedation.symptom === v }, v)));
   const routeSel = h('select', { id: 'pal-sed-route', class: 'input' }, [['sc', 'SC'], ['iv', 'IV']].map(([v, t]) => h('option', { value: v }, t)));
-  const rate = h('input', { id: 'pal-sed-rate', class: 'input input--num', type: 'number', min: '0', max: String(R.MIDAZOLAM_MAX_SIM_MG_H.value), step: '0.5', value: st.sedation.infusionMgH || SM.infusionStartMgH });
+  const policy = midazolamPolicy(pal.derived);
+  const rate = h('input', { id: 'pal-sed-rate', class: 'input input--num', type: 'number', min: '0', max: String(R.MIDAZOLAM_MAX_SIM_MG_H.value), step: '0.5', value: st.sedation.infusionMgH || policy.startMgH });
   const sAct = (id, label, fn) => { const b = h('button', { type: 'button', class: 'btn btn--small', id }, label); b.addEventListener('click', () => { const r = sim.sedationAction(fn(), { approved: true }); if (!r.ok) say(r.reasons.join(' '), true); else say(`${label}: approved and logged.`); refresh(); }); return b; };
   const ctrls = [sAct('pal-sed-set', 'Approve target', () => ({ type: 'set_target', targetRass: Number(target.value), symptom: symSel.value })),
     sAct('pal-sed-bolus', 'Approve starting bolus', () => ({ type: 'bolus', route: routeSel.value })), sAct('pal-sed-repeat', 'Approve repeat (half bolus)', () => ({ type: 'repeat' })),
-    sAct('pal-sed-apply', 'Approve infusion rate', () => ({ type: 'infusion', rateMgH: Number(rate.value) })), sAct('pal-sed-stop', 'Approve stop', () => ({ type: 'stop' }))];
+    sAct('pal-sed-apply', 'Approve infusion rate', () => ({ type: 'infusion', rateMgH: rate.valueAsNumber })), sAct('pal-sed-stop', 'Approve stop', () => ({ type: 'stop' }))];
   const sedState = h('p', { id: 'pal-sed-state', class: 'hint' });
   add(sed, h('p', { class: 'hint' }, `Midazolam (step 1, revised EAPC framework): light — ${SM.bolus.light.sc.value} mg SC / ${SM.bolus.light.iv.value} mg IV; deep — ${SM.bolus.deep.sc.min}–${SM.bolus.deep.sc.max} mg SC / ${SM.bolus.deep.iv.min}–${SM.bolus.deep.iv.max} mg IV; half the starting bolus may be repeated after ${SM.repeatAfterMin.sc} min SC / ${SM.repeatAfterMin.iv} min IV; infusion starts at ${SM.infusionStartMgH} mg/h then adjust; above ${R.MIDAZOLAM_MAX_SIM_MG_H.value} mg/h consider adding/changing medication ${SM.notSimulated} Light/deep ↔ RASS mapping: ${SM.depthMapping}. `, srcTags(['S101', 'S120'])),
+    h('p', { class: 'hint' }, `For this fictional patient: start infusion at ${policy.startMgH} mg/h and wait at least ${policy.increaseWaitMin / 60} simulated hours between increases. ${policy.risks.length ? `Initial doses are halved for ${policy.risks.join(', ')}.` : ''}`),
     h('p', { class: 'hint' }, 'Opioids are continued for comfort and are not escalated to sedate. The simulator never changes the sedation on its own.'),
     h('div', { class: 'grid grid--4' }, h('div', { class: 'field' }, h('label', { for: 'pal-sed-target', class: 'label' }, 'Target RASS (lowest level that relieves)'), target), h('div', { class: 'field' }, h('label', { for: 'pal-sed-symptom', class: 'label' }, 'Symptom to relieve'), symSel),
       h('div', { class: 'field' }, h('label', { for: 'pal-sed-route', class: 'label' }, 'Bolus route'), routeSel), h('div', { class: 'field' }, h('label', { for: 'pal-sed-rate', class: 'label' }, 'Infusion (mg/h)'), rate)),
