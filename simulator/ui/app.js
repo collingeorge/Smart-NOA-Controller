@@ -18,7 +18,6 @@ import { pal, renderPalliative, setPalModule, stop as stopPalliative, renderEthi
 import { PALLIATIVE_CASES } from '../data/palliative.js';
 import { derivePalliative } from '../engine/palliative.js';
 import { decodeCase, downloadText, encodeCase, MAX_CASE_BYTES } from './case-files.js';
-import { downloadDebriefPdf } from './debrief-pdf.js';
 
 const lib = LIB;
 const STEPS = [
@@ -206,7 +205,9 @@ function openCaseFiles(button) {
     ? { module, patient: store.patientInput, plan: exportPlan(store.plan) }
     : palliativeCaseDraft());
   report.onclick = () => {
-    downloadDebriefPdf(module, module === 'periop' ? store.sim?.patient : pal.sim?.patient);
+    const button = document.querySelector('#main [data-debrief-pdf]');
+    if (!button) { status.textContent = 'Open the completed case debrief first.'; return; }
+    button.click();
     status.textContent = 'Debrief PDF downloaded.';
   };
   importButton.onclick = async () => {

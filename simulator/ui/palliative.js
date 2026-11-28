@@ -469,7 +469,9 @@ function stepDebrief(box) {
       h('li', {}, EXCLUSIONS_TEXT),
       h('li', {}, 'Model limits: every symptom score, RASS and respiratory rate is illustrative model output from author estimates; the model is not validated.'))),
     h('div', { class: 'actions' },
-      h('button', { type: 'button', class: 'btn btn--primary', onclick: () => downloadDebriefPdf(pal.module, sim.patient, box) }, 'Download debrief (PDF)'),
+      h('button', { type: 'button', class: 'btn btn--primary', 'data-debrief-pdf': '', onclick: () => downloadDebriefPdf(pal.module, sim.patient, box, {
+        summary: sm, log: sim.state.log, mar: sim.state.mar,
+      }) }, 'Download debrief (PDF)'),
       dl));
   if (pal.module === 'eol') {
     const sym = sm.sedation.symptom || 'agitation';

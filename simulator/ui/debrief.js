@@ -126,7 +126,9 @@ export function renderDebrief(ctx, main) {
     h('div', { class: 'actions' },
       h('button', { type: 'button', class: 'btn', onclick: () => ctx.go(4) }, '← Back to monitor'),
       h('button', { type: 'button', class: 'btn', onclick: () => { ctx.restartSim(); ctx.go(4); } }, 'Run again (same plan)'),
-      h('button', { type: 'button', class: 'btn btn--primary', onclick: () => downloadDebriefPdf('periop', p, main) }, 'Download debrief (PDF)'),
+      h('button', { type: 'button', class: 'btn btn--primary', 'data-debrief-pdf': '', onclick: () => downloadDebriefPdf('periop', p, main, {
+        plan: exportPlan(store.plan), planStatus, summary: s, log: sim.state.log, automaticMode: s.automatic,
+      }) }, 'Download debrief (PDF)'),
       dl));
 }
 

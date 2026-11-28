@@ -41,6 +41,7 @@ export function buildDebriefPdf(module, blocks) {
     const lines = wrap(value, 520 / (isHeading ? 13 : 10));
     if (!lines.length) return;
     if (isHeading) { space(36); y -= 7; }
+    else if (lines.length <= 5) space(lines.length * 15);
     for (const line of lines) {
       space(15);
       label(line, 44, y, isHeading ? 13 : 10, isHeading);
@@ -88,7 +89,60 @@ export function buildDebriefPdf(module, blocks) {
   return pdf + `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`;
 }
 
-export function downloadDebriefPdf(module, patient, root = document.getElementById('main')) {
+const clock = (t) => Number.isFinite(t)
+  ? `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')}` : 'Time not recorded';
+
+export function workflowBlocks({ plan, planStatus = [], summary, log = [], mar = [], automaticMode } = {}) {
+  const blocks = [];
+  const section = (text) => blocks.push({ text, heading: true });
+  const line = (text) => blocks.push({ text });
+  if (plan?.steps?.length) {
+    section('Anesthesia plan and execution');
+    const results = new Map(planStatus.map((step) => [step.id, step]));
+    for (const step of plan.steps) {
+      const execution = results.get(step.id);
+      const result = execution?.result;
+      const amount = step.amount != null ? `${step.amount} ${step.amountUnit ?? ''}`
+        : step.rate != null ? `${step.rate} ${step.rateUnit ?? ''}` : '';
+      line(`${step.phase} +${clock(step.atSec)} | ${step.drugId} | ${step.kind} ${amount}${step.route ? ` ${step.route}` : ''}${step.overSec ? ` over ${clock(step.overSec)}` : ''} | ${execution?.status ?? 'No execution status recorded'}${Number.isFinite(result?.tSec) ? ` at ${clock(result.tSec)}` : ''}`);
+      const rationale = step.timingRationale;
+      if (step.regimenKey || rationale?.text) line(`Planned use: ${step.regimenKey ?? 'not recorded'}${rationale?.text ? `. ${rationale.text}` : ''}${rationale?.sources?.length ? ` [${rationale.sources.join(', ')}]` : ''}`);
+      else line('Plan rationale not recorded.');
+      for (const reason of [...(result?.reasons ?? []), ...(result?.warnings ?? [])]) line(reason);
+    }
+  }
+  if (summary?.alarms?.length) {
+    section('Alarm history');
+    for (const alarm of summary.alarms) {
+      const started = Number.isFinite(alarm.sinceSec) ? clock(alarm.sinceSec) : Number.isFinite(alarm.tMin) ? `Minute ${alarm.tMin}` : 'Time not recorded';
+      line(`${started} | ${alarm.priority ?? ''} | ${alarm.message ?? alarm.id}${Number.isFinite(alarm.clearedSec) ? ` | Cleared ${clock(alarm.clearedSec)}` : ''}`);
+    }
+  }
+  if (automaticMode?.pauses?.length) {
+    section('Pauses and reasons');
+    for (const pause of automaticMode.pauses) {
+      line(`${clock(pause.tSec)} | Paused by ${pause.by ?? 'simulation'}${Number.isFinite(pause.resumedAtSec) ? ` | Resumed ${clock(pause.resumedAtSec)}` : ''}`);
+      for (const reason of pause.reasons ?? []) line(reason);
+    }
+  }
+  if (mar.length) {
+    section('Medication administration record');
+    for (const entry of mar) {
+      line(`Minute ${entry.tMin} | ${entry.drugId} | ${entry.dose} ${entry.unit ?? ''} ${entry.route ?? ''} | ${entry.kind ?? ''} | ${entry.by ?? 'Initiator not recorded'}`);
+    }
+  }
+  if (log.length) {
+    section('Complete recorded event log');
+    line('The log includes actions, warnings, and refusals. A reason is shown when recorded by the simulator.');
+    for (const event of log) {
+      const t = Number.isFinite(event.tSec) ? clock(event.tSec) : Number.isFinite(event.tMin) ? `Minute ${event.tMin}` : 'Time not recorded';
+      line(`${t} | ${event.kind ?? 'event'} | ${event.message ?? ''}`);
+    }
+  }
+  return blocks;
+}
+
+export function downloadDebriefPdf(module, patient, root = document.getElementById('main'), workflow) {
   const sections = [];
   if (patient) {
     sections.push({ heading: true, text: 'Fictional patient profile' });
@@ -101,6 +155,7 @@ export function downloadDebriefPdf(module, patient, root = document.getElementBy
     const text = node.matches('tr') ? [...node.cells].map((cell) => cell.textContent.trim()).join(' | ') : node.textContent;
     if (text.trim()) sections.push({ text, heading: node.matches('h2,h3,h4,summary') });
   }
+  sections.push(...workflowBlocks(workflow));
   const title = { periop: 'Perioperative anesthesia', pain: 'Palliative pain management', eol: 'End-of-life care' }[module];
   downloadText(`smart-noa-${module}-debrief.pdf`, buildDebriefPdf(title, sections), 'application/pdf');
 }
