@@ -56,7 +56,19 @@ export function buildDebriefPdf(module, blocks) {
     commands.push(`0.67 0.72 0.76 RG 105 ${y - 2} m 285 ${y - 2} l S 394 ${y - 2} m 568 ${y - 2} l S`);
     y -= 23;
   }
-  for (const block of blocks) body(block.text, block.heading);
+  for (const block of blocks) {
+    if (!block.monitorRows) { body(block.text, block.heading); continue; }
+    space((block.monitorRows.length + 1) * 16 + 10);
+    const columns = [44, 340, 407, 472];
+    ['Monitor / unit', 'Min', 'Average', 'Max'].forEach((value, i) => label(value, columns[i], y, 10, true));
+    y -= 17;
+    for (const row of block.monitorRows) {
+      const fmt = (value) => Number.isFinite(value) ? value.toFixed(row.id === 'tofRatio' ? 2 : 1) : 'n/a';
+      [`${row.label} (${row.unit})`, fmt(row.min), fmt(row.mean), fmt(row.max)].forEach((value, i) => label(value, columns[i], y, 10));
+      y -= 16;
+    }
+    y -= 7;
+  }
   space(124);
   body('Reviewer feedback', true);
   for (const prompt of ['What went well', 'What could improve', 'Next step / grade']) {
@@ -91,6 +103,27 @@ export function buildDebriefPdf(module, blocks) {
 
 const clock = (t) => Number.isFinite(t)
   ? `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')}` : 'Time not recorded';
+
+export function briefingBlocks(summary, automaticMode = summary?.automatic) {
+  if (!summary || !Number.isFinite(summary.durationSec)) return [];
+  const high = (summary.alarms ?? []).filter((alarm) => alarm.priority === 'high');
+  const critical = [...new Set(high.map((alarm) => alarm.message ?? alarm.id))];
+  const extra = summary.additionalMedicationActions;
+  const ext = summary.extubation;
+  const fluid = summary.fluids?.crystalloidMl;
+  const blocks = [{ heading: true, text: 'BLUF | Case outcome' },
+    { text: `Simulated duration ${clock(summary.durationSec)}. ${automaticMode?.used && automaticMode.outcome ? `Run outcome: ${automaticMode.outcome}. ` : ''}${Number.isFinite(ext?.tSec) ? `Extubated at ${clock(ext.tSec)} with readiness ${ext.ready ? 'met' : 'unmet'}.` : 'No extubation recorded.'}` },
+    { text: `High-priority alarms: ${high.length}.${critical.length ? ` ${critical.join('; ')}.` : ''} ${Number.isFinite(summary.timeMapBelow65Sec) ? `Time below MAP 65: ${clock(summary.timeMapBelow65Sec)}. ` : ''}Cardiac arrest and blood transfusion are not modeled.` },
+    { text: `Crystalloid: ${Number.isFinite(fluid) ? `${fluid} mL` : 'not recorded'}. ${Array.isArray(extra) ? `${extra.length} medication actions outside the plan${extra.length ? ` (${[...new Set(extra.map((dose) => dose.drugId))].join(', ')})` : ''}.` : 'Medication actions outside the plan are not separately counted in this recording.'}` }];
+  if (summary.monitor?.length) {
+    blocks.push({ heading: true, text: 'Monitor summary' }, { monitorRows: summary.monitor },
+      { text: 'Whole-case, time-weighted averages of available simulated readings. TOFR includes only four-twitch readings. The processed EEG depth index is illustrative and is not a BIS measurement.' });
+  } else {
+    const min = summary.minMap, max = summary.maxMap;
+    blocks.push({ text: `This earlier recording did not capture full-case averages.${Number.isFinite(min) && Number.isFinite(max) ? ` Recorded MAP range: ${Math.round(min)}–${Math.round(max)} mmHg.` : ''}` });
+  }
+  return blocks;
+}
 
 export function workflowBlocks({ plan, planStatus = [], summary, log = [], mar = [], automaticMode } = {}) {
   const blocks = [];
@@ -131,6 +164,13 @@ export function workflowBlocks({ plan, planStatus = [], summary, log = [], mar =
       line(`Minute ${entry.tMin} | ${entry.drugId} | ${entry.dose} ${entry.unit ?? ''} ${entry.route ?? ''} | ${entry.kind ?? ''} | ${entry.by ?? 'Initiator not recorded'}`);
     }
   }
+  if (summary?.additionalMedicationActions?.length) {
+    section('Medication actions outside the plan');
+    for (const dose of summary.additionalMedicationActions) {
+      const value = dose.amount != null ? `${dose.amount} ${dose.amountUnit ?? ''}` : `${dose.rate} ${dose.rateUnit ?? ''}`;
+      line(`${clock(dose.tSec)} | ${dose.drugId} | ${dose.kind} ${value} | ${dose.source} | ${dose.regimenKey ?? 'Rationale not recorded'}`);
+    }
+  }
   if (log.length) {
     section('Complete recorded event log');
     line('The log includes actions, warnings, and refusals. A reason is shown when recorded by the simulator.');
@@ -143,7 +183,7 @@ export function workflowBlocks({ plan, planStatus = [], summary, log = [], mar =
 }
 
 export function downloadDebriefPdf(module, patient, root = document.getElementById('main'), workflow) {
-  const sections = [];
+  const sections = briefingBlocks(workflow?.summary, workflow?.automaticMode);
   if (patient) {
     sections.push({ heading: true, text: 'Fictional patient profile' });
     sections.push({ text: `Age ${patient.ageYears} years | Sex ${patient.sex} | Weight ${patient.weightKg} kg | eGFR ${patient.egfr} mL/min/1.73 m2` });
