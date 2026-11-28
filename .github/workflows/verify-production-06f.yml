@@ -62,6 +62,10 @@ jobs:
                 await page.getByRole('button', { name: 'Close', exact: true }).click();
                 console.log(module + ' template, import, and export passed');
               }
+              await page.locator('#pal-stepper-1').click();
+              await page.getByRole('combobox', { name: 'Example case' }).selectOption({ label: 'Refractory terminal delirium / agitation (palliative-sedation teaching case)' });
+              await page.getByRole('button', { name: 'Load example case', exact: true }).click();
+              await page.getByRole('button', { name: 'Continue to assessment & plan' }).click();
               await page.getByRole('button', { name: 'Approve & start regimen' }).click();
               await page.getByRole('button', { name: 'Go to debrief' }).click();
               await page.getByRole('button', { name: 'Case files', exact: true }).click();
