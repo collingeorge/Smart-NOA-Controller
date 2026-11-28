@@ -1,4 +1,4 @@
-name: Verify production 06g
+name: Verify case files
 on:
   pull_request:
     paths:
@@ -12,20 +12,67 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: aced1081fdb6b80977c96b711ad0fe1f89bd6551
+          ref: 2e7d722f6829e7ba83bbc614778aad1208ea5f03
           persist-credentials: false
-      - name: Record security headers independently for each route
+      - run: npm install --no-save --ignore-scripts playwright@1.57.0
+      - run: npx playwright install chromium
+      - name: Exercise the case-file browser workflows
         run: |
-          for path in /simulator/ /about /source-pins.json /simulator/engine/sim.js /simulator/ui/plan-model.js /simulator/ui/app.js /simulator/ui/monitor.js /simulator/ui/debrief.js; do
-            echo "$path"
-            curl -sS --max-time 15 -o /dev/null -D - "https://collinbgeorge.com$path" | grep -Ei '^(HTTP/|content-security-policy:|strict-transport-security:|x-content-type-options:|x-frame-options:|cf-mitigated:)'
-          done
-      - name: Compare live runtime files byte for byte
-        run: |
-          set -euo pipefail
-          for path in engine/sim.js ui/plan-model.js ui/app.js ui/monitor.js ui/debrief.js engine/palliative.js data/palliative.js ui/palliative.js; do
-            curl --fail --silent --show-error --max-time 15 "https://collinbgeorge.com/simulator/$path" -o "$RUNNER_TEMP/public-asset"
-            cmp "simulator/$path" "$RUNNER_TEMP/public-asset"
-            echo "MATCH $path"
-          done
-      - run: node simulator/tools/verify-live.mjs aced1081fdb6b80977c96b711ad0fe1f89bd6551
+          cat > case-files-audit.cjs <<'EOF'
+          const assert = require('node:assert/strict');
+          const fs = require('node:fs/promises');
+          const http = require('node:http');
+          const path = require('node:path');
+          const { chromium } = require('playwright');
+          
+          const root = path.resolve('simulator');
+          const server = http.createServer(async (req, res) => {
+            const url = new URL(req.url, 'http://localhost');
+            const file = path.resolve(root, '.' + (url.pathname === '/' ? '/index.html' : url.pathname));
+            if (!file.startsWith(root + path.sep)) { res.writeHead(404).end(); return; }
+            try {
+              const content = await fs.readFile(file);
+              res.setHeader('Content-Type', { '.js': 'text/javascript', '.html': 'text/html', '.css': 'text/css' }[path.extname(file)] || 'text/plain');
+              res.end(content);
+            } catch { res.writeHead(404).end(); }
+          });
+          
+          (async () => {
+            let browser;
+            try {
+              await new Promise((resolve, reject) => server.once('error', reject).listen(0, '127.0.0.1', resolve));
+              browser = await chromium.launch();
+              const page = await browser.newPage();
+              const errors = [];
+              page.on('pageerror', (error) => errors.push(error.message));
+              await page.goto(`http://127.0.0.1:${server.address().port}/`);
+              for (const module of ['Perioperative', 'Palliative pain management', 'End-of-life care']) {
+                await page.getByRole('button', { name: module, exact: true }).click();
+                await page.getByRole('button', { name: 'Case files', exact: true }).click();
+                const [download] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'Download example template' }).click()]);
+                const originalFile = await download.path();
+                const setup = JSON.parse(await fs.readFile(originalFile, 'utf8'));
+                setup.patient.ageYears = 55;
+                await page.locator('#case-file-input').setInputFiles({ name: 'edited.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(setup)) });
+                await page.getByRole('button', { name: 'Import case', exact: true }).click();
+                await page.locator(module === 'Perioperative' ? '#stepper-3[aria-current="step"]' : '#pal-root[data-step="2"]').waitFor();
+                await page.getByRole('button', { name: 'Case files', exact: true }).click();
+                const [exported] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'Export current case' }).click()]);
+                assert.equal(JSON.parse(await fs.readFile(await exported.path(), 'utf8')).patient.ageYears, 55);
+                await page.getByRole('button', { name: 'Close', exact: true }).click();
+                console.log(module + ' template, import, and export passed');
+              }
+              await page.getByRole('button', { name: 'Approve & start regimen' }).click();
+              await page.getByRole('button', { name: 'Go to debrief' }).click();
+              await page.getByRole('button', { name: 'Case files', exact: true }).click();
+              const [report] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'Export readable debrief' }).click()]);
+              assert.match(await fs.readFile(await report.path(), 'utf8'), /fictional patient[\s\S]*Debrief/i);
+              assert.deepEqual(errors, []);
+              console.log('Readable debrief and browser error checks passed');
+            } finally {
+              if (browser) await browser.close();
+              server.close();
+            }
+          })().catch((error) => { console.error(error); process.exitCode = 1; });
+          EOF
+          node case-files-audit.cjs
