@@ -7,6 +7,7 @@ import { readinessRow } from './monitor.js';
 import { timingCheckItems } from './timing-view.js';
 import { exportPlan } from './plan-model.js';
 import { loadModelAssumptions, assumptionsList } from './model-card.js';
+import { downloadDebriefPdf } from './debrief-pdf.js';
 
 export function renderDebrief(ctx, main) {
   const { store, lib } = ctx;
@@ -125,6 +126,7 @@ export function renderDebrief(ctx, main) {
     h('div', { class: 'actions' },
       h('button', { type: 'button', class: 'btn', onclick: () => ctx.go(4) }, '← Back to monitor'),
       h('button', { type: 'button', class: 'btn', onclick: () => { ctx.restartSim(); ctx.go(4); } }, 'Run again (same plan)'),
+      h('button', { type: 'button', class: 'btn btn--primary', onclick: () => downloadDebriefPdf('periop', p, main) }, 'Download debrief (PDF)'),
       dl));
 }
 

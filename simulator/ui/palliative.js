@@ -3,6 +3,7 @@
 // Free text (family notes, documentation) is only ever set as input values or textContent — never HTML.
 import { h, clear, announce, setText, reconcileKeyed, setChildrenIf, fill, add } from './dom.js';
 import { srcTags } from './sources.js';
+import { downloadDebriefPdf } from './debrief-pdf.js';
 import { PALLIATIVE_CASES, PALLIATIVE_OPIOIDS, PALLIATIVE_RULES as R, SEDATION_MIDAZOLAM as SM, ETHICS_PANEL, GOC_PROMPTS, TREATMENTS_TRIED, EXCLUSIONS_TEXT, OPTIONS, PALLIATIVE_BANNER } from '../data/palliative.js';
 import { validatePalliative, derivePalliative, recommendStart, breakthroughDose, convertOpioid, createPalliativeSim, isSedationReduction, midazolamPolicy, mmePerDay, fmtDay } from '../engine/palliative.js';
 
@@ -467,7 +468,9 @@ function stepDebrief(box) {
       h('li', {}, 'Comfort opioids were continued at their dose, not escalated to sedate. ', srcTags(['S101'])),
       h('li', {}, EXCLUSIONS_TEXT),
       h('li', {}, 'Model limits: every symptom score, RASS and respiratory rate is illustrative model output from author estimates; the model is not validated.'))),
-    h('div', { class: 'actions' }, dl));
+    h('div', { class: 'actions' },
+      h('button', { type: 'button', class: 'btn btn--primary', onclick: () => downloadDebriefPdf(pal.module, sim.patient, box) }, 'Download debrief (PDF)'),
+      dl));
   if (pal.module === 'eol') {
     const sym = sm.sedation.symptom || 'agitation';
     drawTrend(canvas, sm.timeline.map((p) => ({ ...p, symptom: p[sym] / 2 })), [...RASS_SERIES, { key: 'symptom', color: '#8a5a00', dash: [2, 2] }], { min: -5, max: 5, hours: Math.max(24, Math.ceil(sm.durationMin / 60)) });

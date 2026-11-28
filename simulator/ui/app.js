@@ -18,6 +18,7 @@ import { pal, renderPalliative, setPalModule, stop as stopPalliative, renderEthi
 import { PALLIATIVE_CASES } from '../data/palliative.js';
 import { derivePalliative } from '../engine/palliative.js';
 import { decodeCase, downloadText, encodeCase, MAX_CASE_BYTES } from './case-files.js';
+import { downloadDebriefPdf } from './debrief-pdf.js';
 
 const lib = LIB;
 const STEPS = [
@@ -205,9 +206,8 @@ function openCaseFiles(button) {
     ? { module, patient: store.patientInput, plan: exportPlan(store.plan) }
     : palliativeCaseDraft());
   report.onclick = () => {
-    const review = document.getElementById('main').innerText;
-    downloadText(`smart-noa-${module}-debrief.txt`, `Smart NOA educational simulation — fictional patient\n\n${review}\n`);
-    status.textContent = 'Debrief downloaded.';
+    downloadDebriefPdf(module, module === 'periop' ? store.sim?.patient : pal.sim?.patient);
+    status.textContent = 'Debrief PDF downloaded.';
   };
   importButton.onclick = async () => {
     const file = picker.files?.[0];
