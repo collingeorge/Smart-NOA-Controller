@@ -87,6 +87,19 @@ export function deliriumRisk(p, dynamic = {}) {
   return { score: factors.length, level, factors, provenance: 'author_estimate_unvalidated', note: 'Illustrative count of factors (ESMO 2018 delirium guideline names advanced disease and the last hours–days as common settings; the count itself is not a validated tool).', sources: ['S119'] };
 }
 
+export function midazolamPolicy(p) {
+  const risks = [];
+  if (p.ageYears > 60) risks.push('age over 60');
+  if (p.weightKg < 60) risks.push('weight below 60 kg');
+  if (p.egfr < 30) risks.push('eGFR below 30 (simulator flag for severe renal impairment)');
+  if (p.severeHepatic) risks.push('severe hepatic impairment');
+  if (p.veryLowAlbumin === true) risks.push('very low serum albumin');
+  if (p.sedatingCoMedication === true) risks.push('other medication increasing sedation');
+  const initialFraction = risks.length ? SM.riskInitialFraction : 1;
+  return { risks, initialFraction, startMgH: SM.infusionStartMgH * initialFraction,
+    increaseWaitMin: risks.length ? SM.riskEscalationWaitMin : SM.escalationWaitMin };
+}
+
 export function derivePalliative(input) {
   const p = { ...input };
   const flags = [];
@@ -195,7 +208,7 @@ export function createPalliativeSim({ patient, caseDef = {}, module = 'pain', se
     tMin: 0, module, paused: null, regimen: null, bowelRegimen: false, nonPharm: { fan: false, positioning: false, oxygen: false }, comfortMonitoring: false,
     symptoms: { pain: gen.baseline, dyspnoea: gen.dyspnoea, agitation: gen.agitation, secretions: gen.secretions ? gen.secretions.start : 0, nausea: 0, constipation: 0 },
     rass: 0, rr: p.baselineRr, deliriumRisk: p.delirium, mar: [], alarms: [], alarmHistory: [], log: [], reviews: [], pendingReview: null, trend: [],
-    sedation: { active: false, targetRass: null, symptom: null, infusionMgH: 0, lastBolus: null, titrations: [] },
+    sedation: { active: false, targetRass: null, symptom: null, infusionMgH: 0, lastBolus: null, lastIncreaseMin: null, titrations: [] },
     doc: { refractory: null, goals: null, consent: null, interdisciplinary: null, prognosis: null, jurisdiction: null },
     hydration: { discussed: false, decision: '', note: '' }, familyNotes: '',
   };
@@ -505,8 +518,14 @@ export function createPalliativeSim({ patient, caseDef = {}, module = 'pain', se
     const level = sd.targetRass <= -4 ? 'deep' : 'light';
     if (a.type === 'bolus') {
       if (!['sc', 'iv'].includes(a.route)) return { ok: false, blocked: true, reasons: ['Route SC or IV.'] };
-      const spec = SM.bolus[level][a.route]; let mg = spec.value;
-      if (typeof a.dose === 'number') { const lo = spec.min ?? spec.value; const hi = spec.max ?? spec.value; if (a.dose < lo || a.dose > hi) return { ok: false, blocked: true, reasons: [`Framework ${level} ${a.route.toUpperCase()} bolus: ${lo === hi ? lo : `${lo}–${hi}`} mg.`] }; mg = a.dose; }
+      if (sd.lastBolus) return { ok: false, blocked: true, reasons: ['A starting bolus has already been given in this case. Use the repeat action after the route-specific wait [S101].'] };
+      const spec = SM.bolus[level][a.route];
+      const fraction = midazolamPolicy(p).initialFraction;
+      const lo = (spec.min ?? spec.value) * fraction;
+      const hi = (spec.max ?? spec.value) * fraction;
+      const mg = a.dose === undefined ? spec.value * fraction : a.dose;
+      if (!Number.isFinite(mg) || mg < lo || mg > hi) return { ok: false, blocked: true,
+        reasons: [`Starting ${level} ${a.route.toUpperCase()} bolus for this fictional patient: ${lo === hi ? lo : `${lo}–${hi}`} mg [S101].`] };
       if (a.route === 'sc') pk.midDepot += mg; else pk.midCentral += mg;
       sd.active = true; sd.lastBolus = { tMin: st.tMin, route: a.route, dose: mg, starting: mg };
       st.mar.push({ tMin: st.tMin, drugId: 'midazolam', route: a.route, dose: mg, unit: 'mg', kind: 'sedation', by: 'clinician (approved)' });
@@ -515,7 +534,7 @@ export function createPalliativeSim({ patient, caseDef = {}, module = 'pain', se
     if (a.type === 'repeat') {
       const lb = sd.lastBolus; if (!lb) return { ok: false, blocked: true, reasons: ['No starting bolus to repeat.'] };
       const wait = SM.repeatAfterMin[lb.route]; if (st.tMin - lb.tMin < wait) return { ok: false, blocked: true, reasons: [`Repeat no sooner than ${wait} min after the last ${lb.route.toUpperCase()} bolus (S101).`] };
-      const mg = fix(lb.starting * SM.repeatFraction);
+      const mg = lb.starting * SM.repeatFraction;
       if (lb.route === 'sc') pk.midDepot += mg; else pk.midCentral += mg;
       sd.lastBolus = { ...lb, tMin: st.tMin };
       st.mar.push({ tMin: st.tMin, drugId: 'midazolam', route: lb.route, dose: mg, unit: 'mg', kind: 'sedation', by: 'clinician (approved)' });
@@ -523,9 +542,15 @@ export function createPalliativeSim({ patient, caseDef = {}, module = 'pain', se
     }
     if (a.type === 'infusion') {
       const rate = a.rateMgH;
-      if (!(typeof rate === 'number' && rate >= 0)) return { ok: false, blocked: true, reasons: ['Enter a rate (mg/h).'] };
+      if (!Number.isFinite(rate) || rate < 0) return { ok: false, blocked: true, reasons: ['Enter a finite rate (mg/h).'] };
       if (rate > R.MIDAZOLAM_MAX_SIM_MG_H.value) return { ok: false, blocked: true, reasons: [`Above ${R.MIDAZOLAM_MAX_SIM_MG_H.value} mg/h the framework advises considering adding or changing medication; second-line agents are not simulated — specialist decision.`] };
-      if (sd.infusionMgH === 0 && rate > 0 && rate !== SM.infusionStartMgH) return { ok: false, blocked: true, reasons: [`Start the infusion at ${SM.infusionStartMgH} mg/h, then adjust as needed (S101).`] };
+      const policy = midazolamPolicy(p);
+      if (sd.infusionMgH === 0 && rate > 0 && rate !== policy.startMgH) return { ok: false, blocked: true, reasons: [`Start the infusion at ${policy.startMgH} mg/h for this fictional patient [S101].`] };
+      if (rate > sd.infusionMgH) {
+        const remaining = sd.lastIncreaseMin === null ? 0 : sd.lastIncreaseMin + policy.increaseWaitMin - st.tMin;
+        if (remaining > 0) return { ok: false, blocked: true, reasons: [`Wait ${Math.ceil(remaining)} more simulated minutes before increasing the infusion [S101].`] };
+        sd.lastIncreaseMin = st.tMin;
+      }
       const old = sd.infusionMgH; sd.infusionMgH = rate; sd.active = sd.active || rate > 0;
       rec(`midazolam infusion ${old} → ${rate} mg/h`); return { ok: true };
     }
@@ -568,6 +593,8 @@ export function palliativeParameterInventory() {
   add('palliative_sedation', 'midazolam deep bolus SC / IV', `${SM.bolus.deep.sc.min}–${SM.bolus.deep.sc.max} / ${SM.bolus.deep.iv.min}–${SM.bolus.deep.iv.max}`, 'mg', 'guideline', [...SM.sources], 'Revised EAPC framework step 1; default = lower bound.', 'midazolam');
   add('palliative_sedation', 'midazolam repeat fraction / interval SC, IV', `${SM.repeatFraction} / ${SM.repeatAfterMin.sc}, ${SM.repeatAfterMin.iv}`, '× starting bolus / min', 'guideline', [...SM.sources], 'Half the starting bolus after 20 min SC or 5 min IV.', 'midazolam');
   add('palliative_sedation', 'midazolam infusion start', SM.infusionStartMgH, 'mg/h', 'guideline', [...SM.sources], 'Then adjust as needed (clinician-approved).', 'midazolam');
+  add('palliative_sedation', 'higher-risk initial midazolam fraction', SM.riskInitialFraction, '× usual initial dose', 'guideline', [...SM.sources], 'Applies to the starting bolus and infusion in the simulator.', 'midazolam');
+  add('palliative_sedation', 'earliest maintenance increase standard / higher risk', `${SM.escalationWaitMin} / ${SM.riskEscalationWaitMin}`, 'min', 'simulator_convention', [...SM.sources], 'Lower endpoints of the EAPC intervals. Reductions and stops can occur immediately.', 'midazolam');
   add('palliative_sedation', 'light/deep ↔ RASS mapping', SM.depthMapping, '', 'simulator_convention', ['S120'], 'The framework does not use RASS; mapping chosen for the simulator.', 'midazolam');
   add('palliative_sedation', 'continuous deep sedation prognosis requirement', 'hours_days', 'prognosis category', 'guideline', ['S100', 'S117', 'S102'], '2009 EAPC: closeness to death relevant for continuous deep sedation; ASCO 2021: life expectancy of days; AMA 5.6: final stages. The 2024 revision specifies no period — the simulator keeps the conservative requirement.');
   add('palliative_model', 'delirium-risk factors (age ≥70, eGFR <30, ≥5 medicines, last hours–days, high opioid effect)', '≥3 high, ≥1 moderate', 'count', 'author_estimate_unvalidated', ['S119'], 'Illustrative count; not a validated tool.');

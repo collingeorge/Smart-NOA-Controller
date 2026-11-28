@@ -246,7 +246,7 @@ export const PALLIATIVE_RULES = Object.freeze({
   PROPORTIONALITY_ALARM_MIN: { value: 30, unit: 'min deeper than the documented target', provenance: 'simulator_convention', sourceIds: ['S101'], rationale: 'Proportionality (S101) means the lowest sedation level that relieves the symptom; the 30-min persistence before the alarm is a teaching convention.' },
   COMFORT_NOT_ACHIEVED_SCORE: { value: 4, unit: 'symptom score 0–10, sustained 60 min', provenance: 'simulator_convention', sourceIds: [], rationale: 'Alarm when the documented target symptom stays ≥4 for 60 min during sedation (teaching convention). The engine never escalates on its own.' },
   TOLERANT_BASELINE_MAX_MME_DAY: { value: 200, unit: 'MME/day (oral)', provenance: 'simulator_convention', sourceIds: [], rationale: 'Simulator teaching ceiling on an opioid-tolerant patient\'s current regimen (owner decision, audit 2026-11-26): above every shipped case (60–120 MME/day). No source gives a maximum; higher or IV baselines are a specialist decision and are not simulated. Not a clinical limit.' },
-  MIDAZOLAM_MAX_SIM_MG_H: { value: 10, unit: 'mg/h', provenance: 'guideline', sourceIds: ['S101'], rationale: 'Framework: at doses above 10 mg/h consider adding or changing medication; second-line agents are not simulated, so the simulator stops at 10 mg/h (simulator hard stop anchored to the framework statement).' },
+  MIDAZOLAM_MAX_SIM_MG_H: { value: 10, unit: 'mg/h', provenance: 'simulator_convention', sourceIds: ['S101'], rationale: 'Framework: at doses above 10 mg/h consider adding or changing medication; second-line agents are not simulated, so the simulator stops at 10 mg/h.' },
 });
 
 // Palliative sedation — step 1 midazolam per the revised EAPC framework (S101). Depth mapping
@@ -260,6 +260,9 @@ export const SEDATION_MIDAZOLAM = Object.freeze({
   repeatFraction: 0.5,
   repeatAfterMin: { sc: 20, iv: 5 },
   infusionStartMgH: 1,
+  riskInitialFraction: 0.5,
+  escalationWaitMin: 60,
+  riskEscalationWaitMin: 360,
   depthMapping: 'light = target RASS −1 to −3; deep = −4 to −5 (simulator mapping)',
   notSimulated: 'Second-line agents (e.g. levomepromazine, propofol): not simulated — specialist decision.',
 });

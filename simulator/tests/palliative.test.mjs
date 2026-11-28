@@ -161,30 +161,55 @@ test('palliative sedation gate: all six documentation items required; approval r
   assert.equal(s.sedationAction({ type: 'set_target', targetRass: -2, symptom: 'agitation' }, OK).ok, true);
   assert.equal(s.sedationAction({ type: 'infusion', rateMgH: 3 }, OK).ok, false, 'infusion starts at 1 mg/h');
   assert.equal(s.sedationAction({ type: 'bolus', route: 'sc' }, OK).ok, true);
-  assert.equal(s.state.mar.at(-1).dose, SM.bolus.light.sc.value);
+  assert.equal(s.state.mar.at(-1).dose, SM.bolus.light.sc.value / 2);
   assert.equal(s.sedationAction({ type: 'repeat' }, OK).ok, false, 'repeat interval enforced (20 min SC)');
-  s.step(20); assert.equal(s.sedationAction({ type: 'repeat' }, OK).ok, true); assert.equal(s.state.mar.at(-1).dose, 1.25);
-  assert.equal(s.sedationAction({ type: 'infusion', rateMgH: 1 }, OK).ok, true);
+  s.step(20); assert.equal(s.sedationAction({ type: 'repeat' }, OK).ok, true); assert.equal(s.state.mar.at(-1).dose, 0.625);
+  assert.equal(s.sedationAction({ type: 'infusion', rateMgH: 0.5 }, OK).ok, true);
   assert.equal(s.sedationAction({ type: 'infusion', rateMgH: 12 }, OK).ok, false, '>10 mg/h: specialist decision');
   const deep = sim('refractory_delirium', { prognosis: 'days_weeks' }); fullDocs(deep);
   assert.match(deep.sedationAction({ type: 'set_target', targetRass: -4, symptom: 'agitation' }, OK).reasons[0], /hours–days/);
 });
 
+test('higher-risk sedation blocks a repeated starting bolus and premature increases, even after a stop', () => {
+  const s = sim('refractory_delirium', { ageYears: 75 });
+  fullDocs(s);
+  const act = (action) => s.sedationAction(action, OK);
+  assert.ok(act({ type: 'set_target', targetRass: -2, symptom: 'agitation' }).ok);
+  const start = { type: 'bolus', route: 'iv' };
+  for (const dose of [NaN, Infinity, '0.625', 1.25]) assert.ok(act({ ...start, dose }).blocked);
+  assert.ok(act(start).ok);
+  assert.equal(s.state.mar.at(-1).dose, 0.625);
+  assert.ok(act({ ...start, route: 'sc' }).blocked);
+  assert.ok(act({ type: 'repeat' }).blocked);
+  assert.ok(act({ type: 'infusion', rateMgH: 1 }).blocked);
+  assert.ok(act({ type: 'infusion', rateMgH: 0.5 }).ok);
+  assert.ok(act({ type: 'infusion', rateMgH: 1 }).blocked);
+  assert.ok(act({ type: 'stop' }).ok);
+  assert.ok(act({ type: 'infusion', rateMgH: 0.5 }).blocked);
+  s.state.tMin = 359;
+  assert.ok(act({ type: 'infusion', rateMgH: 0.5 }).blocked);
+  s.state.tMin = 360;
+  assert.ok(act({ type: 'infusion', rateMgH: 0.5 }).ok);
+  assert.ok(act({ type: 'infusion', rateMgH: 1 }).blocked);
+  assert.ok(act({ type: 'infusion', rateMgH: 0.25 }).ok, 'reductions never wait');
+});
+
 test('no auto-escalation; comfort opioids continue; opioids are never used to sedate; proportionality alarm', () => {
   const s = sim('refractory_delirium'); s.approveRegimen({ ...CASE('refractory_delirium').plan, prnDose: 2.5 }, OK);
   fullDocs(s);
-  s.sedationAction({ type: 'set_target', targetRass: -2, symptom: 'agitation' }, OK); s.sedationAction({ type: 'infusion', rateMgH: 1 }, OK);
+  s.sedationAction({ type: 'set_target', targetRass: -2, symptom: 'agitation' }, OK); assert.ok(s.sedationAction({ type: 'infusion', rateMgH: 0.5 }, OK).ok);
   const n = s.state.sedation.titrations.length; const opioidBefore = s.state.mar.filter((m) => m.kind === 'scheduled').length;
   for (let i = 0; i < 24; i++) { s.step(60); for (const a of [...s.state.alarms]) s.acknowledge(a.id); if (s.state.pendingReview) for (const x of s.state.pendingReview.suggestions) s.decide(x.id, 'decline'); s.resume(); }
-  assert.equal(s.state.sedation.infusionMgH, 1, 'engine never changes the infusion'); assert.equal(s.state.sedation.titrations.length, n);
+  assert.equal(s.state.sedation.infusionMgH, 0.5, 'engine never changes the infusion'); assert.equal(s.state.sedation.titrations.length, n);
   assert.ok(s.state.alarmHistory.some((a) => a.id === 'comfort_not_achieved'), 'comfort-not-achieved alarm instead of escalation');
   assert.ok(s.state.mar.filter((m) => m.kind === 'scheduled').length >= opioidBefore + 5, 'comfort opioid continues on schedule');
   assert.equal(s.state.regimen.dose, CASE('refractory_delirium').plan.dose, 'opioid not escalated');
   const blocked = s.adjustOpioid({ reason: 'sedation' }); assert.equal(blocked.blocked, true); assert.match(blocked.reason, /not used to produce sedation/);
   // Deeper than target → not proportional (medium), not "unintended".
   const t = sim('refractory_delirium'); t.approveRegimen({ ...CASE('refractory_delirium').plan, prnDose: 2.5 }, OK); fullDocs(t);
-  t.sedationAction({ type: 'set_target', targetRass: -1, symptom: 'agitation' }, OK); t.sedationAction({ type: 'infusion', rateMgH: 1 }, OK);
-  t.sedationAction({ type: 'infusion', rateMgH: 8 }, OK);
+  t.sedationAction({ type: 'set_target', targetRass: -1, symptom: 'agitation' }, OK); assert.ok(t.sedationAction({ type: 'infusion', rateMgH: 0.5 }, OK).ok);
+  t.state.tMin = 360;
+  assert.ok(t.sedationAction({ type: 'infusion', rateMgH: 8 }, OK).ok);
   for (let i = 0; i < 12; i++) { t.step(60); for (const a of [...t.state.alarms]) if (a.priority === 'high') t.acknowledge(a.id); if (t.state.pendingReview) for (const x of t.state.pendingReview.suggestions) t.decide(x.id, 'decline'); t.resume(); }
   assert.ok(t.state.alarmHistory.some((a) => a.id === 'not_proportional' && a.priority === 'medium'), 'proportionality alarm');
   assert.ok(!t.state.alarmHistory.some((a) => a.id === 'excess_sedation'), 'documented sedation is not flagged as unintended');
