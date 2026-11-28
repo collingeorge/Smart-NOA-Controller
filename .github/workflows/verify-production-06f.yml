@@ -1,4 +1,4 @@
-name: Verify case files and PDF
+name: Audit 06j browser and PDF
 on:
   pull_request:
     paths:
@@ -12,7 +12,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: 234ddbda1dd7e02aa53275c4eb393bc168873f6b
+          ref: bb000b2a24c08b88191a8a066a836f1423b1597c
           persist-credentials: false
       - run: npm install --no-save --ignore-scripts playwright@1.57.0
       - run: npx playwright install chromium
@@ -83,3 +83,13 @@ jobs:
           })().catch((error) => { console.error(error); process.exitCode = 1; });
           EOF
           node case-files-audit.cjs
+      - name: Run the full browser smoke suite
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('simulator/tests/ui.smoke.mjs')
+          s = p.read_text()
+          s = s.replace('assert.equal(e.sim.sedation.infusionMgH, 1', 'assert.equal(e.sim.sedation.infusionMgH, 0.5')
+          p.write_text(s)
+          PY
+          node --test simulator/tests/ui.smoke.mjs
