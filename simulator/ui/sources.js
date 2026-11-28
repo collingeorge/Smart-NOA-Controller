@@ -3,16 +3,15 @@ import { h, clear, add } from './dom.js';
 
 let LIB = null;
 
-export function initSources(lib) {
-  LIB = lib;
-  const body = document.getElementById('sources-body');
+export function renderSourceRegistry(lib, body, { standalone = false } = {}) {
   clear(body);
   const filter = h('input', { type: 'search', id: 'sources-filter', class: 'input', placeholder: 'Filter by id, author, drug…', autocomplete: 'off' });
   const list = h('div', { class: 'sources-list', id: 'sources-list' });
   add(body, 
-    h('p', { class: 'muted' }, 'Every dose, range, ceiling, threshold and score cut-off in the simulator traces to one of these entries. ',
-      '“Verified via” records exactly how each was confirmed. Full registry, including drugs that were left out and why, and the illustrative model assumptions: ',
-      h('a', { href: 'SOURCES.md' }, 'SOURCES.md'), '.'),
+    h('p', { class: 'muted' }, 'These entries document the evidence cited by the simulator. Read the verification note for what was checked and any limits. ',
+      'Some entries were checked using excerpts or archived labels. Simulator conventions and illustrative assumptions are documented in the ',
+      h('a', { href: 'SOURCES.md' }, 'full evidence notes'), '.'),
+    standalone ? null : h('p', {}, h('a', { href: 'sources.html' }, 'Open the clinical sources page')),
     h('label', { for: 'sources-filter', class: 'label' }, 'Filter sources'), filter, list,
   );
   const ids = Object.keys(lib.SOURCES).sort((a, b) => Number(a.slice(1)) - Number(b.slice(1)));
@@ -20,13 +19,14 @@ export function initSources(lib) {
     const s = lib.SOURCES[id];
     const url = typeof s.url === 'string' && /^https:\/\//.test(s.url) ? h('a', { href: s.url, rel: 'noopener noreferrer', target: '_blank' }, s.url) : (s.url ? h('code', {}, s.url) : null);
     add(list, h('article', { class: 'source', id: `src-${id}`, tabindex: '-1', dataset: { text: `${id} ${s.citation} ${s.supports}`.toLowerCase() } },
-      h('h3', {}, h('span', { class: 'source__id' }, `[${id}]`), ' ', s.type ? h('span', { class: 'source__type' }, s.type) : null),
+      h(standalone ? 'h2' : 'h3', {}, h('span', { class: 'source__id' }, `[${id}]`), ' ', s.type ? h('span', { class: 'source__type' }, s.type) : null,
+        standalone ? h('a', { href: `#src-${id}`, 'aria-label': `Link to source ${id}` }, ' #') : null),
       h('p', { class: 'source__citation' }, s.citation),
       h('dl', { class: 'source__meta' },
         h('dt', {}, 'Supports'), h('dd', {}, s.supports || '—'),
         h('dt', {}, 'Identifiers'), h('dd', {}, s.identifiers || 'none'),
         url ? [h('dt', {}, 'Link'), h('dd', {}, url)] : null,
-        h('dt', {}, 'Verified via'), h('dd', {}, s.verifiedVia || '—')),
+        h('dt', {}, 'Verification note'), h('dd', {}, s.verifiedVia || 'Verification details not recorded.')),
     ));
   }
   const notes = lib.LIBRARY_NOTES || {};
@@ -38,7 +38,11 @@ export function initSources(lib) {
     const q = filter.value.trim().toLowerCase();
     for (const a of list.querySelectorAll('article.source[data-text]')) a.hidden = !!q && !a.dataset.text.includes(q);
   });
+}
 
+export function initSources(lib) {
+  LIB = lib;
+  renderSourceRegistry(lib, document.getElementById('sources-body'));
   document.addEventListener('click', (e) => {
     const t = e.target.closest('[data-src]');
     if (t) { e.preventDefault(); openSource(t.dataset.src, t); }

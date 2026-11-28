@@ -52,7 +52,7 @@ S23–S45 are new (S40–S43 added later on 2026-11-05 for epinephrine, the Elev
 ## Registry
 
 ### S1
-**Foo I, Macfarlane AJR, Srivastava D, et al. The use of intravenous lidocaine for postoperative pain and recovery: international consensus statement on efficacy and safety. Anaesthesia. 2021;76(2):238-250.** https://read.qxmd.com/read/33141959  
+**Foo I, Macfarlane AJR, Srivastava D, et al. The use of intravenous lidocaine for postoperative pain and recovery: international consensus statement on efficacy and safety. Anaesthesia. 2021;76(2):238-250.** https://onlinelibrary.wiley.com/doi/10.1111/anae.15270  
 Identifiers: doi:10.1111/anae.15270; PMID 33141959
 
 - **Supports:** Lidocaine loading dose ≤1.5 mg/kg over 10 min; infusion ≤1.5 mg/kg/h; dosing on ideal body weight; hourly ceiling 120 mg/h for any patient; not for patients under 40 kg; not given concurrently with other local-anaesthetic interventions (nerve blocks, wound infiltration) or while their effect is still active; about 4 h separation between a block and IV lidocaine. IV lidocaine for analgesia is not an FDA-labelled indication. The simulator refuses an analgesic load shorter than 10 min, including an IV push.
@@ -94,7 +94,7 @@ Identifiers: doi:10.1097/ALN.0000000000004379; PMID 36520073
 - **Verified via:** Copied from DOSING_SOURCES.md S10: WebSearch record of PubMed 36520073 and the APSF summary, 2026-11-05. (date 2026-11-05)
 
 ### S6
-**Sugammadex injection (BRIDION). Merck Sharp & Dohme LLC. FDA-approved prescribing information.** https://dailymed.nlm.nih.gov/dailymed/drugInfo.cfm?setid=37276948-ff0f-e0ab-e063-6394a90a0973  
+**Sugammadex injection (BRIDION). Merck Sharp & Dohme LLC. FDA-approved prescribing information.** https://dailymed.nlm.nih.gov/dailymed/drugInfo.cfm?setid=5171d883-fe8f-482c-97ab-40b00975b64a  
 Identifiers: NDA 022225
 
 - **Supports:** 2 mg/kg at reappearance of T2; 4 mg/kg at 1–2 post-tetanic counts with no TOF twitch; 16 mg/kg for immediate reversal about 3 min after rocuronium 1.2 mg/kg; dosing on actual body weight. Contraindication: known hypersensitivity to sugammadex or any of its components. DESCRIPTION: sugammadex sodium molecular weight 2178.01; each mL contains 100 mg sugammadex, equivalent to 108.8 mg sugammadex sodium (used for the 1:1 molar binding).
@@ -134,7 +134,7 @@ Identifiers: doi:10.1097/AAP.0000000000000806; PMID 29870457
 - **Verified via:** Copied from DOSING_SOURCES.md S15: WebSearch record of PubMed 29870457, PMC6023582 and the ASRA guideline page, 2026-11-05. The 0.35 mg/kg and 1 mg/kg/h figures were confirmed in a secondary summary. The specific contraindication list was NOT retrieved in this session. (date 2026-11-05)
 
 ### S11
-**Propofol injectable emulsion (DIPRIVAN). Fresenius Kabi USA. FDA-approved prescribing information, 2022 revision; and generic propofol injectable emulsion labels (medlibrary.org copies).** https://www.accessdata.fda.gov/drugsatfda_docs/Label/2022/019627s069lbl.pdf  
+**Propofol injectable emulsion (DIPRIVAN). Fresenius Kabi USA. FDA-approved prescribing information (2026 FDA posting, NDA 019627).** https://www.accessdata.fda.gov/drugsatfda_docs/label/2026/019627Orig1s077lbl.pdf  
 Identifiers: NDA 019627
 
 - **Supports:** Pain on injection may be reduced by using the larger veins of the forearm or antecubital fossa and by prior injection of IV lidocaine (1 mL of a 1% solution); lidocaine is given before propofol or added immediately before use (not exceeding 20 mg lidocaine per 200 mg propofol). DESCRIPTION: isotonic, pH 7 to 8.5. Induction <55 y about 2–2.5 mg/kg; elderly/debilitated/ASA III–IV about 1–1.5 mg/kg. Maintenance 100–200 mcg/kg/min (<55 y); 50–100 mcg/kg/min (elderly/ASA III–IV). MAC sedation initiation: 100–150 mcg/kg/min for 3–5 min or slow injection about 0.5 mg/kg over 3–5 min; slow infusion/injection preferable to rapid bolus; maintenance 25–75 mcg/kg/min during the first 10–15 min, then 25–50 mcg/kg/min; no rapid bolus for MAC sedation in elderly/debilitated/ASA III–IV. Onset: hypnosis usually within 40 s from start of injection. Contraindications include hypersensitivity to propofol or its components and a history of anaphylaxis to egg or soy products (DIPRIVAN, revised November 2025, section 4).
@@ -609,7 +609,7 @@ Identifiers: doi:10.1177/0269216309107024; PMID 19858355
 
 ### S101
 Table 5 was checked directly against the published EAPC framework. The simulator halves initial bolus and starting infusion amounts when a listed risk factor is present and uses the lower endpoints of the framework's maintenance increase intervals (1 hour standard, 6 hours higher risk). eGFR below 30 is a simulator flag for severe renal impairment. The one-starting-bolus rule and carrying the increase timer across stops are simulator safeguards.
-**Surges SM, Brunsch H, Jaspers B, et al. Revised European Association for Palliative Care (EAPC) recommended framework on palliative sedation: an international Delphi study. Palliat Med. 2024;38(2):213-228.** https://pubmed.ncbi.nlm.nih.gov/38297460/
+**Surges SM, Brunsch H, Jaspers B, et al. Revised European Association for Palliative Care (EAPC) recommended framework on palliative sedation: an international Delphi study. Palliat Med. 2024;38(2):213-228.** https://journals.sagepub.com/doi/pdf/10.1177/02692163231220225
 Identifiers: doi:10.1177/02692163231220225; PMID 38297460
 
 - **Supports:** Revision of the 2009 framework (literature update + Delphi, 2020–2022; 42 statements with high/very high consensus; endorsed by the EAPC board January 2023). Terminology: "suffering" (physical, psychological, existential) and "refractory"; the principle of proportionality is part of the definition of palliative sedation; patient autonomy emphasised; stepwise pharmacological approach (step 1 midazolam); hydration is a separate, independent decision; no particular period of remaining life expectancy is specified. Step 1 midazolam: light palliative sedation 2.5 mg SC or 1.25 mg IV; deep palliative sedation 5–10 mg SC or 2.5–5 mg IV; a bolus of half the starting bolus may be repeated after 20 min SC or 5 min IV if necessary; continuous infusion: use 1 mg/h (SC and IV) and then adjust as needed; at doses higher than 10 mg/h consider adding or changing medication. Opioids (and haloperidol) should not be used to sedate a patient.
