@@ -9,6 +9,7 @@ import { evaluateContraindications, interpretCeilings, recommend, convertRateSaf
 import { createPkModel, isInhaled, isNitrous, referenceRegimen, ROUTE_KA_ILLUSTRATIVE, perfusionKaFactor } from './pk.js';
 import { combineEffects, patientModifiers, tofFromTwitches, SEDATION_RANK, PROFILES, PATIENT_MODS } from './pd.js';
 import { Physiology } from './physiology.js';
+import { recordMonitorSample, summarizeMonitor } from './monitor-summary.js';
 import { buildParameterInventory } from './inventory.js';
 import { InterlockCore, CONTROLLED, PY_TO_SIM_ID, SIM_TO_PY_ID, PY_RATE_UNITS, NOA_CONFIG, aboveCeiling, LATCH_CODES } from './interlocks.js';
 
@@ -156,7 +157,7 @@ class Simulation {
     this.autoRun = null; // set by engine/autorun.js while/after an automatic or guided run
     this.rescueAdvisor = null; // set by engine/rescue.js createRescueAdvisor(); advisory only, never doses
     this.depthAdvisor = null; // set by engine/depth-advisory.js createDepthAdvisor(); text only, never doses, not an alarm
-    this.stats = { depthOutOfBandSec: 0, timeMapBelow65Sec: 0, minSpo2: Infinity, maxHr: -Infinity, minHr: Infinity, maxMap: -Infinity, minMap: Infinity, interlockEvents: [], timedCancellations: [], extubation: null };
+    this.stats = { depthOutOfBandSec: 0, timeMapBelow65Sec: 0, minSpo2: Infinity, maxHr: -Infinity, minHr: Infinity, maxMap: -Infinity, minMap: Infinity, interlockEvents: [], timedCancellations: [], extubation: null, monitor: {} };
     this.maskVentSec = 0;
     this.depots = [];
     this.fluid = { retainedMl: 0, pendingMl: 0, sepsisNoteLogged: false, cautionsLogged: new Set() };
@@ -1217,6 +1218,7 @@ class Simulation {
     V.tofCount = tof.count; V.tofRatio = tof.ratio;
 
     // 10. statistics
+    recordMonitorSample(this.stats.monitor, V, h);
     if (isFiniteNumber(V.map) && V.map < 65) this.stats.timeMapBelow65Sec += h;
     { const [lo, hi] = TIMING_CONFIG.GA_DEPTH_BAND.value; if (this.plan.mode !== 'MAC' && S.phase === 'maintenance' && S.airway.secured && this.stim.surgeryStartAt !== null && (V.depthIndex < lo || V.depthIndex > hi)) this.stats.depthOutOfBandSec += h; }
     if (isFiniteNumber(V.spo2)) this.stats.minSpo2 = Math.min(this.stats.minSpo2, V.spo2);
@@ -1395,6 +1397,9 @@ class Simulation {
     }
     return {
       durationSec: this.state.tSec, totals,
+      monitor: summarizeMonitor(this.stats.monitor),
+      additionalMedicationActions: this.doseLog.filter((dose) => dose.source !== 'plan' &&
+        (dose.kind === 'bolus' || ((dose.kind === 'infusion' || dose.kind === 'inhaled') && dose.rate > 0))).map((dose) => ({ ...dose })),
       timeMapBelow65Sec: Math.round(this.stats.timeMapBelow65Sec),
       minSpo2: isFiniteNumber(this.stats.minSpo2) ? this.stats.minSpo2 : null,
       maxHr: isFiniteNumber(this.stats.maxHr) ? this.stats.maxHr : null,
