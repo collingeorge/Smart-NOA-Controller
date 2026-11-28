@@ -1,0 +1,17 @@
+name: Verify production 06f
+on:
+  pull_request:
+    paths:
+      - .github/workflows/verify-production-06f.yml
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 6e48d8026cf365e056816c7d74b59a56cfb2133c
+          persist-credentials: false
+      - run: node simulator/tools/verify-live.mjs 6e48d8026cf365e056816c7d74b59a56cfb2133c
