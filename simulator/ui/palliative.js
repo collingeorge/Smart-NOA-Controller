@@ -52,6 +52,11 @@ function readForm(box) {
   p.currentRegimen = p.opioidStatus === 'tolerant' ? { drugId: v('pc-cur-drug').value, route: v('pc-cur-route').value, dose: num('pc-cur-dose'), intervalH: num('pc-cur-int') } : null;
   return p;
 }
+
+export function palliativeCaseDraft() {
+  const form = document.querySelector('#pal-root[data-step="1"]');
+  return { module: pal.module, patient: form ? readForm(form) : pal.input, plan: pal.plan, exampleId: pal.caseId };
+}
 function stepCase(box, main) {
   const p = pal.input; const cr = p.currentRegimen || { drugId: 'morphine', route: 'oral', dose: '', intervalH: 4 };
   const cases = PALLIATIVE_CASES.filter((c) => c.module === pal.module);
@@ -108,14 +113,13 @@ function stepCase(box, main) {
 }
 
 // ----------------------------------------------------------------------------- step 2: assess & plan
-function defaultPlan(p) {
-  const c = caseDef().plan || {};
+export function defaultPalliativePlan(p, c = caseDef().plan || {}) {
   const drugId = c.drugId || (p.currentRegimen ? p.currentRegimen.drugId : 'morphine');
   const route = c.route || 'oral';
   return { drugId, route, scheduled: c.scheduled !== undefined ? c.scheduled : true, dose: c.dose || null, intervalH: c.intervalH || PALLIATIVE_OPIOIDS[drugId].routes[route].intervalH.min, prnDose: null, bowel: !!c.bowel, convert: !!c.convertFromCurrent || (p.currentRegimen && (p.currentRegimen.drugId !== drugId || p.currentRegimen.route !== route)), reductionPct: null, ivRatio: R.CONVERSION_ORAL_TO_IV_MORPHINE.default, ack: false };
 }
 function stepPlan(box, main) {
-  const p = pal.derived; if (!pal.plan) pal.plan = defaultPlan(p);
+  const p = pal.derived; if (!pal.plan) pal.plan = defaultPalliativePlan(p);
   const pl = pal.plan; const rgd = PALLIATIVE_OPIOIDS[pl.drugId]; if (!rgd.routes[pl.route]) pl.route = 'oral';
   const tolerant = p.opioidStatus === 'tolerant';
   const rec = recommendStart(p, pl.drugId, pl.route);
